@@ -23,6 +23,32 @@ pub enum Stage {
     Live,
 }
 
+impl Stage {
+    /// The wire/DB spelling — must match the serde rename and the
+    /// `app_valid_state` seed in migrations/0001_init.sql.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Stage::Sandbox => "sandbox",
+            Stage::Live => "live",
+        }
+    }
+}
+
+/// The lifecycle transition set, defined ONCE (Boundary's
+/// `session_valid_state` pattern, steering §5). Everything that enforces a
+/// stage change consults this: `deploy::promote` / `deploy::rollback` in
+/// memory via [`valid_transition`], and Postgres via the `app_valid_state`
+/// table seeded from these same pairs (a test asserts the SQL seed matches).
+pub const VALID_STAGE_TRANSITIONS: &[(Stage, Stage)] = &[
+    (Stage::Sandbox, Stage::Live), // promote
+    (Stage::Live, Stage::Sandbox), // rollback
+];
+
+/// Is `prior → next` a legal lifecycle transition?
+pub fn valid_transition(prior: Stage, next: Stage) -> bool {
+    VALID_STAGE_TRANSITIONS.contains(&(prior, next))
+}
+
 /// What data the app can see. Synthetic in the sandbox, always.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "name", rename_all = "lowercase")]
@@ -129,6 +155,27 @@ pub enum OpStatus {
     Failed,
 }
 
+/// Every operation status, defined once alongside the stage transitions —
+/// the `operations.status` CHECK constraint in migrations/0001_init.sql is
+/// seeded from these spellings (a test asserts they match).
+pub const OP_STATUSES: &[OpStatus] = &[
+    OpStatus::Running,
+    OpStatus::Success,
+    OpStatus::Escalated,
+    OpStatus::Failed,
+];
+
+impl OpStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OpStatus::Running => "running",
+            OpStatus::Success => "success",
+            OpStatus::Escalated => "escalated",
+            OpStatus::Failed => "failed",
+        }
+    }
+}
+
 /// Which agent verb the operation wraps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -177,9 +224,12 @@ pub struct Operation {
     pub finished_at: Option<u64>,
 }
 
-// TODO(#7): in-memory demo state. Real control plane: Postgres with a
-// database-enforced app_valid_state transition table + append-only state
-// history (Boundary pattern), and Waypoint-style upsert-first operation rows.
+// In-memory state is the read path. With `CONTROL_DB_URL` set (#7), every
+// mutation writes through to the Postgres control store in src/store.rs —
+// database-enforced app_valid_state transitions + append-only state history
+// (Boundary pattern, steering §5) and Waypoint upsert-first operation rows
+// (§4) — and boot loads it all back. Unset, behavior is byte-identical to
+// the pre-#7 in-memory demo.
 pub struct Platform {
     pub packs: Vec<PackManifest>,
     pub apps: HashMap<String, AppRecord>,
@@ -191,6 +241,13 @@ pub struct Platform {
     /// startup (rules-only when no model endpoints are configured); tests
     /// inject custom ladders here.
     pub ladder: Arc<EscalationLadder>,
+    /// The Postgres control store (#7). `None` (no `CONTROL_DB_URL`) keeps
+    /// the platform purely in-memory; `Some` makes every mutation write
+    /// through after its lock is released.
+    pub store: Option<Arc<crate::store::PgStore>>,
+    /// Operation rows upserted since the last write-through — tracked only
+    /// when a store is attached, drained by [`Platform::take_dirty_operations`].
+    dirty_ops: BTreeSet<String>,
     next_id: u64,
 }
 
@@ -202,16 +259,46 @@ impl Platform {
             audit: AuditLog::default(),
             operations: Vec::new(),
             ladder: Arc::new(EscalationLadder::from_env()),
+            store: None,
+            dirty_ops: BTreeSet::new(),
             next_id: 1,
         }
     }
 
     /// Insert or replace an operation row by op_id — the Waypoint upsert.
     pub fn upsert_operation(&mut self, op: Operation) {
+        if self.store.is_some() {
+            self.dirty_ops.insert(op.op_id.clone());
+        }
         match self.operations.iter_mut().find(|o| o.op_id == op.op_id) {
             Some(existing) => *existing = op,
             None => self.operations.push(op),
         }
+    }
+
+    /// Drain the operations touched since the last write-through.
+    pub fn take_dirty_operations(&mut self) -> Vec<Operation> {
+        let ids = std::mem::take(&mut self.dirty_ops);
+        self.operations
+            .iter()
+            .filter(|o| ids.contains(&o.op_id))
+            .cloned()
+            .collect()
+    }
+
+    /// Re-mark operations dirty (a failed write-through must not lose them).
+    pub fn remark_dirty_operations(&mut self, ops: &[Operation]) {
+        self.dirty_ops.extend(ops.iter().map(|o| o.op_id.clone()));
+    }
+
+    /// The id-minting counter — persisted so a restarted control plane never
+    /// re-mints an id already used by a loaded record.
+    pub fn next_id_counter(&self) -> u64 {
+        self.next_id
+    }
+
+    pub fn set_next_id_counter(&mut self, n: u64) {
+        self.next_id = n.max(1);
     }
 
     pub fn operations_for_app(&self, app_id: &str) -> Vec<&Operation> {

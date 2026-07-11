@@ -17,15 +17,24 @@ pub struct AuditEvent {
     pub app_id: Option<String>,
 }
 
-// TODO(#8): in-memory demo sink. The real pipeline adopts Vault's broker
-// invariant — an operation fails unless ≥1 durable append-only sink confirms
-// the write — with salted-HMAC'd sensitive fields and a fallback sink.
+// TODO(#8): in-memory demo sink. With CONTROL_DB_URL set (#7) events write
+// through to the append-only audit_events table (INSERT-only triggers), but
+// the real pipeline still adopts Vault's broker invariant — an operation
+// fails unless ≥1 durable append-only sink confirms the write — with
+// salted-HMAC'd sensitive fields and a fallback sink. #7 applies that
+// invariant to stage transitions only.
 #[derive(Default)]
 pub struct AuditLog {
     events: Vec<AuditEvent>,
 }
 
 impl AuditLog {
+    /// Rebuild the log from durable storage at boot (#7). Restore-only —
+    /// [`AuditLog::record`] remains the only path that creates a new event.
+    pub fn restore(events: Vec<AuditEvent>) -> Self {
+        Self { events }
+    }
+
     /// The only write path. Returns the sequence number as a receipt.
     pub fn record(
         &mut self,

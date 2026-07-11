@@ -17,11 +17,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tower::ServiceExt;
 
 use rust_proof_service::agent::{
@@ -148,6 +147,12 @@ fn attempt_pairs(op: &Value) -> Vec<(String, String)> {
 /// port. Every request gets a 200 whose choices[0].message.content is
 /// `content`; the returned counter records how many requests arrived.
 fn mock_model_server(content: String) -> (String, Arc<AtomicUsize>) {
+    mock_model_server_with_delay(content, Duration::ZERO)
+}
+
+/// Like [`mock_model_server`] but each response is held back by `delay` —
+/// a slow model tier, for the F4 lock-contention assertions.
+fn mock_model_server_with_delay(content: String, delay: Duration) -> (String, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
     let addr = listener.local_addr().unwrap();
     // Decision 0002: no test path may ever bill a real API — the harness
@@ -164,6 +169,9 @@ fn mock_model_server(content: String) -> (String, Arc<AtomicUsize>) {
             server_hits.fetch_add(1, Ordering::SeqCst);
             let _ = socket.set_read_timeout(Some(Duration::from_secs(5)));
             read_http_request(&mut socket);
+            if !delay.is_zero() {
+                thread::sleep(delay);
+            }
             let body = json!({
                 "object": "chat.completion",
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}]
@@ -322,23 +330,35 @@ async fn operations_endpoint_404s_for_unknown_app() {
 
 // ---------- crash-visibility: upsert Running BEFORE the driver runs ----------
 
-#[test]
-fn operation_is_upserted_running_before_the_driver_runs() {
-    let mut plat = Platform::new(packs::builtin_packs());
-    let id = seed_app(&mut plat);
-    let pack = plat.pack("post-op-monitor").unwrap().clone();
-    let ladder = EscalationLadder::with_tiers(vec![(
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn operation_is_upserted_running_before_the_driver_runs() {
+    let platform = shared_platform();
+    let (id, pack) = {
+        let mut plat = platform.write().unwrap();
+        let id = seed_app(&mut plat);
+        let pack = plat.pack("post-op-monitor").unwrap().clone();
+        (id, pack)
+    };
+    let ladder = Arc::new(EscalationLadder::with_tiers(vec![(
         "rules".to_string(),
         Box::new(PanickingDriver) as Box<dyn AgentDriver>,
-    )]);
+    )]));
 
-    let crashed = catch_unwind(AssertUnwindSafe(|| {
-        let _ = ladder.run_iterate(&mut plat, &id, "add a wound photo view", &pack);
-    }));
+    // The driver panic propagates (F4: it crashes on the blocking pool and
+    // is re-thrown, so the spawned task's join errors).
+    let task_platform = platform.clone();
+    let task_id = id.clone();
+    let crashed = tokio::spawn(async move {
+        let _ = ladder
+            .run_iterate(&task_platform, &task_id, "add a wound photo view", &pack)
+            .await;
+    })
+    .await;
     assert!(crashed.is_err(), "the driver must actually panic");
 
     // The interrupted action left its evidence: a Running row, no attempts,
     // no terminal status — exactly what a post-crash sweep would find.
+    let plat = platform.read().unwrap();
     let ops = plat.operations_for_app(&id);
     assert_eq!(ops.len(), 1);
     assert_eq!(ops[0].status, OpStatus::Running);
@@ -586,4 +606,129 @@ async fn full_ladder_failure_leaves_app_untouched_and_op_failed() {
 
     let details = audit_details(&router, &id, "agent.attempt").await;
     assert!(details.iter().any(|d| d.contains("→ failed")));
+}
+
+// ---------- F4 (review-log round 1, resolved in #7): model I/O off the lock ----------
+
+/// A slow local tier must not block a concurrent unrelated API call: the
+/// climb runs on the blocking pool with no platform lock held, so a read
+/// (here the pack registry) returns immediately while the model thinks.
+/// Before the F4 fix this deadline fails — the iterate handler held the
+/// platform write lock across the blocking model socket.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn slow_local_tier_does_not_block_a_concurrent_unrelated_request() {
+    let platform = shared_platform();
+    let router = api::router_with_state(platform.clone());
+    let id = create_app(&router, "post-op-monitor").await;
+
+    let delay = Duration::from_millis(1500);
+    let (slow_url, slow_hits) = mock_model_server_with_delay(
+        json!({
+            "feature": "wound photo log",
+            "message": "added a wound photo log"
+        })
+        .to_string(),
+        delay,
+    );
+    platform.write().unwrap().ladder =
+        Arc::new(EscalationLadder::with_tiers(vec![local_tier(slow_url)]));
+
+    let race_router = router.clone();
+    let race_id = id.clone();
+    let slow_iterate =
+        tokio::spawn(
+            async move { iterate(&race_router, &race_id, "log wound photos daily").await },
+        );
+
+    // Wait until the climb is genuinely inside the model call...
+    for _ in 0..100 {
+        if slow_hits.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(slow_hits.load(Ordering::SeqCst) > 0, "climb never started");
+
+    // ...then race an unrelated read against it. It must return well before
+    // the model tier's delay elapses.
+    let started = Instant::now();
+    let (status, packs) = call(&router, "GET", "/api/packs", None).await;
+    let elapsed = started.elapsed();
+    assert_eq!(status, StatusCode::OK);
+    assert!(packs["packs"].as_array().is_some());
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "unrelated request stalled {elapsed:?} behind a slow model tier — \
+         the platform lock is being held across model I/O (F4)"
+    );
+
+    // The slow edit still lands, verified, afterwards.
+    let (status, body) = slow_iterate.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["reply"]["added_feature"], "wound photo log");
+}
+
+/// The lock-free climb's apply is guarded: if the record moves while a tier
+/// is thinking, the verified-but-stale edit is NOT applied — the operation
+/// settles failed with reason `concurrent-edit` and the newer record wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_edit_during_climb_settles_failed_and_never_clobbers() {
+    let platform = shared_platform();
+    let router = api::router_with_state(platform.clone());
+    let id = create_app(&router, "post-op-monitor").await;
+
+    let (slow_url, slow_hits) = mock_model_server_with_delay(
+        json!({
+            "feature": "stale slow edit",
+            "message": "raced and lost"
+        })
+        .to_string(),
+        Duration::from_millis(1200),
+    );
+    platform.write().unwrap().ladder =
+        Arc::new(EscalationLadder::with_tiers(vec![local_tier(slow_url)]));
+
+    let race_router = router.clone();
+    let race_id = id.clone();
+    let slow_iterate =
+        tokio::spawn(async move { iterate(&race_router, &race_id, "add a slow feature").await });
+
+    for _ in 0..100 {
+        if slow_hits.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(slow_hits.load(Ordering::SeqCst) > 0, "climb never started");
+
+    // Move the record underneath the in-flight climb.
+    {
+        let mut plat = platform.write().unwrap();
+        let app = plat.apps.get_mut(&id).unwrap();
+        app.current_version += 1;
+        app.features.push("the faster edit".to_string());
+    }
+
+    let (status, body) = slow_iterate.await.unwrap();
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("changed while the edit was verified"));
+
+    // Nothing clobbered: the faster edit survives, the stale one never landed.
+    let (_, app) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    let features = app["features"].as_array().unwrap();
+    assert!(features.iter().any(|f| f == "the faster edit"));
+    assert!(!features.iter().any(|f| f == "stale slow edit"));
+
+    // The operation row records exactly what happened.
+    let op = iterate_op(&router, &id).await;
+    assert_eq!(op["status"], "failed");
+    let pairs = attempt_pairs(&op);
+    assert_eq!(pairs.last().unwrap().1, "rejected");
+    assert_eq!(
+        op["attempts"].as_array().unwrap().last().unwrap()["reason"],
+        "concurrent-edit"
+    );
 }

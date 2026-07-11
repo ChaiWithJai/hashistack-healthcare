@@ -7,7 +7,9 @@ use anyhow::{bail, Result};
 
 use crate::gates::GateReport;
 use crate::hashi;
-use crate::state::{now_unix, Allocation, AppRecord, Attestation, DataSource, Stage};
+use crate::state::{
+    now_unix, valid_transition, Allocation, AppRecord, Attestation, DataSource, Stage,
+};
 
 /// Current immutable client image, as baked by Packer (packer/client.pkr.hcl).
 pub const CLIENT_IMAGE: &str = "client-v2026.07.1";
@@ -35,6 +37,17 @@ pub fn promote(
     if app.stage == Stage::Live {
         bail!(
             "app {} is already live — iterate and re-promote instead",
+            app.id
+        );
+    }
+    // The lifecycle transition table is the shared truth (#7): the same
+    // pairs seed Postgres's app_valid_state, so an illegal transition is
+    // structurally impossible in memory AND at the database.
+    if !valid_transition(app.stage, Stage::Live) {
+        bail!(
+            "illegal lifecycle transition {}→{} for app {}",
+            app.stage.as_str(),
+            Stage::Live.as_str(),
             app.id
         );
     }
@@ -146,6 +159,15 @@ pub fn staging_rollback(app_id: &str, tenant: &str) -> Result<Vec<(String, Strin
 pub fn rollback(app: &mut AppRecord, synthetic_dataset: &str) -> Result<()> {
     if app.stage != Stage::Live {
         bail!("app {} has no live allocation to roll back", app.id);
+    }
+    // Same shared transition table as promote (#7).
+    if !valid_transition(app.stage, Stage::Sandbox) {
+        bail!(
+            "illegal lifecycle transition {}→{} for app {}",
+            app.stage.as_str(),
+            Stage::Sandbox.as_str(),
+            app.id
+        );
     }
     app.allocation = None;
     app.stage = Stage::Sandbox;

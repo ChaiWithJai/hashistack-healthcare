@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# staging-up.sh — the virtual HashiStack staging environment (#2).
+# staging-up.sh — the virtual HashiStack staging environment (#2, #7).
 #
 # Boots, on one machine with no cloud account:
 #   1. a real Vault dev server (with the transit engine enabled),
 #   2. a real Nomad dev agent,
-#   3. the control plane, wired to both via NOMAD_ADDR / VAULT_ADDR.
+#   3. a real Postgres control DB on 127.0.0.1:5433 (#7) — portable
+#      binaries from theseus-rs/postgresql-binaries, apt fallback,
+#      skipped entirely when CONTROL_DB_URL is already exported
+#      (e.g. a CI service container),
+#   4. the control plane, wired to all three via NOMAD_ADDR / VAULT_ADDR /
+#      CONTROL_DB_URL.
 #
 # Binaries are downloaded once from releases.hashicorp.com, version-pinned
 # and checksum-verified, into .staging/bin. Everything runs in the
@@ -146,7 +151,98 @@ else
 fi
 wait_for nomad "$NOMAD_ADDR/v1/agent/health" "$LOG_DIR/nomad.log"
 
-# ---- control plane, wired to both ----
+# ---- postgres control DB (#7) ----
+# CONTROL_DB_URL already exported (a CI service container, a managed DB):
+# trust it and boot nothing. Otherwise boot a local postgres on :5433 —
+# preferred: portable, checksum-verified binaries from
+# github.com/theseus-rs/postgresql-binaries (single tarball, no root);
+# fallback: apt-get postgresql when the release is unreachable.
+PG_PORT=5433
+PG_DATA="$STAGING_DIR/pgdata"
+PG_LOG="$LOG_DIR/postgres.log"
+PG_USER="staging"
+PG_DB="control"
+
+if [[ -n "${CONTROL_DB_URL:-}" ]]; then
+  echo "== control DB: using exported CONTROL_DB_URL (not booting postgres)"
+else
+  export CONTROL_DB_URL="postgres://$PG_USER@127.0.0.1:$PG_PORT/$PG_DB"
+  PG_VERSION="16.4.0"
+  PG_DIR="$STAGING_DIR/postgres"
+  PG_BIN="$PG_DIR/bin"
+
+  if [[ ! -x "$PG_BIN/initdb" ]]; then
+    pg_arch="$(uname -m)" # x86_64 | aarch64 — matches the release asset names
+    asset="postgresql-${PG_VERSION}-${pg_arch}-unknown-linux-gnu.tar.gz"
+    url="https://github.com/theseus-rs/postgresql-binaries/releases/download/${PG_VERSION}/${asset}"
+    echo "== downloading portable postgres $PG_VERSION ($pg_arch)"
+    if curl -fsSL --retry 3 --retry-delay 2 -o "$STAGING_DIR/$asset" "$url" &&
+       curl -fsSL --retry 3 --retry-delay 2 -o "$STAGING_DIR/$asset.sha256" "$url.sha256"; then
+      want="$(cut -d' ' -f1 <"$STAGING_DIR/$asset.sha256")"
+      got="$(sha256sum "$STAGING_DIR/$asset" | cut -d' ' -f1)"
+      if [[ "$want" != "$got" ]]; then
+        echo "ERROR: checksum mismatch for $asset — refusing to run it" >&2
+        exit 1
+      fi
+      mkdir -p "$PG_DIR"
+      tar -xzf "$STAGING_DIR/$asset" --strip-components=1 -C "$PG_DIR"
+      rm -f "$STAGING_DIR/$asset" "$STAGING_DIR/$asset.sha256"
+    else
+      # (b) apt fallback — the portable release was unreachable.
+      echo "== portable postgres unreachable — falling back to apt-get"
+      SUDO=""
+      [[ "$(id -u)" -ne 0 ]] && SUDO="sudo"
+      $SUDO apt-get update -qq && $SUDO apt-get install -y -qq postgresql >/dev/null
+      apt_bin="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)"
+      if [[ -z "$apt_bin" ]]; then
+        echo "ERROR: apt install left no postgres binaries under /usr/lib/postgresql" >&2
+        exit 1
+      fi
+      mkdir -p "$PG_DIR"
+      ln -sfn "$apt_bin" "$PG_BIN"
+    fi
+  fi
+
+  # initdb refuses to run as root — in a root container, run postgres as a
+  # dedicated system user (GH runners and dev laptops skip this branch).
+  PG_RUN=""
+  if [[ "$(id -u)" -eq 0 ]]; then
+    id -u pgstaging >/dev/null 2>&1 || useradd --system --shell /bin/sh pgstaging
+    mkdir -p "$PG_DATA"
+    touch "$PG_LOG"
+    chown -R pgstaging "$PG_DATA" "$PG_LOG"
+    PG_RUN="setpriv --reuid=pgstaging --regid=pgstaging --clear-groups"
+  fi
+
+  if [[ ! -f "$PG_DATA/PG_VERSION" ]]; then
+    echo "== initdb ($PG_DATA)"
+    $PG_RUN "$PG_BIN/initdb" -D "$PG_DATA" -U "$PG_USER" --auth=trust -E UTF8 \
+      >"$PG_LOG" 2>&1
+  fi
+  if ! $PG_RUN "$PG_BIN/pg_ctl" -D "$PG_DATA" status >/dev/null 2>&1; then
+    echo "== booting postgres on 127.0.0.1:$PG_PORT"
+    $PG_RUN "$PG_BIN/pg_ctl" -D "$PG_DATA" -l "$PG_LOG" \
+      -o "-p $PG_PORT -c listen_addresses=127.0.0.1 -k ''" start >/dev/null
+  fi
+  for _ in $(seq 1 100); do
+    $PG_RUN "$PG_BIN/pg_isready" -h 127.0.0.1 -p "$PG_PORT" >/dev/null 2>&1 && break
+    sleep 0.2
+  done
+  $PG_RUN "$PG_BIN/pg_isready" -h 127.0.0.1 -p "$PG_PORT" >/dev/null 2>&1 || {
+    echo "ERROR: postgres never became ready — last log lines:" >&2
+    tail -n 30 "$PG_LOG" >&2 || true
+    exit 1
+  }
+  head -1 "$PG_DATA/postmaster.pid" >"$RUN_DIR/postgres.pid" 2>/dev/null || true
+  # create the control database (idempotent)
+  if ! $PG_RUN "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc \
+      "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" | grep -q 1; then
+    $PG_RUN "$PG_BIN/createdb" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" "$PG_DB"
+  fi
+  echo "   postgres healthy: $CONTROL_DB_URL"
+fi
+
+# ---- control plane, wired to all three ----
 echo "== building + booting the control plane"
 cargo build --quiet
 BINARY="${CARGO_TARGET_DIR:-target}/debug/rust-proof-service"
@@ -155,6 +251,7 @@ if curl -sf "http://$APP_BIND/health" >/dev/null 2>&1; then
 else
   nohup env APP_BIND="$APP_BIND" \
     NOMAD_ADDR="$NOMAD_ADDR" VAULT_ADDR="$VAULT_ADDR" VAULT_TOKEN="$VAULT_TOKEN" \
+    CONTROL_DB_URL="$CONTROL_DB_URL" \
     "$BINARY" >"$LOG_DIR/control-plane.log" 2>&1 &
   echo $! >"$RUN_DIR/control-plane.pid"
 fi
@@ -165,9 +262,11 @@ echo "== staging is up"
 echo "   control plane  http://$APP_BIND    (doctor UI at /)"
 echo "   nomad          $NOMAD_ADDR"
 echo "   vault          $VAULT_ADDR    (token: $VAULT_TOKEN)"
+echo "   control DB     $CONTROL_DB_URL"
 echo "   logs           $LOG_DIR/"
 echo
-echo "pressure-test it (asserts real job registration + transit round-trip):"
-echo "   NOMAD_ADDR=$NOMAD_ADDR VAULT_ADDR=$VAULT_ADDR scripts/pressure-test.sh http://$APP_BIND"
+echo "pressure-test it (real job registration + transit round-trip + restart survival):"
+echo "   NOMAD_ADDR=$NOMAD_ADDR VAULT_ADDR=$VAULT_ADDR CONTROL_DB_URL=$CONTROL_DB_URL \\"
+echo "     scripts/pressure-test.sh http://$APP_BIND"
 echo "tear down:"
 echo "   scripts/staging-up.sh down"

@@ -20,6 +20,7 @@ use crate::state::{
     now_unix, Addendum, AppRecord, AttemptRecord, DataSource, OpKind, OpStatus, Operation,
     Platform, SharedPlatform, Stage,
 };
+use crate::store::{self, StageTransition};
 
 const DOCTOR_UI: &str = include_str!("../web/index.html");
 
@@ -107,41 +108,50 @@ async fn create_app(
     State(platform): State<SharedPlatform>,
     Json(req): Json<CreateApp>,
 ) -> ApiResult<CreatedApp> {
-    let mut plat = platform.write().unwrap();
-    let pack = plat
-        .pack(&req.pack)
-        .ok_or_else(|| not_found("pack"))?
-        .clone();
+    // Short write lock: resolve the pack, mint the id, promise the work.
+    // The ladder climb itself runs with no lock held (F4).
+    let (pack, id, name, tenant, ladder) = {
+        let mut plat = platform.write().unwrap();
+        let pack = plat
+            .pack(&req.pack)
+            .ok_or_else(|| not_found("pack"))?
+            .clone();
 
-    let name = req.name.unwrap_or_else(|| pack.name.clone());
-    let tenant = req.tenant.unwrap_or_else(|| DEFAULT_TENANT.to_string());
-    let slug: String = name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    let id = if plat.apps.contains_key(&slug) {
-        plat.mint_id(&slug)
-    } else {
-        slug
+        let name = req.name.clone().unwrap_or_else(|| pack.name.clone());
+        let tenant = req
+            .tenant
+            .clone()
+            .unwrap_or_else(|| DEFAULT_TENANT.to_string());
+        let slug: String = name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        let id = if plat.apps.contains_key(&slug) {
+            plat.mint_id(&slug)
+        } else {
+            slug
+        };
+
+        plat.audit.record(
+            DOCTOR,
+            "app.created",
+            format!("described {:?} from pack {}", req.prompt, pack.id),
+            Some(&id),
+        );
+        let ladder = plat.ladder.clone();
+        (pack, id, name, tenant, ladder)
     };
-
-    plat.audit.record(
-        DOCTOR,
-        "app.created",
-        format!("described {:?} from pack {}", req.prompt, pack.id),
-        Some(&id),
-    );
 
     // The scaffold is an operation upserted Running before the first driver
     // runs (Waypoint upsert-first), then verified up the escalation ladder.
-    let ladder = plat.ladder.clone();
     let scaffold = ladder
-        .run_scaffold(&mut plat, &id, &pack, &req.prompt)
+        .run_scaffold(&platform, &id, &pack, &req.prompt)
+        .await
         .map_err(|f| {
             ApiError(
                 StatusCode::BAD_GATEWAY,
@@ -179,18 +189,35 @@ async fn create_app(
         tenant,
     };
 
-    plat.audit.record(
-        "agent",
-        "agent.scaffolded",
-        format!(
-            "{} features from pack {}, sandbox pool, synthetic data only",
-            app.features.len(),
-            pack.id
-        ),
-        Some(&id),
-    );
+    {
+        let mut plat = platform.write().unwrap();
+        plat.audit.record(
+            "agent",
+            "agent.scaffolded",
+            format!(
+                "{} features from pack {}, sandbox pool, synthetic data only",
+                app.features.len(),
+                pack.id
+            ),
+            Some(&id),
+        );
+        plat.apps.insert(id.clone(), app.clone());
+    }
 
-    plat.apps.insert(id.clone(), app.clone());
+    // #7 write-through: the new record plus its creation history row
+    // (prior NULL → sandbox). Not a stage transition — a failure degrades
+    // durability and is logged, never blocks the doctor's draft.
+    store::write_through_or_warn(
+        &platform,
+        &[&id],
+        Some(StageTransition {
+            app_id: id.clone(),
+            prior: None,
+            next: Stage::Sandbox,
+            operation_id: None,
+        }),
+    )
+    .await;
     Ok(Json(CreatedApp { app, scaffold }))
 }
 
@@ -225,20 +252,37 @@ async fn iterate(
     Path(id): Path<String>,
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
-    let mut plat = platform.write().unwrap();
-    let pack = plat
-        .apps
-        .get(&id)
-        .and_then(|a| plat.pack(&a.pack))
-        .cloned()
-        .ok_or_else(|| not_found("app"))?;
+    let (pack, ladder) = {
+        let plat = platform.read().unwrap();
+        let pack = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .cloned()
+            .ok_or_else(|| not_found("app"))?;
+        (pack, plat.ladder.clone())
+    };
     // The edit is an operation climbing the verified escalation ladder:
     // each tier's output is applied to a clone and gate-checked; only an
-    // accepted edit is committed. Top-of-ladder failure changes nothing.
-    let ladder = plat.ladder.clone();
-    let (reply, _op_id) = ladder
-        .run_iterate(&mut plat, &id, &req.instruction, &pack)
-        .map_err(|f| {
+    // accepted edit is committed. The climb holds NO platform lock (F4) —
+    // the apply re-acquires it and settles `concurrent-edit` if the record
+    // moved. Top-of-ladder failure changes nothing.
+    let outcome = ladder
+        .run_iterate(&platform, &id, &req.instruction, &pack)
+        .await;
+    // Persist whatever the climb recorded — settled attempts and audit on
+    // failure, the applied edit on success (#7; no stage change here).
+    store::write_through_or_warn(&platform, &[&id], None).await;
+    let (reply, app, _op_id) = outcome.map_err(|f| {
+        if f.is_concurrent_edit() {
+            ApiError(
+                StatusCode::CONFLICT,
+                format!(
+                    "the app changed while the edit was verified (op {}) — retry the instruction",
+                    f.op_id
+                ),
+            )
+        } else {
             ApiError(
                 StatusCode::BAD_GATEWAY,
                 format!(
@@ -246,27 +290,8 @@ async fn iterate(
                     f.op_id, f.reason
                 ),
             )
-        })?;
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
-    app.current_version += 1;
-    let version = app.current_version;
-    app.addenda.push(Addendum {
-        version,
-        instruction: req.instruction.clone(),
-        reply: reply.message.clone(),
-        added_feature: reply.added_feature.clone(),
-        wired_controls: reply.wired_controls.clone(),
-        at: now_unix(),
-    });
-    let app = app.clone();
-
-    plat.audit.record(
-        "agent",
-        "app.iterated",
-        format!("addendum {} — {:?}", version, req.instruction),
-        Some(&id),
-    );
-
+        }
+    })?;
     Ok(Json(json!({ "reply": reply, "app": app })))
 }
 
@@ -282,41 +307,49 @@ async fn restore(
     Path(id): Path<String>,
     Json(req): Json<Restore>,
 ) -> ApiResult<AppRecord> {
-    let mut plat = platform.write().unwrap();
-    let scaffold = plat
-        .apps
-        .get(&id)
-        .and_then(|a| plat.pack(&a.pack))
-        .map(|p| p.scaffold.clone())
-        .ok_or_else(|| not_found("app"))?;
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
-    if !app.version_exists(req.version) {
-        return Err(not_found("version"));
-    }
-    if app.stage == Stage::Live {
-        return Err(ApiError(
-            StatusCode::CONFLICT,
-            "roll back the live allocation before restoring a sandbox checkpoint".to_string(),
-        ));
-    }
+    let app = {
+        let mut plat = platform.write().unwrap();
+        let scaffold = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .map(|p| p.scaffold.clone())
+            .ok_or_else(|| not_found("app"))?;
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        if !app.version_exists(req.version) {
+            return Err(not_found("version"));
+        }
+        // Restore never changes stage, so it consults the transition table
+        // by refusing to run outside the sandbox: editing a live record
+        // without the live→sandbox transition (rollback) is exactly what
+        // VALID_STAGE_TRANSITIONS makes impossible.
+        if app.stage == Stage::Live {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "roll back the live allocation before restoring a sandbox checkpoint".to_string(),
+            ));
+        }
 
-    app.addenda.retain(|a| a.version <= req.version);
-    app.current_version = req.version;
-    app.features = scaffold.clone();
-    app.controls = BTreeSet::new();
-    for addendum in &app.addenda {
-        app.features.extend(addendum.added_feature.clone());
-        app.controls.extend(addendum.wired_controls.iter().cloned());
-    }
-    app.routes = app.features.len() as u32;
-    let app = app.clone();
+        app.addenda.retain(|a| a.version <= req.version);
+        app.current_version = req.version;
+        app.features = scaffold.clone();
+        app.controls = BTreeSet::new();
+        for addendum in &app.addenda {
+            app.features.extend(addendum.added_feature.clone());
+            app.controls.extend(addendum.wired_controls.iter().cloned());
+        }
+        app.routes = app.features.len() as u32;
+        let app = app.clone();
 
-    plat.audit.record(
-        DOCTOR,
-        "app.restored",
-        format!("restored checkpoint v{}", req.version),
-        Some(&id),
-    );
+        plat.audit.record(
+            DOCTOR,
+            "app.restored",
+            format!("restored checkpoint v{}", req.version),
+            Some(&id),
+        );
+        app
+    };
+    store::write_through_or_warn(&platform, &[&id], None).await;
     Ok(Json(app))
 }
 
@@ -351,70 +384,75 @@ async fn fix_gate(
             format!("gate {gate_id} cannot be auto-fixed — it needs a code change via iterate"),
         ));
     }
-    let mut plat = platform.write().unwrap();
-    if !plat.apps.contains_key(&id) {
-        return Err(not_found("app"));
-    }
+    let (wired_response, already) = {
+        let mut plat = platform.write().unwrap();
+        if !plat.apps.contains_key(&id) {
+            return Err(not_found("app"));
+        }
 
-    // Even a deterministic fix is an operation: upserted Running before the
-    // mutation so an interrupted fix is visible, settled with one rules-tier
-    // attempt after it. The wiring is platform code, so no ladder climb.
-    let started = now_unix();
-    let mut op = Operation {
-        op_id: plat.mint_id("op"),
-        app_id: id.clone(),
-        kind: OpKind::Fix,
-        status: OpStatus::Running,
-        attempts: Vec::new(),
-        started_at: started,
-        finished_at: None,
-    };
-    plat.upsert_operation(op.clone());
+        // Even a deterministic fix is an operation: upserted Running before
+        // the mutation so an interrupted fix is visible, settled with one
+        // rules-tier attempt after it. The wiring is platform code, so no
+        // ladder climb.
+        let started = now_unix();
+        let mut op = Operation {
+            op_id: plat.mint_id("op"),
+            app_id: id.clone(),
+            kind: OpKind::Fix,
+            status: OpStatus::Running,
+            attempts: Vec::new(),
+            started_at: started,
+            finished_at: None,
+        };
+        plat.upsert_operation(op.clone());
 
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
-    let newly_wired = app.controls.insert(gate_id.clone());
-    if newly_wired {
-        app.current_version += 1;
-        app.addenda.push(Addendum {
-            version: app.current_version,
-            instruction: format!("fix it for me: {gate_id}"),
-            reply: format!("✓ wired {gate_id}"),
-            added_feature: None,
-            wired_controls: vec![gate_id.clone()],
-            at: now_unix(),
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        let newly_wired = app.controls.insert(gate_id.clone());
+        if newly_wired {
+            app.current_version += 1;
+            app.addenda.push(Addendum {
+                version: app.current_version,
+                instruction: format!("fix it for me: {gate_id}"),
+                reply: format!("✓ wired {gate_id}"),
+                added_feature: None,
+                wired_controls: vec![gate_id.clone()],
+                at: now_unix(),
+            });
+        }
+        let app = app.clone();
+
+        op.attempts.push(AttemptRecord {
+            tier: "rules".to_string(),
+            started_at: started,
+            finished_at: now_unix(),
+            verdict: "accepted".to_string(),
+            reason: (!newly_wired).then(|| "already wired".to_string()),
         });
-    }
-    let app = app.clone();
+        op.status = OpStatus::Success;
+        op.finished_at = Some(now_unix());
+        let op_id = op.op_id.clone();
+        plat.upsert_operation(op);
 
-    op.attempts.push(AttemptRecord {
-        tier: "rules".to_string(),
-        started_at: started,
-        finished_at: now_unix(),
-        verdict: "accepted".to_string(),
-        reason: (!newly_wired).then(|| "already wired".to_string()),
-    });
-    op.status = OpStatus::Success;
-    op.finished_at = Some(now_unix());
-    let op_id = op.op_id.clone();
-    plat.upsert_operation(op);
-
-    plat.audit.record(
-        "agent",
-        "agent.attempt",
-        format!(
-            "op {op_id} fix v{} tier=rules verdict=accepted → applied",
-            app.current_version
-        ),
-        Some(&id),
-    );
-    plat.audit.record(
-        "agent",
-        "gate.fixed",
-        format!("wired control {gate_id}"),
-        Some(&id),
-    );
+        plat.audit.record(
+            "agent",
+            "agent.attempt",
+            format!(
+                "op {op_id} fix v{} tier=rules verdict=accepted → applied",
+                app.current_version
+            ),
+            Some(&id),
+        );
+        plat.audit.record(
+            "agent",
+            "gate.fixed",
+            format!("wired control {gate_id}"),
+            Some(&id),
+        );
+        (app, !newly_wired)
+    };
+    store::write_through_or_warn(&platform, &[&id], None).await;
     Ok(Json(
-        json!({ "wired": gate_id, "already_wired": !newly_wired, "app": app }),
+        json!({ "wired": gate_id, "already_wired": already, "app": wired_response }),
     ))
 }
 
@@ -425,45 +463,49 @@ async fn review(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
-    let mut plat = platform.write().unwrap();
-    let pack = plat
-        .apps
-        .get(&id)
-        .and_then(|a| plat.pack(&a.pack))
-        .cloned()
-        .ok_or_else(|| not_found("app"))?;
-    let (required, tier) = (pack.gates.clone(), pack.tier);
-    // Review routing is policy-recorded like every other decision; the
-    // deterministic reviewer note stands in for the frontier reviewer.
-    plat.audit.record(
-        "agent",
-        "agent.routed",
-        format!(
-            "per {}: review→{} (phase 0: deterministic reviewer note)",
-            pack.routing_source(),
-            pack.routing_policy().review
-        ),
-        Some(&id),
-    );
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+    let (note, report) = {
+        let mut plat = platform.write().unwrap();
+        let pack = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .cloned()
+            .ok_or_else(|| not_found("app"))?;
+        let (required, tier) = (pack.gates.clone(), pack.tier);
+        // Review routing is policy-recorded like every other decision; the
+        // deterministic reviewer note stands in for the frontier reviewer.
+        plat.audit.record(
+            "agent",
+            "agent.routed",
+            format!(
+                "per {}: review→{} (phase 0: deterministic reviewer note)",
+                pack.routing_source(),
+                pack.routing_policy().review
+            ),
+            Some(&id),
+        );
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
-    let reviewable: Vec<String> = required
-        .iter()
-        .filter(|g| g.as_str() != "human-review")
-        .cloned()
-        .collect();
-    let report = gates::preflight(app, &reviewable);
-    let note = gates::reviewer_note(&report, tier);
-    app.reviewer_note = Some(note.clone());
-    if report.green {
-        app.controls.insert("human-review".to_string());
-    }
-    plat.audit.record(
-        "platform-reviewer",
-        "review.completed",
-        note.clone(),
-        Some(&id),
-    );
+        let reviewable: Vec<String> = required
+            .iter()
+            .filter(|g| g.as_str() != "human-review")
+            .cloned()
+            .collect();
+        let report = gates::preflight(app, &reviewable);
+        let note = gates::reviewer_note(&report, tier);
+        app.reviewer_note = Some(note.clone());
+        if report.green {
+            app.controls.insert("human-review".to_string());
+        }
+        plat.audit.record(
+            "platform-reviewer",
+            "review.completed",
+            note.clone(),
+            Some(&id),
+        );
+        (note, report)
+    };
+    store::write_through_or_warn(&platform, &[&id], None).await;
     Ok(Json(json!({ "reviewer_note": note, "report": report })))
 }
 
@@ -479,64 +521,102 @@ async fn promote(
     Path(id): Path<String>,
     Json(req): Json<Promote>,
 ) -> ApiResult<serde_json::Value> {
-    let mut plat = platform.write().unwrap();
-    let required = plat
-        .apps
-        .get(&id)
-        .and_then(|a| plat.pack(&a.pack))
-        .map(|p| p.gates.clone())
-        .ok_or_else(|| not_found("app"))?;
-    let alloc_id = plat.mint_id("a");
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+    let (app, report, snapshot) = {
+        let mut plat = platform.write().unwrap();
+        let required = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .map(|p| p.gates.clone())
+            .ok_or_else(|| not_found("app"))?;
+        let alloc_id = plat.mint_id("a");
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
-    let report = gates::preflight(app, &required);
-    // Snapshot so a failed staging submission reverts the whole promotion:
-    // the record must never claim "live" when real infrastructure said no.
-    let snapshot = app.clone();
-    deploy::promote(app, &report, &req.cosigner, alloc_id)
-        .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-    // Staging (#2): submit the rendered job to a real Nomad dev agent and
-    // prove the tenant transit key against a real Vault — no-op (and no
-    // events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are unset.
-    let staging_events = match deploy::staging_promote(app) {
-        Ok(events) => events,
-        Err(e) => {
-            *app = snapshot;
-            return Err(ApiError(
-                StatusCode::BAD_GATEWAY,
-                format!("staging submission failed — promotion reverted: {e}"),
-            ));
+        let report = gates::preflight(app, &required);
+        // Snapshot so a failed staging submission reverts the whole
+        // promotion: the record must never claim "live" when real
+        // infrastructure said no.
+        let snapshot = app.clone();
+        deploy::promote(app, &report, &req.cosigner, alloc_id)
+            .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
+        // Staging (#2): submit the rendered job to a real Nomad dev agent
+        // and prove the tenant transit key against a real Vault — no-op
+        // (and no events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are
+        // unset. NOTE: these are loopback dev-mode calls; a real client
+        // pool moves them off the lock like the model tiers (F4 / #6).
+        let staging_events = match deploy::staging_promote(app) {
+            Ok(events) => events,
+            Err(e) => {
+                *app = snapshot;
+                return Err(ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    format!("staging submission failed — promotion reverted: {e}"),
+                ));
+            }
+        };
+        let app = app.clone();
+
+        plat.audit.record(
+            "gate-engine",
+            "gate.passed",
+            format!(
+                "preflight {} green at v{}",
+                report.summary(),
+                report.app_version
+            ),
+            Some(&id),
+        );
+        plat.audit.record(
+            "deploy",
+            "app.promoted",
+            format!(
+                "deploy v{} approved (preflight {}) — co-signed {} — allocation {} in prod pool",
+                app.current_version,
+                report.summary(),
+                req.cosigner.trim(),
+                app.allocation
+                    .as_ref()
+                    .map(|a| a.id.as_str())
+                    .unwrap_or("?"),
+            ),
+            Some(&id),
+        );
+        for (action, detail) in staging_events {
+            plat.audit.record("deploy", &action, detail, Some(&id));
         }
+        (app, report, snapshot)
     };
-    let app = app.clone();
 
-    plat.audit.record(
-        "gate-engine",
-        "gate.passed",
-        format!(
-            "preflight {} green at v{}",
-            report.summary(),
-            report.app_version
-        ),
-        Some(&id),
-    );
-    plat.audit.record(
-        "deploy",
-        "app.promoted",
-        format!(
-            "deploy v{} approved (preflight {}) — co-signed {} — allocation {} in prod pool",
-            app.current_version,
-            report.summary(),
-            req.cosigner.trim(),
-            app.allocation
-                .as_ref()
-                .map(|a| a.id.as_str())
-                .unwrap_or("?"),
-        ),
-        Some(&id),
-    );
-    for (action, detail) in staging_events {
-        plat.audit.record("deploy", &action, detail, Some(&id));
+    // #7, the broker-invariant precursor: a stage transition that the
+    // durable store did not confirm DID NOT HAPPEN. The DB trigger checks
+    // sandbox→live against app_valid_state inside this write; on any
+    // failure the in-memory record reverts and the doctor sees 503.
+    if let Err(e) = store::write_through(
+        &platform,
+        &[&id],
+        Some(StageTransition {
+            app_id: id.clone(),
+            prior: Some(Stage::Sandbox),
+            next: Stage::Live,
+            operation_id: None,
+        }),
+    )
+    .await
+    {
+        let mut plat = platform.write().unwrap();
+        if let Some(a) = plat.apps.get_mut(&id) {
+            *a = snapshot;
+        }
+        plat.audit.record(
+            "deploy",
+            "app.promotion_reverted",
+            format!("control DB refused or missed the stage transition: {e:#}"),
+            Some(&id),
+        );
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("control DB write failed — promotion reverted: {e:#}"),
+        ));
     }
 
     Ok(Json(json!({ "app": app, "report": report })))
@@ -546,38 +626,72 @@ async fn rollback(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
 ) -> ApiResult<AppRecord> {
-    let mut plat = platform.write().unwrap();
-    let synthetic = plat
-        .apps
-        .get(&id)
-        .and_then(|a| plat.pack(&a.pack))
-        .map(|p| p.synthetic_dataset.clone())
-        .ok_or_else(|| not_found("app"))?;
-    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
-    let snapshot = app.clone();
-    deploy::rollback(app, &synthetic).map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-    // Staging (#2): the real allocation must actually die. If Nomad refuses
-    // the stop, the rollback is refused too — the record never claims the
-    // sandbox while a real job still runs.
-    let staging_events = match deploy::staging_rollback(&id, &snapshot.tenant) {
-        Ok(events) => events,
-        Err(e) => {
-            *app = snapshot;
-            return Err(ApiError(
-                StatusCode::BAD_GATEWAY,
-                format!("staging rollback failed — allocation kept: {e}"),
-            ));
+    let (app, snapshot) = {
+        let mut plat = platform.write().unwrap();
+        let synthetic = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .map(|p| p.synthetic_dataset.clone())
+            .ok_or_else(|| not_found("app"))?;
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        let snapshot = app.clone();
+        deploy::rollback(app, &synthetic)
+            .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
+        // Staging (#2): the real allocation must actually die. If Nomad
+        // refuses the stop, the rollback is refused too — the record never
+        // claims the sandbox while a real job still runs.
+        let staging_events = match deploy::staging_rollback(&id, &snapshot.tenant) {
+            Ok(events) => events,
+            Err(e) => {
+                *app = snapshot;
+                return Err(ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    format!("staging rollback failed — allocation kept: {e}"),
+                ));
+            }
+        };
+        let app = app.clone();
+        plat.audit.record(
+            "deploy",
+            "app.rolled_back",
+            "allocation destroyed; app returned to sandbox on synthetic data",
+            Some(&id),
+        );
+        for (action, detail) in staging_events {
+            plat.audit.record("deploy", &action, detail, Some(&id));
         }
+        (app, snapshot)
     };
-    let app = app.clone();
-    plat.audit.record(
-        "deploy",
-        "app.rolled_back",
-        "allocation destroyed; app returned to sandbox on synthetic data",
-        Some(&id),
-    );
-    for (action, detail) in staging_events {
-        plat.audit.record("deploy", &action, detail, Some(&id));
+
+    // #7: same broker-invariant precursor as promote — the live→sandbox
+    // transition must be durably confirmed or it did not happen.
+    if let Err(e) = store::write_through(
+        &platform,
+        &[&id],
+        Some(StageTransition {
+            app_id: id.clone(),
+            prior: Some(Stage::Live),
+            next: Stage::Sandbox,
+            operation_id: None,
+        }),
+    )
+    .await
+    {
+        let mut plat = platform.write().unwrap();
+        if let Some(a) = plat.apps.get_mut(&id) {
+            *a = snapshot;
+        }
+        plat.audit.record(
+            "deploy",
+            "app.rollback_reverted",
+            format!("control DB refused or missed the stage transition: {e:#}"),
+            Some(&id),
+        );
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("control DB write failed — rollback reverted: {e:#}"),
+        ));
     }
     Ok(Json(app))
 }
@@ -634,27 +748,31 @@ async fn export_app(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
 ) -> ApiResult<eject::EjectionBundle> {
-    let mut plat = platform.write().unwrap();
-    let app = plat
-        .apps
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| not_found("app"))?;
-    let pack = plat
-        .pack(&app.pack)
-        .cloned()
-        .ok_or_else(|| not_found("pack"))?;
-    let bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
-    plat.audit.record(
-        DOCTOR,
-        "app.exported",
-        format!(
-            "ejection bundle: {} files, docs from the record, pack {}-template derived — no hostage code",
-            bundle.files.len(),
-            app.id
-        ),
-        Some(&id),
-    );
+    let bundle = {
+        let mut plat = platform.write().unwrap();
+        let app = plat
+            .apps
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| not_found("app"))?;
+        let pack = plat
+            .pack(&app.pack)
+            .cloned()
+            .ok_or_else(|| not_found("pack"))?;
+        let bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
+        plat.audit.record(
+            DOCTOR,
+            "app.exported",
+            format!(
+                "ejection bundle: {} files, docs from the record, pack {}-template derived — no hostage code",
+                bundle.files.len(),
+                app.id
+            ),
+            Some(&id),
+        );
+        bundle
+    };
+    store::write_through_or_warn(&platform, &[], None).await;
     Ok(Json(bundle))
 }
 

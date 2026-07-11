@@ -14,6 +14,13 @@
 # registered with the Nomad dev agent and stopped again on rollback; with
 # VAULT_ADDR set, the tenant transit key survived a real encrypt/decrypt
 # round-trip. Without them those checks print "skipped" and never fail.
+#
+# Control DB (#7): with CONTROL_DB_URL set, the test additionally kills the
+# control plane with SIGKILL mid-flow (right after promote), reboots it
+# against the same database, and asserts the app is still live with its
+# allocation and audit history intact — the issue's kill -9 bar. The rest
+# of the flow then continues against the restarted process, which deepens
+# every later assertion.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -101,6 +108,56 @@ if [[ -n "${VAULT_ADDR:-}" ]]; then
   check "vault transit round-trip" "$LIVE" "\"vault_transit_key\":\"$NS\""
 else
   echo "  skipped (no vault): transit round-trip recorded on the allocation"
+fi
+
+echo "-- restart survival (#7): kill -9 mid-flow, reboot on the same control DB"
+if [[ -n "${CONTROL_DB_URL:-}" ]]; then
+  BIND="${BASE#http://}"
+  OLD_PID="$SERVER_PID"
+  if [[ -z "$OLD_PID" && -f .staging/run/control-plane.pid ]]; then
+    OLD_PID=$(cat .staging/run/control-plane.pid)
+  fi
+  if [[ -z "$OLD_PID" ]]; then
+    FAIL=$((FAIL+1)); echo "  FAIL: CONTROL_DB_URL set but no control-plane pid to kill"
+  else
+    kill -9 "$OLD_PID" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      curl -sf "$BASE/health" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    cargo build --quiet
+    mkdir -p .staging/logs
+    env APP_BIND="$BIND" CONTROL_DB_URL="$CONTROL_DB_URL" \
+      ${NOMAD_ADDR:+NOMAD_ADDR="$NOMAD_ADDR"} \
+      ${VAULT_ADDR:+VAULT_ADDR="$VAULT_ADDR"} \
+      ${VAULT_TOKEN:+VAULT_TOKEN="$VAULT_TOKEN"} \
+      "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" \
+      >>.staging/logs/control-plane.log 2>/dev/null &
+    NEW_PID=$!
+    # Self-booted server: the existing EXIT trap reads $SERVER_PID at exit,
+    # so pointing it at the new pid keeps cleanup working. Staging-managed
+    # server: update the pidfile so `staging-up.sh down` still owns it, and
+    # leave it running after the test exactly like before.
+    if [[ -n "$SERVER_PID" ]]; then
+      SERVER_PID=$NEW_PID
+    fi
+    [[ -f .staging/run/control-plane.pid ]] && echo "$NEW_PID" >.staging/run/control-plane.pid
+    for _ in $(seq 1 100); do
+      curl -sf "$BASE/health" >/dev/null 2>&1 && break
+      sleep 0.1
+    done
+    SURVIVED=$(get "/api/apps/$ID")
+    check "app survives kill -9, still live"   "$SURVIVED" '"stage":"live"'
+    check "allocation survives restart"        "$SURVIVED" '"pool":"prod"'
+    check "attestation survives restart"       "$SURVIVED" '"gate_summary":"5/6 (1 stubbed)"'
+    SAUDIT=$(get "/api/apps/$ID/audit")
+    check "audit survives restart (created)"   "$SAUDIT" '"app.created"'
+    check "audit survives restart (promoted)"  "$SAUDIT" '"app.promoted"'
+    SOPS=$(get "/api/apps/$ID/operations")
+    check "operation rows survive restart"     "$SOPS" '"kind":"scaffold"'
+  fi
+else
+  echo "  skipped (no CONTROL_DB_URL): app, allocation, audit, operations survive restart"
 fi
 
 echo "-- nine-gate pack requires platform review"

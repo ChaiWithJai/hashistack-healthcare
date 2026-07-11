@@ -24,6 +24,7 @@ pub mod hashi;
 pub mod ladder;
 pub mod packs;
 pub mod state;
+pub mod store;
 
 use axum::{extract::Path, Json, Router};
 use serde::Serialize;
@@ -45,6 +46,29 @@ pub struct Proof {
 /// The full control plane with a fresh in-memory platform state.
 pub fn app() -> Router {
     api::router()
+}
+
+/// The control plane as `main` boots it: with `CONTROL_DB_URL` set (#7),
+/// connect to the Postgres control store, apply migrations idempotently,
+/// and load the durable state back — apps, operations, audit stream, and
+/// the id counter all survive a restart. Unset, identical to [`app`].
+pub async fn app_from_env() -> anyhow::Result<Router> {
+    let url = std::env::var("CONTROL_DB_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    let Some(url) = url else {
+        return Ok(app());
+    };
+    let mut platform = state::Platform::new(packs::builtin_packs());
+    let pg = store::PgStore::connect(&url).await?;
+    let (apps, ops, events) = pg.load(&mut platform).await?;
+    platform.store = Some(std::sync::Arc::new(pg));
+    tracing::info!(
+        "control DB attached — restored {apps} apps, {ops} operations, {events} audit events"
+    );
+    Ok(api::router_with_state(std::sync::Arc::new(
+        std::sync::RwLock::new(platform),
+    )))
 }
 
 pub(crate) async fn health() -> Json<Health> {

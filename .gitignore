@@ -5,3 +5,5 @@
 .claude/
 /.staging
 /target-w
+/.evals
+/node_modules

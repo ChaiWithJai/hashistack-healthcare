@@ -1,0 +1,39 @@
+# Platform eval harness (evals/README.md): the two nested layers — job-to-be-
+# done workflows over a fresh control plane per scenario, plus Playwright
+# against the RUNNING ejected post-op-monitor app — scored into the portable
+# scorecard baseline. Fails only on harness errors or regressions in
+# must_pass scenarios; the known gaps (refusals #12, unconverted packs #5)
+# are expected-fail by design.
+name: evals
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "45 5 * * *" # nightly, offset from staging-hashistack
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The dev container preinstalls Playwright + Chromium under /opt;
+      # CI lacks that path, so install both here (the harness detects which
+      # world it is in and uses the default browser cache).
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
+      - run: ./scripts/evals.sh
+      # The regenerated scorecard + full screenshot evidence, reviewable per
+      # run without committing from CI.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-scorecard
+          path: |
+            docs/evals/scorecard.md
+            docs/evals/scorecard.json
+            .evals/screenshots/
+          if-no-files-found: warn

@@ -1,0 +1,55 @@
+{
+  "id": "htn-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "home blood pressure log for my hypertensive patients with a trend view and out-of-range alerts routed to me",
+  "app_name": "htn home log",
+  "iterate": [
+    {
+      "instruction": "flag any systolic over 180 to me immediately",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 7,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "The RFC use case 1 prompt, precisely stated."
+}

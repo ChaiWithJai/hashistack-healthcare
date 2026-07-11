@@ -1,0 +1,59 @@
+{
+  "id": "insurance-04-terse-typo",
+  "category": "pack",
+  "persona": "terse-typo",
+  "pack": "insurance-verification",
+  "must_pass": true,
+  "prompt": "insurence eligibilty check b4 first visit",
+  "app_name": "insurence check",
+  "iterate": [
+    {
+      "instruction": "roles for front desk",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 9,
+    "initially_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path",
+      "human-review"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "Terse and misspelled against the strictest pack."
+}

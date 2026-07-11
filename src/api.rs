@@ -11,11 +11,14 @@ use serde_json::json;
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
-use crate::agent::{AgentDriver, RuleBasedDriver, ScaffoldStep};
+use crate::agent::ScaffoldStep;
 use crate::deploy;
 use crate::gates;
 use crate::packs;
-use crate::state::{now_unix, Addendum, AppRecord, DataSource, Platform, SharedPlatform, Stage};
+use crate::state::{
+    now_unix, Addendum, AppRecord, AttemptRecord, DataSource, OpKind, OpStatus, Operation,
+    Platform, SharedPlatform, Stage,
+};
 
 const DOCTOR_UI: &str = include_str!("../web/index.html");
 
@@ -47,6 +50,7 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         .route("/api/apps/:id/promote", post(promote))
         .route("/api/apps/:id/rollback", post(rollback))
         .route("/api/apps/:id/operate", get(operate))
+        .route("/api/apps/:id/operations", get(app_operations))
         .route("/api/apps/:id/audit", get(app_audit))
         .route("/api/apps/:id/export", get(export_app))
         .route("/api/audit/export", get(export_audit))
@@ -125,7 +129,27 @@ async fn create_app(
         slug
     };
 
-    let scaffold = RuleBasedDriver.scaffold(&pack, &req.prompt);
+    plat.audit.record(
+        DOCTOR,
+        "app.created",
+        format!("described {:?} from pack {}", req.prompt, pack.id),
+        Some(&id),
+    );
+
+    // The scaffold is an operation upserted Running before the first driver
+    // runs (Waypoint upsert-first), then verified up the escalation ladder.
+    let ladder = plat.ladder.clone();
+    let scaffold = ladder
+        .run_scaffold(&mut plat, &id, &pack, &req.prompt)
+        .map_err(|f| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!(
+                    "scaffold failed at every tier (op {}): {}",
+                    f.op_id, f.reason
+                ),
+            )
+        })?;
     let controls: BTreeSet<String> = pack.prewired.iter().cloned().collect();
 
     let app = AppRecord {
@@ -154,12 +178,6 @@ async fn create_app(
         tenant,
     };
 
-    plat.audit.record(
-        DOCTOR,
-        "app.created",
-        format!("described {:?} from pack {}", app.prompt, pack.id),
-        Some(&id),
-    );
     plat.audit.record(
         "agent",
         "agent.scaffolded",
@@ -213,9 +231,22 @@ async fn iterate(
         .and_then(|a| plat.pack(&a.pack))
         .map(|p| p.gates.clone())
         .ok_or_else(|| not_found("app"))?;
+    // The edit is an operation climbing the verified escalation ladder:
+    // each tier's output is applied to a clone and gate-checked; only an
+    // accepted edit is committed. Top-of-ladder failure changes nothing.
+    let ladder = plat.ladder.clone();
+    let (reply, _op_id) = ladder
+        .run_iterate(&mut plat, &id, &req.instruction, &required)
+        .map_err(|f| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!(
+                    "iterate failed at every tier (op {}): {}",
+                    f.op_id, f.reason
+                ),
+            )
+        })?;
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
-
-    let reply = RuleBasedDriver.iterate(app, &req.instruction, &required);
     app.current_version += 1;
     let version = app.current_version;
     app.addenda.push(Addendum {
@@ -320,6 +351,25 @@ async fn fix_gate(
         ));
     }
     let mut plat = platform.write().unwrap();
+    if !plat.apps.contains_key(&id) {
+        return Err(not_found("app"));
+    }
+
+    // Even a deterministic fix is an operation: upserted Running before the
+    // mutation so an interrupted fix is visible, settled with one rules-tier
+    // attempt after it. The wiring is platform code, so no ladder climb.
+    let started = now_unix();
+    let mut op = Operation {
+        op_id: plat.mint_id("op"),
+        app_id: id.clone(),
+        kind: OpKind::Fix,
+        status: OpStatus::Running,
+        attempts: Vec::new(),
+        started_at: started,
+        finished_at: None,
+    };
+    plat.upsert_operation(op.clone());
+
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
     let newly_wired = app.controls.insert(gate_id.clone());
     if newly_wired {
@@ -334,6 +384,28 @@ async fn fix_gate(
         });
     }
     let app = app.clone();
+
+    op.attempts.push(AttemptRecord {
+        tier: "rules".to_string(),
+        started_at: started,
+        finished_at: now_unix(),
+        verdict: "accepted".to_string(),
+        reason: (!newly_wired).then(|| "already wired".to_string()),
+    });
+    op.status = OpStatus::Success;
+    op.finished_at = Some(now_unix());
+    let op_id = op.op_id.clone();
+    plat.upsert_operation(op);
+
+    plat.audit.record(
+        "agent",
+        "agent.attempt",
+        format!(
+            "op {op_id} fix v{} tier=rules verdict=accepted → applied",
+            app.current_version
+        ),
+        Some(&id),
+    );
     plat.audit.record(
         "agent",
         "gate.fixed",
@@ -478,6 +550,20 @@ async fn operate(
             "healthy": app.allocation.as_ref().map(|a| a.healthy).unwrap_or(false),
         },
     })))
+}
+
+/// Operation rows for one app — the routing record. A `running` or
+/// `escalated` row with no terminal successor is the crash-visible trace of
+/// an interrupted agent action (Waypoint upsert-first, steering §4).
+async fn app_operations(
+    State(platform): State<SharedPlatform>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let plat = platform.read().unwrap();
+    if !plat.apps.contains_key(&id) {
+        return Err(not_found("app"));
+    }
+    Ok(Json(json!({ "operations": plat.operations_for_app(&id) })))
 }
 
 async fn app_audit(

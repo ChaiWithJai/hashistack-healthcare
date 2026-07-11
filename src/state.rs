@@ -60,6 +60,15 @@ pub struct Allocation {
     pub url: String,
     pub healthy: bool,
     pub deployed_at: u64,
+    /// Staging (#2): the evaluation id Nomad returned when the rendered job
+    /// was really submitted. `None` in simulated mode, so the simulated JSON
+    /// shape is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nomad_eval_id: Option<String>,
+    /// Staging (#2): the transit key that survived an encrypt/decrypt
+    /// round-trip against a real Vault at promote time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_transit_key: Option<String>,
 }
 
 /// The attestation a promotion carries: who co-signed, what the gate report

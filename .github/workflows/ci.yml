@@ -16,8 +16,8 @@ jobs:
 
   # Virtual staging pressure test: boots the control plane and drives the
   # full describe→audit workflow over real HTTP, so verification never
-  # depends on manual smoke testing. TODO(#2): back this with a Nomad dev
-  # agent + Vault dev server and assert real allocations and leases.
+  # depends on manual smoke testing. The same script runs nightly against a
+  # real Nomad dev agent + Vault dev server in staging.yml (#2).
   pressure-test:
     runs-on: ubuntu-latest
     steps:

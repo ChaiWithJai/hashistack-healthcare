@@ -1,0 +1,36 @@
+# Full HashiStack staging pressure test (#2): boots a real Vault dev server +
+# Nomad dev agent + the control plane on the runner, then drives the entire
+# describe→gate→promote→audit workflow with the real-infrastructure
+# assertions enabled (job registered in Nomad, transit round-trip in Vault,
+# job stopped on rollback).
+#
+# Runs nightly and on demand — not on every PR. Every PR still gets the
+# simulated pressure test via ci.yml; this job downloads binaries and boots
+# three processes, which is nightly-sized, not per-push-sized.
+name: staging-hashistack
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # nightly, off the top of the hour
+
+jobs:
+  staging-hashistack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Boot vault + nomad + control plane
+        run: ./scripts/staging-up.sh
+      - name: Pressure test against real HashiStack
+        run: |
+          NOMAD_ADDR=http://127.0.0.1:4646 \
+          VAULT_ADDR=http://127.0.0.1:8200 \
+          ./scripts/pressure-test.sh http://127.0.0.1:39100
+      - name: Dump staging logs
+        if: failure()
+        run: tail -n +1 .staging/logs/*.log
+      - name: Teardown
+        if: always()
+        run: ./scripts/staging-up.sh down

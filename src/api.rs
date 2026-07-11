@@ -404,8 +404,24 @@ async fn promote(
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
     let report = gates::preflight(app, &required);
+    // Snapshot so a failed staging submission reverts the whole promotion:
+    // the record must never claim "live" when real infrastructure said no.
+    let snapshot = app.clone();
     deploy::promote(app, &report, &req.cosigner, alloc_id)
         .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
+    // Staging (#2): submit the rendered job to a real Nomad dev agent and
+    // prove the tenant transit key against a real Vault — no-op (and no
+    // events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are unset.
+    let staging_events = match deploy::staging_promote(app) {
+        Ok(events) => events,
+        Err(e) => {
+            *app = snapshot;
+            return Err(ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!("staging submission failed — promotion reverted: {e}"),
+            ));
+        }
+    };
     let app = app.clone();
 
     plat.audit.record(
@@ -433,6 +449,9 @@ async fn promote(
         ),
         Some(&id),
     );
+    for (action, detail) in staging_events {
+        plat.audit.record("deploy", &action, detail, Some(&id));
+    }
 
     Ok(Json(json!({ "app": app, "report": report })))
 }
@@ -449,7 +468,21 @@ async fn rollback(
         .map(|p| p.synthetic_dataset.clone())
         .ok_or_else(|| not_found("app"))?;
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+    let snapshot = app.clone();
     deploy::rollback(app, &synthetic).map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
+    // Staging (#2): the real allocation must actually die. If Nomad refuses
+    // the stop, the rollback is refused too — the record never claims the
+    // sandbox while a real job still runs.
+    let staging_events = match deploy::staging_rollback(&id, &snapshot.tenant) {
+        Ok(events) => events,
+        Err(e) => {
+            *app = snapshot;
+            return Err(ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!("staging rollback failed — allocation kept: {e}"),
+            ));
+        }
+    };
     let app = app.clone();
     plat.audit.record(
         "deploy",
@@ -457,6 +490,9 @@ async fn rollback(
         "allocation destroyed; app returned to sandbox on synthetic data",
         Some(&id),
     );
+    for (action, detail) in staging_events {
+        plat.audit.record("deploy", &action, detail, Some(&id));
+    }
     Ok(Json(app))
 }
 

@@ -9,9 +9,11 @@
 #   scripts/pressure-test.sh http://host:p  # test an already-running instance
 #                                           # (a staging deployment, a container)
 #
-# TODO(#2): today this exercises the in-process simulation. The staging
-# environment ticket points this same script at a control plane backed by a
-# Nomad dev agent + Vault dev server, and adds allocation/lease assertions.
+# Staging (#2): with NOMAD_ADDR set (see scripts/staging-up.sh), this same
+# script also asserts against real infrastructure — the promoted job is
+# registered with the Nomad dev agent and stopped again on rollback; with
+# VAULT_ADDR set, the tenant transit key survived a real encrypt/decrypt
+# round-trip. Without them those checks print "skipped" and never fail.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,7 +23,7 @@ SERVER_PID=""
 if [[ -z "$BASE" ]]; then
   BASE="http://127.0.0.1:39000"
   cargo build --quiet
-  APP_BIND=127.0.0.1:39000 ./target/debug/rust-proof-service &
+  APP_BIND=127.0.0.1:39000 "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" &
   SERVER_PID=$!
   trap '[[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 50); do
@@ -77,6 +79,22 @@ check "live"              "$LIVE" '"stage":"live"'
 check "prod pool"         "$LIVE" '"pool":"prod"'
 check "attested 6/6"      "$LIVE" '"gate_summary":"6/6"'
 
+echo "-- staging: promote reaches real infrastructure (#2)"
+NS="tenant-meridian"
+if [[ -n "${NOMAD_ADDR:-}" ]]; then
+  check "nomad eval id recorded" "$LIVE" '"nomad_eval_id":"'
+  NJOB=$(curl -s "$NOMAD_ADDR/v1/job/$ID?namespace=$NS")
+  check "job registered in nomad" "$NJOB" "\"ID\":\"$ID\""
+  check "nomad job not stopped"   "$NJOB" '"Stop":false'
+else
+  echo "  skipped (no nomad): eval id recorded, job registered, job not stopped"
+fi
+if [[ -n "${VAULT_ADDR:-}" ]]; then
+  check "vault transit round-trip" "$LIVE" "\"vault_transit_key\":\"$NS\""
+else
+  echo "  skipped (no vault): transit round-trip recorded on the allocation"
+fi
+
 echo "-- nine-gate pack requires platform review"
 APP2=$(post /api/apps '{"prompt":"checks each new patient insurance before their first visit","pack":"insurance-verification","name":"pt insurance checker"}')
 ID2=$(echo "$APP2" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["id"])')
@@ -98,12 +116,29 @@ echo "-- rollback destroys the allocation"
 BACK=$(post "/api/apps/$ID/rollback")
 check "back to sandbox"   "$BACK" '"stage":"sandbox"'
 check "synthetic again"   "$BACK" '"kind":"synthetic"'
+if [[ -n "${NOMAD_ADDR:-}" ]]; then
+  NSTOP=$(curl -s "$NOMAD_ADDR/v1/job/$ID?namespace=$NS")
+  check "nomad job stopped on rollback" "$NSTOP" '"Stop":true'
+else
+  echo "  skipped (no nomad): nomad job stopped on rollback"
+fi
 
 echo "-- audit stream: complete story, strictly increasing"
 AUDIT=$(get "/api/apps/$ID/audit")
 for action in app.created agent.scaffolded gate.fixed gate.passed app.promoted app.rolled_back; do
   check "audit has $action" "$AUDIT" "\"$action\""
 done
+if [[ -n "${NOMAD_ADDR:-}" ]]; then
+  check "audit has nomad.job_submitted" "$AUDIT" '"nomad.job_submitted"'
+  check "audit has nomad.job_stopped"   "$AUDIT" '"nomad.job_stopped"'
+else
+  echo "  skipped (no nomad): audit has nomad.job_submitted, nomad.job_stopped"
+fi
+if [[ -n "${VAULT_ADDR:-}" ]]; then
+  check "audit has vault.transit_verified" "$AUDIT" '"vault.transit_verified"'
+else
+  echo "  skipped (no vault): audit has vault.transit_verified"
+fi
 SEQOK=$(get /api/audit/export | python3 -c '
 import json,sys
 seqs=[json.loads(l)["seq"] for l in sys.stdin if l.strip()]

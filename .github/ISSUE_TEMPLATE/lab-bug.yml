@@ -1,0 +1,34 @@
+name: Lab bug
+description: Report a mismatch between a lab instruction and the repo behavior.
+title: "Lab bug: "
+labels: ["lab", "bug"]
+body:
+  - type: input
+    id: workload
+    attributes:
+      label: Workload
+      placeholder: deterministic_api
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did the lab ask you to prove?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: product-risk
+    attributes:
+      label: Product risk
+      description: Which product risk should this lab clarify?
+      placeholder: replay, correctness, async state, traceability, failure handling
+    validations:
+      required: true

@@ -1,0 +1,42 @@
+name: Setup friction
+description: Report a local setup blocker that prevents the first proof.
+title: "Setup friction: "
+labels: ["setup", "learner-blocker"]
+body:
+  - type: markdown
+    attributes:
+      value: "Use this when the repo cannot run, test, or start locally."
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Paste the exact command that failed.
+      placeholder: cargo test
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Paste the useful error lines.
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Local machine
+        - Devcontainer
+        - Docker Compose
+        - GitHub Actions
+    validations:
+      required: true
+  - type: textarea
+    id: next-proof
+    attributes:
+      label: Proof blocked
+      description: Which evidence row is blocked?
+      placeholder: service, contract, reliability, ops
+    validations:
+      required: true

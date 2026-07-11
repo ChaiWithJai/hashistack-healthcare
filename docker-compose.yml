@@ -1,0 +1,15 @@
+services:
+  app:
+    image: rust:1-bookworm
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/workspace/target
+    command: bash -lc "cargo test && cargo run"
+    ports:
+      - "3000:3000"
+
+volumes:
+  cargo-cache:
+  target-cache:

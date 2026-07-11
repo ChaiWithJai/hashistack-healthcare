@@ -36,6 +36,11 @@ appear; never ask the operator to restate something recorded here.
   asynchronously. (Stated explicitly 2026-07-11: "This stuff should be
   recorded ambiently by you and then you'll know how I deal with [it] to
   improve gating.")
+- **Ship as a stacked PR chain.** Loop through every open issue until each
+  is a link in a chain of PRs that merge into each other (main <- PR#1 <-
+  integration <- #5 <- #3 <- #7 <- #8 <- #9 <- #10 ...), verified link by
+  link. Review flags from docs/process/review-log.md are folded into the
+  nearest relevant link, not left floating.
 - **End goal framing:** the user is a doctor/CHP who vibe-codes a described
   healthcare use case, then ejects and owns it as their own extendable
   template (docs/GOAL.md). Judge every decision against that bar and the

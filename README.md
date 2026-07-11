@@ -34,7 +34,7 @@ cargo test
 Expected proof:
 
 - `/health` returns the control-plane status,
-- 12 tests pass, including the false-pass guard: an app with a failing
+- 18 tests pass, including the false-pass guard: an app with a failing
   compliance check **cannot** be promoted (409, error names the check),
 - the whole workflow is drivable from curl ([docs/ops-runbook.md](docs/ops-runbook.md)) —
   the UI holds no privileges the API doesn't offer.
@@ -54,6 +54,7 @@ docker compose up --build
 | Gate engine — compliance checks as plugins ★ the product | `src/gates.rs` |
 | Agent service — driver interface, rule-based Phase 0 driver | `src/agent.rs` |
 | Deploy service — promote on green + co-sign, renders Nomad jobs | `src/deploy.rs`, `nomad/templates/` |
+| Ejection service — owned bundle: docs from the record, derived pack (#11) | `src/eject.rs` |
 | Audit pipeline — append-only, JSONL export | `src/audit.rs` |
 | Doctor UI — wireframes 1a/1b/1c/1d, wired | `web/index.html` |
 | Infrastructure as code (Phase 1 substrate) | `terraform/prod/`, `packer/`, `vault/policies/` |
@@ -82,6 +83,11 @@ curl -s localhost:3000/api/apps/post-op-tracker/gate
 curl -s -X POST localhost:3000/api/apps/post-op-tracker/gate/auto-logoff/fix -H 'content-type: application/json' -d '{}'
 curl -s -X POST localhost:3000/api/apps/post-op-tracker/promote \
   -H 'content-type: application/json' -d '{"cosigner":"Dr. A. Osei"}'
+
+# eject: the app as an owned bundle — README/runbook/compliance record
+# generated from the doctor's record, deploy manifests for four targets,
+# and a pack.hcl that makes their app their own re-importable template
+curl -s localhost:3000/api/apps/post-op-tracker/export
 
 # audit: the whole story, append-only
 curl -s localhost:3000/api/audit/export

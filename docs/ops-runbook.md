@@ -94,6 +94,25 @@ Staging caveats (deliberate, documented):
 - CI: `staging-hashistack` (.github/workflows/staging.yml) runs this nightly
   and on demand; every PR still runs the simulated pressure test (ci.yml).
 
+## Eject an app (#11): an owned, documented, extendable bundle
+
+`GET /api/apps/:id/export` returns a JSON file-map — README, runbook, and
+compliance record generated from the doctor's own record (prompt, addenda,
+gate report, attestation, audit trail), deploy manifests for
+Nomad/Render/Fly/Kamal, and a `pack.hcl` that turns the app into their own
+re-importable template. Works for sandbox apps too, with the compliance
+record marked `draft — not released` and no attestation.
+
+```bash
+# unpack the bundle into ./post-op-tracker with stock python3 (no extra deps)
+mkdir -p post-op-tracker && cd post-op-tracker && \
+curl -s localhost:3000/api/apps/post-op-tracker/export | \
+python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,exist_ok=True), q.write_text(c)))(pathlib.Path(p)) for p,c in json.load(sys.stdin)["files"].items()]'
+
+# then follow the bundle's own docs — that is the point:
+cat docs/RUNBOOK.md
+```
+
 ## Troubleshooting
 - If Rust is missing, install stable Rust and rerun CI commands, or `docker compose up --build`.
 - If `nomad agent -dev` dies with `failed to detect memset: open

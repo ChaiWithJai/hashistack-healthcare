@@ -345,9 +345,17 @@ async fn audit_stream_records_the_whole_story_append_only() {
 async fn export_renders_nomad_job_pinned_to_prod_pool() {
     let router = app();
     let id = create_post_op_app(&router).await;
-    // No allocation yet → nothing to export.
-    let (status, _) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
-    assert_eq!(status, StatusCode::CONFLICT);
+    // No allocation yet → the bundle still ships (no hostage docs), but the
+    // compliance record is a draft with no attestation and a stub Nomad job.
+    let (status, draft) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let compliance = draft["files"]["docs/COMPLIANCE.md"].as_str().unwrap();
+    assert!(compliance.contains("draft — not released"));
+    assert!(!compliance.contains("co-signed by:"), "no attestation yet");
+    assert!(draft["files"]["nomad/job.nomad.hcl"]
+        .as_str()
+        .unwrap()
+        .contains("no live allocation yet"));
 
     call(
         &router,
@@ -366,7 +374,7 @@ async fn export_renders_nomad_job_pinned_to_prod_pool() {
 
     let (status, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
     assert_eq!(status, StatusCode::OK);
-    let job = export["nomad_job"].as_str().unwrap();
+    let job = export["files"]["nomad/job.nomad.hcl"].as_str().unwrap();
     assert!(job.contains(&format!("job \"{id}\"")));
     assert!(
         job.contains("value     = \"prod\""),
@@ -375,6 +383,86 @@ async fn export_renders_nomad_job_pinned_to_prod_pool() {
     assert!(job.contains("driver = \"docker\""));
     assert!(job.contains("namespace   = \"tenant-meridian\""));
     assert!(!job.contains("{{app_id}}"), "no unrendered tokens");
+}
+
+/// GOAL.md bars 5 and 6: eject produces a repo a stranger can run from the
+/// included docs alone, and the app becomes the doctor's own template.
+#[tokio::test]
+async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
+    let router = app();
+    let id = create_post_op_app(&router).await;
+
+    // Iterate once, fix the failing gate, promote with a co-signature.
+    let (status, _) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/iterate"),
+        Some(json!({"instruction": "make pain a 0-10 scale and flag anything over 7 to me"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
+        Some(json!({})),
+    )
+    .await;
+    let (status, _) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        Some(json!({"cosigner": "Dr. A. Osei"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let files = export["files"].as_object().unwrap();
+    for path in [
+        "README.md",
+        "docs/RUNBOOK.md",
+        "docs/COMPLIANCE.md",
+        "Dockerfile",
+        "render.yaml",
+        "fly.toml",
+        "config/deploy.yml",
+        "nomad/job.nomad.hcl",
+        "pack.hcl",
+    ] {
+        assert!(files.contains_key(path), "bundle is missing {path}");
+    }
+    assert!(
+        export["unpack"].as_str().unwrap().contains("python3"),
+        "response carries a copy-paste unpack one-liner"
+    );
+
+    // README is the doctor's story: their prompt and each addendum.
+    let readme = files["README.md"].as_str().unwrap();
+    assert!(readme.contains("a post-op recovery tracker for my knee replacement patients"));
+    assert!(readme.contains("make pain a 0-10 scale and flag anything over 7 to me"));
+
+    // COMPLIANCE embeds the release: re-run gate report, cosigner, audit.
+    let compliance = files["docs/COMPLIANCE.md"].as_str().unwrap();
+    assert!(compliance.contains("6/6"));
+    assert!(compliance.contains("Dr. A. Osei"));
+    assert!(compliance.contains("app.promoted"), "audit trail embedded");
+
+    // RUNBOOK says plainly that the app source is a scaffold placeholder (#5).
+    let runbook = files["docs/RUNBOOK.md"].as_str().unwrap();
+    assert!(runbook.contains("scaffold placeholder"));
+
+    // pack.hcl parses with the platform's own parser: their own template.
+    let pack_hcl = files["pack.hcl"].as_str().unwrap();
+    let template = rust_proof_service::packs::parse_pack(pack_hcl)
+        .expect("ejected pack.hcl must round-trip through packs::parse_pack");
+    assert_eq!(template.id, format!("{id}-template"));
+    assert!(template
+        .scaffold
+        .iter()
+        .any(|f| f.contains("make pain a 0-10 scale")));
 }
 
 #[tokio::test]

@@ -18,6 +18,7 @@ pub mod agent;
 pub mod api;
 pub mod audit;
 pub mod deploy;
+pub mod eject;
 pub mod gates;
 pub mod hashi;
 pub mod packs;

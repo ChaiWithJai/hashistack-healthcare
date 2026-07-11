@@ -1,0 +1,143 @@
+//! Control-plane state: the domain model behind every API client.
+//!
+//! One record type per lifecycle noun. Services (agent, gates, deploy, audit)
+//! each own one verb over this state and nothing else.
+
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::audit::AuditLog;
+use crate::packs::PackManifest;
+
+pub type SharedPlatform = Arc<RwLock<Platform>>;
+
+/// Where an app runs. Sandbox has no route to tenant databases; prod is the
+/// only pool with tenant Postgres access. The gate sits between the two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Stage {
+    Sandbox,
+    Live,
+}
+
+/// What data the app can see. Synthetic in the sandbox, always.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "name", rename_all = "lowercase")]
+pub enum DataSource {
+    Synthetic(String),
+    Tenant(String),
+}
+
+/// One conversational edit, logged like a chart addendum (storyboard 1c).
+/// Records exactly what it changed so a checkpoint restore can rebuild the
+/// app from scaffold + addenda — state is derived, never patched.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Addendum {
+    pub version: u32,
+    pub instruction: String,
+    pub reply: String,
+    #[serde(default)]
+    pub added_feature: Option<String>,
+    #[serde(default)]
+    pub wired_controls: Vec<String>,
+    pub at: u64,
+}
+
+/// A scheduled instance of the app. Rendered to a Nomad job on promote;
+/// immutable image, short-TTL Vault database credentials.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Allocation {
+    pub id: String,
+    pub pool: String,
+    pub region: String,
+    pub image: String,
+    pub profile: String,
+    pub database: String,
+    pub credentials: String,
+    pub app_version: u32,
+    pub url: String,
+    pub healthy: bool,
+    pub deployed_at: u64,
+}
+
+/// The attestation a promotion carries: who co-signed, what the gate report
+/// said, and the platform reviewer's note (storyboard 1c's co-sign).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Attestation {
+    pub cosigner: String,
+    pub gate_summary: String,
+    pub reviewer_note: Option<String>,
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AppRecord {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub pack: String,
+    pub stage: Stage,
+    pub data_source: DataSource,
+    /// Compliance controls currently satisfied (gate ids). The scaffold
+    /// pre-wires some; iteration and "fix it for me" wire the rest.
+    pub controls: BTreeSet<String>,
+    /// Outbound endpoints the app calls; the ai-allowlist gate checks these.
+    pub external_calls: Vec<String>,
+    pub features: Vec<String>,
+    pub routes: u32,
+    pub addenda: Vec<Addendum>,
+    pub current_version: u32,
+    pub reviewer_note: Option<String>,
+    pub allocation: Option<Allocation>,
+    pub attestation: Option<Attestation>,
+    pub tenant: String,
+}
+
+impl AppRecord {
+    pub fn version_exists(&self, version: u32) -> bool {
+        self.addenda.iter().any(|a| a.version == version)
+    }
+}
+
+pub struct Platform {
+    pub packs: Vec<PackManifest>,
+    pub apps: HashMap<String, AppRecord>,
+    pub audit: AuditLog,
+    next_id: u64,
+}
+
+impl Platform {
+    pub fn new(packs: Vec<PackManifest>) -> Self {
+        Self {
+            packs,
+            apps: HashMap::new(),
+            audit: AuditLog::default(),
+            next_id: 1,
+        }
+    }
+
+    pub fn pack(&self, id: &str) -> Option<&PackManifest> {
+        self.packs.iter().find(|p| p.id == id)
+    }
+
+    /// Short, stable, non-guessable-enough ids for a Phase 0 control plane
+    /// (a1f3-style, like a Nomad alloc short id).
+    pub fn mint_id(&mut self, prefix: &str) -> String {
+        let n = self.next_id;
+        self.next_id += 1;
+        let mixed = n
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .rotate_left(17)
+            .wrapping_add(0x517c_c1b7);
+        format!("{prefix}-{:04x}", (mixed % 0xffff) as u16)
+    }
+}
+
+pub fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}

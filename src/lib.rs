@@ -1,8 +1,28 @@
-use axum::{
-    extract::Path,
-    routing::{get, post},
-    Json, Router,
-};
+//! Clinician platform control plane — Phase 0 slice.
+//!
+//! Doctors describe tools in natural language and receive running,
+//! HIPAA-scaffolded applications. The workflow is the fixed contract:
+//!
+//!   describe → generate → preview → iterate → gate → deploy → operate → audit
+//!
+//! Each module owns one verb and nothing else (the Tao, applied):
+//! the agent does not deploy, the deployer does not audit, the auditor
+//! does not schedule. This binary is one client-agnostic control-plane API;
+//! the doctor UI served at `/` holds no privileges the API doesn't offer.
+//!
+//! The original proof-service contract (`/health`, `/proof/:workload`)
+//! remains: this repo is still the proof that this backend slice deserves
+//! owned Rust — the gate engine is the Rust-owned boundary.
+
+pub mod agent;
+pub mod api;
+pub mod audit;
+pub mod deploy;
+pub mod gates;
+pub mod packs;
+pub mod state;
+
+use axum::{extract::Path, Json, Router};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -19,20 +39,19 @@ pub struct Proof {
     pub evidence: &'static str,
 }
 
+/// The full control plane with a fresh in-memory platform state.
 pub fn app() -> Router {
-    Router::new()
-        .route("/health", get(health))
-        .route("/proof/:workload", post(proof))
+    api::router()
 }
 
-async fn health() -> Json<Health> {
+pub(crate) async fn health() -> Json<Health> {
     Json(Health {
         status: "ok",
-        service: "rust-proof-service",
+        service: "clinician-platform-control-plane",
     })
 }
 
-async fn proof(Path(workload): Path<String>) -> Json<Proof> {
+pub(crate) async fn proof(Path(workload): Path<String>) -> Json<Proof> {
     Json(proof_for_workload(workload))
 }
 
@@ -42,7 +61,8 @@ pub fn proof_for_workload(workload: String) -> Proof {
         managed_default:
             "Use Supabase, Cloudflare, or an API first when they prove the workflow cheaply.",
         rust_boundary:
-            "Own Rust where replay, correctness, async state, or traceable proof matters.",
+            "Own Rust where replay, correctness, async state, or traceable proof matters — \
+             here: the gate engine, whose verdicts must be reproducible evidence.",
         evidence: "Add one test that proves the boundary under a meaningful failure.",
     }
 }

@@ -1,71 +1,91 @@
-# Rust Proof Service
+# Clinician Platform — Phase 0 control plane
 
-This is the learner-owned proof repo for the Async Backend Product Engineer Rust path. It is modeled after product quickstarts: run the service, prove one behavior, document the product decision, and open a reviewable artifact.
+Lovable for clinicians, on HashiStack + DigitalOcean. Doctors describe practice
+tools in natural language and receive running, HIPAA-scaffolded applications —
+with a **gate** between the sandbox and real patients. The gate step is the
+product: consumer builders go describe → deploy with nothing in between.
 
-The goal is not to prove that Rust is always the right tool. The goal is to prove when a backend slice deserves owned Rust instead of Supabase, Cloudflare, vendor APIs, or ordinary API glue.
+This repo is the Phase 0 slice of [RFC 0001](docs/rfc/0001-clinician-platform.md):
+a Rust control plane implementing the full workflow contract
 
-## First Win
+```
+describe -> generate -> preview -> iterate -> gate -> deploy -> operate -> audit
+```
 
-Before editing code, write three lines:
+with the [design wireframes](docs/design/) (storyboards 1a builder / 1b pipeline /
+1c clinical chart / 1d architecture) served as one wired doctor UI at `/`.
 
-1. customer workflow: the real workflow this repo protects,
-2. managed default: the hosted or simpler stack you would try first,
-3. Rust boundary: the exact reliability, replay, contract, async, traceability, or failure-handling risk that justifies this service.
-
-Use `docs/product-use-case.md` for the decision note.
+It is also still the proof repo it started as: the product decision note in
+[docs/product-use-case.md](docs/product-use-case.md) names the managed default
+(Lovable/Supabase glue — right for Tier 1–2 tools) and the Rust boundary (the
+gate engine and append-only audit pipeline, where a wrong answer is a
+reportable incident).
 
 ## Quickstart
 
 ```bash
-cp env.example .env
+cp env.example .env   # optional; runs without secrets
 cargo run
+# doctor UI:  http://127.0.0.1:3000/
 curl http://127.0.0.1:3000/health
 cargo test
 ```
 
 Expected proof:
 
-- `/health` returns a service status,
-- tests pass,
-- `docs/product-use-case.md` names the simpler stack and Rust boundary,
-- `docs/evidence-index.md` links the command output or CI run.
+- `/health` returns the control-plane status,
+- 12 tests pass, including the false-pass guard: an app with a failing
+  compliance check **cannot** be promoted (409, error names the check),
+- the whole workflow is drivable from curl ([docs/ops-runbook.md](docs/ops-runbook.md)) —
+  the UI holds no privileges the API doesn't offer.
 
 ## Docker Fallback
-
-Use this when the local Rust toolchain is missing or noisy:
 
 ```bash
 docker compose up --build
 ```
 
-In another terminal:
+## What's here
+
+| Piece | Path |
+|---|---|
+| Control plane API (15 routes, API-first) | `src/api.rs` |
+| Pack registry — signed HCL use-case packs | `src/packs.rs`, `packs/*/pack.hcl` |
+| Gate engine — compliance checks as plugins ★ the product | `src/gates.rs` |
+| Agent service — driver interface, rule-based Phase 0 driver | `src/agent.rs` |
+| Deploy service — promote on green + co-sign, renders Nomad jobs | `src/deploy.rs`, `nomad/templates/` |
+| Audit pipeline — append-only, JSONL export | `src/audit.rs` |
+| Doctor UI — wireframes 1a/1b/1c/1d, wired | `web/index.html` |
+| Infrastructure as code (Phase 1 substrate) | `terraform/prod/`, `packer/`, `vault/policies/` |
+| Plan + design + steering | `docs/rfc/`, `docs/design/`, `docs/hashicorp-steering.md` |
+
+## The workflow, from curl
 
 ```bash
-curl http://127.0.0.1:3000/health
+# describe → generate: sandbox pool, synthetic data only
+curl -s -X POST localhost:3000/api/apps -H 'content-type: application/json' \
+  -d '{"prompt":"post-op tracker for knee replacements","pack":"post-op-monitor","name":"post-op tracker"}'
+
+# gate: preflight comes back 5/6 — auto-logoff not wired
+curl -s localhost:3000/api/apps/post-op-tracker/gate
+
+# promote while failing → 409, deploy locked, error names the check
+# fix it for me → promote with a co-signature → prod pool allocation
+curl -s -X POST localhost:3000/api/apps/post-op-tracker/gate/auto-logoff/fix -H 'content-type: application/json' -d '{}'
+curl -s -X POST localhost:3000/api/apps/post-op-tracker/promote \
+  -H 'content-type: application/json' -d '{"cosigner":"Dr. A. Osei"}'
+
+# audit: the whole story, append-only
+curl -s localhost:3000/api/audit/export
 ```
 
-## Common Commands
+## Design authority
 
-```bash
-make run
-make test
-make check
-make proof
-```
-
-`make proof` prints the files a reviewer should inspect before accepting the assignment.
-
-## Product Workflow
-
-Name the customer workflow this repo protects.
-
-## Managed Default
-
-Name the Supabase, Cloudflare, or API path you would try first.
-
-## Rust Boundary
-
-Name the exact risk that makes owning Rust useful: replay, traceability, async state, correctness, or failure handling.
+The Tao of HashiCorp, applied literally — workflows not technologies,
+simple/modular/composable, immutability, codification, APIs first, pragmatism.
+Extension happens through three plugin points (packs, drivers, gates), never
+through forks of the core. We read the nomad/vault/packer/waypoint/boundary
+trees to steer the details: [docs/hashicorp-steering.md](docs/hashicorp-steering.md).
 
 ## Test
 
@@ -77,7 +97,8 @@ cargo test
 
 ## Proof
 
-Link the evidence rows in `docs/evidence-index.md`.
+`make proof` prints the reviewer checklist; evidence rows live in
+[docs/evidence-index.md](docs/evidence-index.md).
 
 ## Review And Support
 

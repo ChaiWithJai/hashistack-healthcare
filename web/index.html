@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinician Platform — Phase 0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Sketchy wireframe kit, carried over from the design export so the running
+   app and the storyboards read as the same object. */
+*{box-sizing:border-box}
+body{margin:0;background:#f0eee9;font-family:'Shantell Sans',system-ui,sans-serif;color:#2b2b2b;font-size:14px}
+a{color:#2a78d6}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid rgba(0,0,0,.08)}
+header h1{font-size:15px;margin:0}
+header .who{margin-left:auto;color:#888;font-size:12px}
+.skins{display:flex;gap:6px}
+.skins button{font:600 11px ui-monospace,Menlo,monospace;padding:4px 8px;background:rgba(0,0,0,.08);color:#1a1a1a;border:none;border-radius:5px;cursor:pointer}
+.skins button.on{background:#2a78d6;color:#fff}
+main{max-width:1080px;margin:22px auto;padding:0 20px}
+.scr{background:#fdfdfb;border:1.6px solid #2b2b2b;border-radius:255px 10px 225px 10px/10px 225px 10px 255px;display:flex;flex-direction:column;overflow:hidden;font-family:'Patrick Hand',cursive;font-size:15px;line-height:1.35}
+.bar{display:flex;align-items:center;gap:8px;border-bottom:1.4px solid #2b2b2b;padding:7px 12px;flex:none;font-family:'Shantell Sans',sans-serif;font-size:13px}
+.dot{width:8px;height:8px;border:1.4px solid #2b2b2b;border-radius:50%}
+.sk{border:1.4px solid #2b2b2b;border-radius:225px 6px 255px 6px/6px 255px 6px 225px;background:#fff}
+.ln{height:7px;background:#d7d4cc;border-radius:3px}
+.b{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1.4px solid #2b2b2b;border-radius:6px;padding:4px 11px;background:#fff;font-family:'Patrick Hand',cursive;font-size:14px;cursor:pointer}
+.b:disabled,.b.locked{opacity:.4;cursor:not-allowed}
+.bp{background:#2a78d6;color:#fff;border-color:#1c5aa8}
+.chip{display:inline-flex;align-items:center;border:1.3px dashed #666;border-radius:10px;padding:2px 10px;font-size:13px;background:#fff;cursor:pointer;font-family:'Patrick Hand',cursive}
+.chip.on{border-style:solid;border-color:#2a78d6}
+.tag{display:inline-flex;align-items:center;border-radius:4px;padding:1px 7px;font-size:11.5px;font-family:'Patrick Hand',cursive}
+.tg{background:#e2f0e7;color:#2e7048;border:1px solid #3a8f5d}
+.ty{background:#faeedd;color:#8a5a14;border:1px solid #d98a2b}
+.tb{background:#e3edfa;color:#1c5aa8;border:1px solid #2a78d6}
+.note{font-family:'Patrick Hand',cursive;font-size:13px;color:#8a5a14}
+.muted{color:#888;font-size:12px;font-family:'Shantell Sans',sans-serif}
+textarea,input[type=text]{font-family:'Patrick Hand',cursive;font-size:15px;border:1.4px solid #2b2b2b;border-radius:225px 6px 255px 6px/6px 255px 6px 225px;background:#fff;padding:8px 11px;width:100%;resize:vertical}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:8px}
+.split{display:flex;min-height:430px}
+.split>.left{width:42%;border-right:1.4px solid #2b2b2b;padding:12px;display:flex;flex-direction:column;gap:8px}
+.split>.right{flex:1;padding:14px;display:flex;flex-direction:column;gap:9px;position:relative}
+.rail{display:flex;gap:2px;font-size:11px;font-family:'Shantell Sans',sans-serif;justify-content:space-between;flex:1}
+.rail span{padding:2px 4px;color:#555;white-space:nowrap}
+.rail span.here{font-weight:600;color:#1a1a1a;border-bottom:2.5px solid #2a78d6}
+.rail span.clickable{cursor:pointer}
+.meter{width:230px;border-left:1.4px solid #2b2b2b;background:#f4f2ec;padding:10px;font-size:12.5px;font-family:'Shantell Sans',sans-serif;display:flex;flex-direction:column;gap:6px}
+.meter .track{height:9px}
+.meter .fill{height:100%;background:#2a78d6;border-radius:2px;transition:width .4s}
+.gline{display:flex;gap:6px;align-items:baseline}
+.gline .fixlink{color:#8a5a14;text-decoration:underline;cursor:pointer;margin-left:auto;font-size:11px}
+.pass{color:#2e7048}.fail{color:#8a5a14}
+.modalwrap{position:absolute;inset:0;background:#eceae4cc;display:flex;align-items:center;justify-content:center}
+.modal{background:#fff;border:1.6px solid #2b2b2b;border-radius:8px;padding:14px 18px;display:flex;flex-direction:column;gap:6px;width:min(480px,92%);font-family:'Patrick Hand',cursive}
+.drawer{border-top:1.4px solid #2b2b2b;background:#f4f2ec;padding:9px 14px;font-size:13px;display:flex;flex-direction:column;gap:4px;font-family:'Patrick Hand',cursive}
+.watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:44px;color:rgba(0,0,0,.07);transform:rotate(-18deg);font-family:'Patrick Hand',cursive;pointer-events:none}
+.msg{padding:5px 9px}
+.msg.dr{background:#eef3fb}
+.feature{padding:7px 10px}
+.applist button{width:100%;text-align:left;margin-bottom:6px}
+.arch{display:flex;flex-direction:column;gap:10px;font-family:'Patrick Hand',cursive;padding:20px}
+.arch .layer{padding:12px 16px}
+.arch .cells{display:flex;gap:10px;margin-top:8px}
+.arch .cells .sk{flex:1;padding:7px 10px;font-size:13.5px}
+.arch small{color:#777;font-size:12px;display:block}
+.arch .mid{text-align:center;color:#888}
+footer{max-width:1080px;margin:10px auto 40px;padding:0 20px;color:#999;font-size:11.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>practice tools</h1>
+  <nav class="skins" id="skins"></nav>
+  <span class="who">dr. osei · Meridian Family Practice · <a href="/api/audit/export">platform audit export</a></span>
+</header>
+<main id="main"></main>
+<footer>Phase 0 control plane — sandbox allocations are simulated in-process; every action above is an API call any other client could make.</footer>
+
+<script>
+"use strict";
+// One state machine, three skins. The skins change chrome and ritual, never
+// capability: all of them drive the same control-plane API.
+const SKINS = {a:"1a builder", b:"1b pipeline", c:"1c chart", d:"1d architecture"};
+const S = {
+  skin: "a",
+  packs: [],
+  packSel: null,
+  prompt: "",
+  apps: [],
+  appId: null,
+  app: null,
+  gate: null,          // {report, meter, reviewer_note}
+  audit: [],
+  operate: null,
+  scaffold: [],        // animated generate steps
+  generating: false,
+  modal: null,         // "preflight" | "cosign" | null
+  drawer: false,
+  stage: "describe",   // 1b rail position
+  review: null,        // reviewer note + report after /review
+  err: null,
+};
+
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path, opts) {
+  const r = await fetch(path, opts && {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(opts)});
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { S.err = body.error || r.statusText; render(); throw new Error(S.err); }
+  S.err = null;
+  return body;
+}
+
+async function loadHome() {
+  const [p, a] = await Promise.all([api("/api/packs"), api("/api/apps")]);
+  S.packs = p.packs; S.apps = a.apps;
+  if (!S.packSel && S.packs.length) S.packSel = S.packs[0].id;
+  render();
+}
+
+async function refreshApp() {
+  if (!S.appId) return;
+  const [app, gate, audit, operate] = await Promise.all([
+    api(`/api/apps/${S.appId}`),
+    api(`/api/apps/${S.appId}/gate`),
+    api(`/api/apps/${S.appId}/audit`),
+    api(`/api/apps/${S.appId}/operate`),
+  ]);
+  S.app = app; S.gate = gate; S.audit = audit.events; S.operate = operate;
+  render();
+}
+
+// ---------- actions ----------
+
+async function buildApp() {
+  const prompt = $("#prompt") ? $("#prompt").value.trim() : S.prompt;
+  if (!prompt || !S.packSel) return;
+  const pack = S.packs.find(p => p.id === S.packSel);
+  const name = prompt.length < 34 ? prompt : pack.name;
+  const res = await api("/api/apps", {prompt, pack: S.packSel, name});
+  S.appId = res.app.id; S.app = res.app;
+  S.scaffold = res.scaffold.map(s => ({...s, shown:false}));
+  S.generating = true; S.stage = "generate"; S.review = null;
+  render();
+  // Replay the scaffold steps so generate is watchable, like the storyboard.
+  S.scaffold.forEach((step, i) => setTimeout(() => {
+    step.shown = true;
+    if (i === S.scaffold.length - 1) { S.generating = false; S.stage = "preview"; refreshApp(); }
+    render();
+  }, 420 * (i + 1)));
+  await refreshApp();
+}
+
+async function iterate() {
+  const box = $("#reply"); const instruction = box && box.value.trim();
+  if (!instruction) return;
+  await api(`/api/apps/${S.appId}/iterate`, {instruction});
+  S.stage = "iterate";
+  await refreshApp();
+}
+
+async function fixGate(id) { await api(`/api/apps/${S.appId}/gate/${id}/fix`, {}); await refreshApp(); }
+async function restore(v) { await api(`/api/apps/${S.appId}/restore`, {version: v}); await refreshApp(); }
+async function runReview() { S.review = await api(`/api/apps/${S.appId}/review`, {}); S.stage = "gate"; await refreshApp(); }
+
+async function promote() {
+  const cosigner = $("#cosign") ? $("#cosign").value.trim() : "Dr. A. Osei";
+  try {
+    await api(`/api/apps/${S.appId}/promote`, {cosigner});
+    S.modal = null; S.stage = "operate";
+  } catch (e) { /* err already set; keep modal open so the lock is visible */ }
+  await refreshApp();
+}
+
+async function rollback() { await api(`/api/apps/${S.appId}/rollback`, {}); S.stage = "deploy"; await refreshApp(); }
+
+async function openApp(id) {
+  S.appId = id; S.scaffold = []; S.generating = false; S.review = null;
+  await refreshApp();
+  S.stage = S.app.stage === "live" ? "operate" : "iterate";
+  render();
+}
+function goHome() { S.appId = null; S.app = null; S.modal = null; loadHome(); }
+
+// ---------- shared fragments ----------
+
+const live = () => S.app && S.app.stage === "live";
+const badge = () => live()
+  ? `<span class="tag tg" style="margin-left:auto">LIVE · ${esc(S.app.allocation.url)}</span>`
+  : `<span class="tag ty" style="margin-left:auto">SANDBOX · synthetic data</span>`;
+
+function meterHtml(withFix) {
+  if (!S.gate) return "";
+  if (live()) {
+    // Preflight is a sandbox instrument; once live, the receipt is the
+    // attestation pinned to the deploy, not a re-run of the checks.
+    return `<b>Gate at release: ${esc(S.app.attestation.gate_summary)} ✓</b>
+      <div class="sk track"><div class="fill" style="width:100%"></div></div>
+      <div class="muted">co-signed ${esc(S.app.attestation.cosigner)} — attached to deploy v${S.app.allocation.app_version} in the audit record</div>`;
+  }
+  const r = S.gate.report;
+  const rows = r.results.map(g => {
+    const ok = g.status === "pass";
+    const fix = withFix && !ok && g.fixable ? `<span class="fixlink" onclick="fixGate('${g.id}')">fix</span>` : "";
+    return `<div class="gline ${ok ? "pass" : "fail"}">${ok ? "✓" : "○"} ${esc(g.title)}${fix}</div>`;
+  }).join("");
+  return `<b>Compliance ${r.passed}/${r.total}</b>
+    <div class="sk track"><div class="fill" style="width:${r.total ? Math.max(4, 100*r.passed/r.total) : 4}%"></div></div>
+    ${rows}
+    <div class="muted">${r.green ? "all green — promote unlocks below" : "checks fill in as you build — deploy unlocks at " + r.total + "/" + r.total}</div>`;
+}
+
+function versionChips() {
+  if (!S.app) return "";
+  return S.app.addenda.map(a =>
+    `<span class="chip ${a.version === S.app.current_version ? "on" : ""}" onclick="restore(${a.version})" title="${esc(a.instruction)}">v${a.version}${a.version === S.app.current_version ? " ✓" : ""}</span>`
+  ).join(" ");
+}
+
+function chatHtml() {
+  const turns = S.app.addenda.map(a => `
+    <div class="sk msg dr">"${esc(a.instruction)}"</div>
+    <div>${esc(a.reply)}</div>`).join("");
+  return `${turns}
+    <div style="margin-top:auto" class="row">
+      <input type="text" id="reply" placeholder="reply…" style="flex:1" onkeydown="if(event.key==='Enter')iterate()">
+      <button class="b" onclick="iterate()">send</button>
+    </div>`;
+}
+
+function previewHtml() {
+  const feats = S.app.features.map(f => `<div class="sk feature">${esc(f)}</div>`).join("");
+  return `<div class="ln" style="width:58%"></div>${feats}`;
+}
+
+function auditRows(limit) {
+  const evs = [...S.audit].reverse().slice(0, limit || 8);
+  return evs.map(e => {
+    const t = new Date(e.at * 1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    return `<div class="sk" style="padding:4px 9px;font-size:13px">${t} · ${esc(e.actor)} · ${esc(e.detail)}</div>`;
+  }).join("");
+}
+
+function describeHtml(title, protocolLabel, cta) {
+  const chips = S.packs.map(p =>
+    `<span class="chip ${S.packSel === p.id ? "on" : ""}" onclick="S.packSel='${p.id}';S.prompt=document.querySelector('#prompt').value;render()" title="${esc(p.description)}">${esc(p.name)}${S.packSel === p.id ? " ✓" : ""}</span>`).join(" ");
+  const appButtons = S.apps.length ? `
+    <div class="muted" style="margin-top:14px">or open an existing tool:</div>
+    <div class="applist">${S.apps.map(a => `<button class="b" onclick="openApp('${a.id}')">${esc(a.name)} <span class="tag ${a.stage === "live" ? "tg" : "ty"}">${a.stage}</span></button>`).join("")}</div>` : "";
+  return `
+  <div class="scr">
+    <div class="bar"><span class="dot"></span><b>${title}</b><span style="margin-left:auto" class="muted">dr. osei · Meridian Family Practice</span></div>
+    <div class="col" style="padding:18px 22px">
+      <div>What do you want to build?</div>
+      <textarea id="prompt" rows="2" placeholder='"a post-op recovery tracker for my knee replacement patients"'>${esc(S.prompt)}</textarea>
+      <div class="muted">${protocolLabel}</div>
+      <div class="row">${chips}</div>
+      <div class="row" style="justify-content:flex-end"><button class="b bp" onclick="buildApp()">${cta}</button></div>
+      ${appButtons}
+    </div>
+  </div>`;
+}
+
+function errHtml() {
+  return S.err ? `<div class="note" style="margin:8px 2px">⚠ ${esc(S.err)}</div>` : "";
+}
+
+// ---------- skin 1a: builder workspace ----------
+
+function viewBuilder() {
+  if (!S.app) return describeHtml("New app", "Start from a pack (pre-wired for HIPAA):", "Build it →");
+
+  const genPane = S.generating || S.scaffold.some(s => !s.shown)
+    ? S.scaffold.map(s => s.shown ? `<div>✓ ${esc(s.label)}</div>` : `<div style="color:#888">▍building…</div>`).join("")
+    : chatHtml();
+
+  const drawer = S.drawer ? `
+    <div class="drawer">
+      <div class="row"><b>⌄ Under the hood</b><span class="muted" style="margin-left:auto">read-only</span></div>
+      <div>runtime: <b>web</b> · image ${live() ? esc(S.app.allocation.image) : "client-v2026.07.1"} · region nyc3 · pool ${live() ? "prod" : "sandbox"}</div>
+      <div>routes: ${S.app.routes} — <span class="tag tg">all ${S.app.routes} hipaa-core wired</span> · encryption keys: Vault ✓</div>
+      <div>data: ${S.app.data_source.kind === "synthetic" ? `synthetic set "${esc(S.app.data_source.name)}" — no real PHI can reach this box` : `tenant database ${esc(S.app.data_source.name)} — every access logged`}</div>
+    </div>` : "";
+
+  const preflight = S.modal === "preflight" && S.gate ? (() => {
+    const r = S.gate.report;
+    const rows = r.results.map(g => g.status === "pass"
+      ? `<div class="pass">✓ ${esc(g.title)}</div>`
+      : `<div class="fail">✗ ${esc(g.title)} — ${esc(g.reason)} ${g.fixable ? `<button class="b" style="font-size:12px;padding:1px 8px" onclick="fixGate('${g.id}')">fix it for me</button>` : ""}</div>`).join("");
+    const needsReview = r.results.some(g => g.id === "human-review" && g.status !== "pass");
+    return `<div class="modalwrap"><div class="modal">
+      <b>Preflight — ${r.total} checks before real patients</b>
+      ${rows}
+      ${needsReview ? `<button class="b" onclick="runReview()">request platform review</button>` : ""}
+      ${S.gate.reviewer_note ? `<div class="sk" style="padding:5px 9px;background:#f4f2ec;font-size:13px">"${esc(S.gate.reviewer_note)}" — platform reviewer</div>` : ""}
+      <div class="row" style="margin-top:6px">
+        <input type="text" id="cosign" placeholder="co-sign: Dr. A. Osei" style="flex:1">
+        <button class="b bp ${r.green ? "" : "locked"}" ${r.green ? "" : "disabled"} onclick="promote()">${r.green ? "Deploy →" : `Deploy — locked (${r.total - r.passed} failing)`}</button>
+      </div>
+      <span class="fixlink" style="margin-left:0" onclick="S.modal=null;render()">close</span>
+    </div></div>`;
+  })() : "";
+
+  const operatePane = live() ? `
+    <div class="row">
+      <div class="sk" style="flex:1;padding:6px 10px">uptime <b>${S.operate.metrics.uptime_pct}%</b></div>
+      <div class="sk" style="flex:1;padding:6px 10px">p95 <b>${S.operate.metrics.p95_ms}ms</b></div>
+      <div class="sk" style="flex:1;padding:6px 10px">allocation <b>${esc(S.app.allocation.id)}</b></div>
+    </div>
+    <b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Who touched what</b>
+    ${auditRows(6)}
+    <div class="row">
+      <a class="b" style="font-size:12.5px" href="/api/apps/${S.appId}/export">export app (no hostage code)</a>
+      <a class="b" style="font-size:12.5px" href="/api/audit/export">export audit log</a>
+      <button class="b" style="font-size:12.5px" onclick="rollback()">rollback</button>
+    </div>` : previewHtml();
+
+  return `
+  <div class="scr">
+    <div class="bar"><span class="dot"></span>${esc(S.app.name)} ${badge()}
+      <span style="display:flex;gap:4px;margin-left:10px">${versionChips()}</span>
+    </div>
+    <div class="split">
+      <div class="left">${genPane}</div>
+      <div class="right">${operatePane}${preflight}</div>
+    </div>
+    ${drawer}
+    <div class="bar" style="border-top:1.4px solid #2b2b2b;border-bottom:none">
+      <button class="b" onclick="goHome()">← apps</button>
+      <button class="b" onclick="S.drawer=!S.drawer;render()">${S.drawer ? "⌃ hide" : "⌄ under the hood"}</button>
+      ${live() ? "" : `<button class="b bp" style="margin-left:auto" onclick="S.modal='preflight';render()">Preflight & deploy</button>`}
+    </div>
+  </div>`;
+}
+
+// ---------- skin 1b: pipeline ----------
+
+const STAGES = ["describe","generate","preview","iterate","gate","deploy","operate","audit"];
+
+function railHtml() {
+  return `<div class="rail">${STAGES.map(s =>
+    `<span class="${s === S.stage ? "here" : ""} ${S.app ? "clickable" : ""}" onclick="${S.app ? `S.stage='${s}';render()` : ""}">${s}</span>`).join("")}</div>`;
+}
+
+function viewPipeline() {
+  if (!S.app) return `
+    <div class="scr">
+      <div class="bar">${railHtml()}</div>
+      <div style="display:flex">
+        <div class="col" style="flex:1;padding:16px 20px">
+          <div>Describe the tool:</div>
+          <textarea id="prompt" rows="2" placeholder='"insurance verification helper for front desk"'>${esc(S.prompt)}</textarea>
+          <div class="row">${S.packs.map(p => `<span class="chip ${S.packSel === p.id ? "on" : ""}" onclick="S.packSel='${p.id}';S.prompt=document.querySelector('#prompt').value;render()">${esc(p.name)}${S.packSel === p.id ? " ✓" : ""}</span>`).join(" ")}</div>
+          <button class="b bp" style="align-self:flex-start" onclick="buildApp()">next: generate →</button>
+          ${S.apps.length ? `<div class="muted" style="margin-top:10px">open existing:</div><div class="applist">${S.apps.map(a => `<button class="b" onclick="openApp('${a.id}')">${esc(a.name)} <span class="tag ${a.stage === "live" ? "tg" : "ty"}">${a.stage}</span></button>`).join("")}</div>` : ""}
+        </div>
+        <div class="meter"><b>Compliance 0/–</b><div class="sk track"><div class="fill" style="width:4%"></div></div><div class="muted">checks fill in as you build — deploy unlocks when all green</div></div>
+      </div>
+    </div>`;
+
+  let body;
+  if (S.stage === "generate" || (S.generating && S.scaffold.length)) {
+    body = `<div class="col" style="flex:1;padding:14px">${S.scaffold.map(s => s.shown ? `<div>✓ ${esc(s.label)}</div>` : `<div style="color:#888">▍building…</div>`).join("") || previewHtml()}</div>`;
+  } else if (S.stage === "describe" || S.stage === "preview") {
+    body = `<div class="col" style="flex:1;padding:14px">${previewHtml()}</div>`;
+  } else if (S.stage === "iterate") {
+    body = `<div class="col" style="flex:1;padding:14px">${chatHtml()}
+      ${S.app.addenda.length > 1 ? `<div class="row">${versionChips()}</div>` : ""}</div>`;
+  } else if (S.stage === "gate") {
+    const r = S.gate.report;
+    const needsReview = r.results.some(g => g.id === "human-review" && g.status !== "pass");
+    body = `<div class="col" style="flex:1;padding:16px 20px">
+      <div><b>Compliance ${r.passed}/${r.total}</b> ${r.green ? '<span class="tag tg">all green</span> — you cleared these as you built.' : `<span class="tag ty">${r.total - r.passed} open</span> — fix from the meter, then promote.`}</div>
+      ${needsReview ? `<button class="b" style="align-self:flex-start" onclick="runReview()">request platform review</button>` : ""}
+      ${S.gate.reviewer_note ? `<div class="sk" style="padding:5px 9px;background:#f4f2ec">"${esc(S.gate.reviewer_note)}" — platform reviewer</div>` : ""}
+      <div class="sk" style="padding:8px 12px;font-size:13.5px">
+        <b>What changes when you promote:</b><br>
+        · moves sandbox → production pool (real data allowed)<br>
+        · gets its own encrypted database + Vault keys<br>
+        · URL: ${esc(S.app.id)}.meridian.app · every access logged
+      </div>
+      <div class="row"><input type="text" id="cosign" placeholder="co-sign: Dr. A. Osei" style="max-width:240px">
+      <button class="b bp ${r.green && !live() ? "" : "locked"}" ${r.green && !live() ? "" : "disabled"} onclick="promote()">Promote to production →</button></div>
+      <div class="note">↖ gate isn't a wall here — it's a receipt</div>
+    </div>`;
+  } else if (S.stage === "deploy") {
+    body = live() ? `<div class="col" style="flex:1;padding:16px 20px">
+      <div class="sk" style="padding:8px 12px">
+        <b>allocation</b> ${esc(S.app.allocation.id)} · ${esc(S.app.allocation.pool)} pool · ${esc(S.app.allocation.region)}<br>
+        image ${esc(S.app.allocation.image)} (immutable) · profile: <b>${esc(S.app.allocation.profile)}</b><br>
+        db: managed pg / ${esc(S.app.allocation.database)} · creds: ${esc(S.app.allocation.credentials)}
+      </div>
+      <div class="row"><span class="tag tg">healthy</span><span class="tag tb">v${S.app.allocation.app_version} · gate ${esc(S.app.attestation.gate_summary)} attached</span></div>
+      <div class="row"><button class="b" onclick="rollback()">rollback</button><a class="b" href="/api/apps/${S.appId}/export">export (Render / Kamal)</a></div>
+    </div>` : `<div class="col" style="flex:1;padding:16px 20px"><div class="muted">nothing deployed yet — clear the gate first</div></div>`;
+  } else { // operate + audit split
+    body = `<div style="display:flex;flex:1;min-height:0">
+      <div class="col" style="flex:1;padding:12px"><b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Operate</b>
+        <div class="sk" style="padding:4px 9px">uptime ${S.operate.metrics.uptime_pct}% · p95 ${S.operate.metrics.p95_ms}ms</div>
+        <div class="sk" style="padding:4px 9px">${live() ? `allocation ${esc(S.app.allocation.id)} healthy` : "no live allocation"}</div>
+      </div>
+      <div class="col" style="flex:1.2;border-left:1.4px solid #2b2b2b;padding:12px"><b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Audit</b>
+        ${auditRows(7)}
+        <a class="b" style="align-self:flex-start;font-size:12px" href="/api/audit/export">export for security review</a>
+      </div>
+    </div>`;
+  }
+
+  return `
+  <div class="scr">
+    <div class="bar">${railHtml()}</div>
+    <div style="display:flex;min-height:430px">
+      <div style="flex:1;display:flex;flex-direction:column">${badgeRow()}${body}</div>
+      <div class="meter">${meterHtml(true)}</div>
+    </div>
+    <div class="bar" style="border-top:1.4px solid #2b2b2b;border-bottom:none"><button class="b" onclick="goHome()">← apps</button><span class="muted" style="margin-left:auto">${esc(S.app.name)}</span></div>
+  </div>`;
+}
+function badgeRow() {
+  return `<div class="row" style="padding:8px 14px 0">${live() ? `<span class="tag tg">LIVE · ${esc(S.app.allocation.url)}</span>` : `<span class="tag ty">sandbox · synthetic data</span>`}</div>`;
+}
+
+// ---------- skin 1c: clinical chart ----------
+
+function viewChart() {
+  if (!S.app) return describeHtml("New order — practice tools", "Protocol (evidence-based starting point):", "Place order");
+
+  if (live()) {
+    const weekAccesses = S.audit.length;
+    return `
+    <div class="scr">
+      <div class="bar"><span class="dot"></span>${esc(S.app.name)} <span class="tag tg" style="margin-left:auto">IN USE</span></div>
+      <div class="col" style="padding:16px 20px">
+        <div>Working normally. Used by <b>your practice</b> · release v${S.app.attestation ? S.app.allocation.app_version : "?"} co-signed by <b>${esc(S.app.attestation.cosigner)}</b>.</div>
+        <div class="row">
+          <div class="sk" style="flex:1;padding:8px 12px">review on record<br><b>"${esc((S.app.attestation.reviewer_note || "").slice(0, 60))}…"</b></div>
+          <div class="sk" style="flex:1;padding:8px 12px">recorded events<br><b>${weekAccesses}</b></div>
+        </div>
+        <div class="muted">Something wrong? describe it below — fixes go through review again.</div>
+        <div class="row"><input type="text" id="reply" placeholder="describe the problem…" style="flex:1" onkeydown="if(event.key==='Enter'){rollback().then(()=>iterate())}"></div>
+        <b style="font-family:'Shantell Sans',sans-serif;font-size:12px;margin-top:8px">Access record — every look at patient data is recorded, same idea as chart access logs</b>
+        ${auditRows(6)}
+        <div class="row"><a class="b" style="font-size:12.5px" href="/api/audit/export">export record</a><button class="b" style="font-size:12.5px" onclick="rollback()">withdraw from use</button></div>
+      </div>
+    </div>`;
+  }
+
+  const addenda = [...S.app.addenda].reverse().map(a => `
+    <div class="sk" style="padding:6px 10px;${a.version === 1 ? "opacity:.6" : ""}">
+      <b>addendum ${a.version}</b> · ${new Date(a.at * 1000).toLocaleString([], {hour:"2-digit", minute:"2-digit"})} — "${esc(a.instruction)}" ✓
+      ${a.version !== S.app.current_version && a.version !== 1 ? `<span class="fixlink" onclick="restore(${a.version})">revert here</span>` : ""}
+    </div>`).join("");
+
+  const cosign = S.review ? (() => {
+    const ok = S.review.report.green && S.gate && S.gate.report.green;
+    return `
+    <div class="sk" style="padding:10px 14px;background:#fff">
+      <div class="row"><span class="sk" style="width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center">🛡</span>
+      <div><b>Compliance review</b><br><span class="muted">automated · attestation attached to record</span></div></div>
+      <div style="margin-top:6px">${S.gate.report.results.map(g => `<span class="${g.status === "pass" ? "pass" : "fail"}">${g.status === "pass" ? "✓" : "✗"} ${esc(g.title)}</span>`).join(" &nbsp; ")}</div>
+      <div class="sk" style="padding:5px 9px;background:#f4f2ec;margin-top:6px">"${esc(S.review.reviewer_note)}" — platform reviewer</div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="cosign" placeholder="Dr. A. Osei" style="max-width:200px;border-width:0 0 1.4px 0;border-radius:0">
+        <button class="b bp ${ok ? "" : "locked"}" ${ok ? "" : "disabled"} onclick="promote()">Co-sign &amp; release</button>
+        ${ok ? "" : `<span class="note">not ready — open items remain</span>`}
+      </div>
+    </div>` })() : "";
+
+  return `
+  <div class="scr">
+    <div class="bar"><span class="dot"></span>${esc(S.app.name)} — history <span class="tag ty" style="margin-left:auto">DRAFT — test patients only</span></div>
+    <div class="split">
+      <div class="left">
+        ${addenda}
+        <div class="row" style="margin-top:auto">
+          <input type="text" id="reply" placeholder="add an addendum…" style="flex:1" onkeydown="if(event.key==='Enter')iterate()">
+          <button class="b" onclick="iterate()">add</button>
+        </div>
+        <button class="b bp" onclick="runReview()">request co-sign →</button>
+      </div>
+      <div class="right">
+        <div class="watermark">UNSIGNED DRAFT</div>
+        ${previewHtml()}
+        ${cosign}
+      </div>
+    </div>
+    <div class="bar" style="border-top:1.4px solid #2b2b2b;border-bottom:none"><button class="b" onclick="goHome()">← orders</button></div>
+  </div>`;
+}
+
+// ---------- skin 1d: architecture ----------
+
+function viewArch() {
+  return `
+  <div class="scr"><div class="arch">
+    <div class="sk layer" style="background:#fdfdfb">
+      <b style="font-family:'Shantell Sans',sans-serif;font-size:12.5px">APPLICATION LAYER — what the doctor touches</b>
+      <div class="cells">
+        <div class="sk">doctor UI<small>one client, no privileges</small></div>
+        <div class="sk">agent loop<small>generates, never deploys</small></div>
+        <div class="sk">pack registry<small>signed packs only</small></div>
+        <div class="sk" style="border-color:#2a78d6;border-width:2.2px">gate engine ★<small>the product</small></div>
+        <div class="sk">audit pipeline<small>append-only</small></div>
+      </div>
+      <div class="mid" style="margin-top:8px;font-size:12px">— all of the above are clients of one control-plane API (this server) —</div>
+    </div>
+    <div class="mid">↓ schedules &amp; secures ↓</div>
+    <div class="sk layer" style="background:#f4f2ec">
+      <b style="font-family:'Shantell Sans',sans-serif;font-size:12.5px">PLATFORM LAYER — HashiStack</b>
+      <div class="cells">
+        <div class="sk" style="background:#fff">Nomad<small>scheduler · task drivers = isolation swap point</small></div>
+        <div class="sk" style="background:#fff">Vault<small>per-tenant keys · dynamic db creds · audit log</small></div>
+        <div class="sk" style="background:#fff">ingress router</div>
+        <div class="sk" style="background:#fff">control db + object store</div>
+      </div>
+      <div class="cells">
+        <div class="sk" style="background:#faeedd;border-style:dashed"><b>SANDBOX POOL</b> — untrusted generated code<small>synthetic data only · <b>no route to prod databases</b> · docker → microVM later (driver swap, doctor never notices)</small></div>
+        <div style="display:flex;align-items:center;color:#2a78d6"><b>—gate→</b></div>
+        <div class="sk" style="background:#e2f0e7;border-style:dashed"><b>PROD POOL</b> — promoted apps only<small>only pool with tenant Postgres access · real PHI lives here, under BAA</small></div>
+      </div>
+    </div>
+    <div class="mid">↓ Terraform-managed, Packer-imaged, immutable ↓</div>
+    <div class="sk layer" style="background:#fdfdfb">
+      <b style="font-family:'Shantell Sans',sans-serif;font-size:12.5px">INFRASTRUCTURE — DigitalOcean, under BAA</b>
+      <div class="cells">
+        <div class="sk">VPC per env</div>
+        <div class="sk">Droplets (3 control + pools)</div>
+        <div class="sk">managed Postgres · per-tenant db</div>
+        <div class="sk">Spaces (encrypted uploads)</div>
+        <div class="sk">Load Balancer (single ingress)</div>
+      </div>
+    </div>
+    <div class="note" style="text-align:right">everything above the platform layer is swappable without the doctor noticing — that's the point</div>
+  </div></div>`;
+}
+
+// ---------- render ----------
+
+function render() {
+  $("#skins").innerHTML = Object.entries(SKINS).map(([k, label]) =>
+    `<button class="${S.skin === k ? "on" : ""}" onclick="S.skin='${k}';render()">${label}</button>`).join("");
+  const view = {a: viewBuilder, b: viewPipeline, c: viewChart, d: viewArch}[S.skin];
+  $("#main").innerHTML = errHtml() + view();
+}
+
+loadHome();
+</script>
+</body>
+</html>

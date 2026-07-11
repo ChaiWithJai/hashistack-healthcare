@@ -1,0 +1,66 @@
+//! Audit pipeline: append-only. Everything reads from here — the doctor's
+//! "who touched what" view and the hospital's security-review export are the
+//! same stream. No service may edit or delete an event; there is deliberately
+//! no API for it.
+
+use serde::Serialize;
+
+use crate::state::now_unix;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AuditEvent {
+    pub seq: u64,
+    pub at: u64,
+    pub actor: String,
+    pub action: String,
+    pub detail: String,
+    pub app_id: Option<String>,
+}
+
+#[derive(Default)]
+pub struct AuditLog {
+    events: Vec<AuditEvent>,
+}
+
+impl AuditLog {
+    /// The only write path. Returns the sequence number as a receipt.
+    pub fn record(
+        &mut self,
+        actor: &str,
+        action: &str,
+        detail: impl Into<String>,
+        app_id: Option<&str>,
+    ) -> u64 {
+        let seq = self.events.len() as u64 + 1;
+        self.events.push(AuditEvent {
+            seq,
+            at: now_unix(),
+            actor: actor.to_string(),
+            action: action.to_string(),
+            detail: detail.into(),
+            app_id: app_id.map(str::to_string),
+        });
+        seq
+    }
+
+    pub fn events(&self) -> &[AuditEvent] {
+        &self.events
+    }
+
+    pub fn for_app(&self, app_id: &str) -> Vec<&AuditEvent> {
+        self.events
+            .iter()
+            .filter(|e| e.app_id.as_deref() == Some(app_id))
+            .collect()
+    }
+
+    /// JSON-lines export for a security review — one event per line, in
+    /// sequence order, suitable for diffing against a prior export.
+    pub fn export_jsonl(&self) -> String {
+        self.events
+            .iter()
+            .map(|e| serde_json::to_string(e).expect("audit event serializes"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}

@@ -1,0 +1,67 @@
+# Rendered by the deploy service on promotion. Never hand-edited:
+# a config change is a new render + new allocation, not a patch in place.
+#
+# {{app_id}}-style tokens are filled by the deploy service; the
+# {{ with secret … }} blocks are consul-template syntax, passed through
+# verbatim for the Nomad client to resolve against Vault at runtime.
+job "{{app_id}}" {
+  type        = "service"
+  region      = "global"
+  datacenters = ["{{region}}"]
+  namespace   = "tenant-{{tenant}}"
+
+  constraint {
+    attribute = "${meta.role}"
+    value     = "prod"
+  }
+
+  group "app" {
+    count = 1
+
+    network {
+      port "http" { to = 8080 }
+    }
+
+    service {
+      name     = "{{app_id}}"
+      port     = "http"
+      provider = "nomad"
+      tags     = ["urlprefix-{{url}}", "gate-{{gate_summary}}"]
+      check {
+        type     = "http"
+        path     = "/health"
+        interval = "10s"
+        timeout  = "2s"
+      }
+    }
+
+    task "web" {
+      driver = "docker" # isolation swap point: firecracker/gvisor is a driver change only
+
+      config {
+        image = "{{image}}"
+      }
+
+      vault {
+        policies = ["tenant-{{tenant}}-transit", "tenant-{{tenant}}-db"]
+      }
+
+      template {
+        # Dynamic Postgres creds, 1h TTL, auto-revoked when the allocation stops.
+        data        = <<EOT
+{{ with secret "database/creds/tenant-{{tenant}}" }}
+DATABASE_URL=postgres://{{ .Data.username }}:{{ .Data.password }}@postgres.internal:5432/{{database}}
+{{ end }}
+EOT
+        destination = "secrets/db.env"
+        env         = true
+      }
+
+      env {
+        APP_VERSION  = "{{app_version}}"
+        HIPAA_CORE   = "enabled"
+        AUDIT_STREAM = "https://audit.internal/ingest"
+      }
+    }
+  }
+}

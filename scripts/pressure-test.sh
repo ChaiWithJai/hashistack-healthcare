@@ -88,11 +88,15 @@ check "reviewer attests"  "$REVIEW" 'Meets release criteria'
 LIVE2=$(post "/api/apps/$ID2/promote" '{"cosigner":"Dr. A. Osei"}')
 check "9/9 attested"      "$LIVE2" '"gate_summary":"9/9"'
 
-echo "-- export renders a prod-pinned Nomad job"
+echo "-- eject: an owned bundle, docs from the record, prod-pinned Nomad job"
 EXPORT=$(get "/api/apps/$ID/export")
 check "job rendered"      "$EXPORT" "job \\\"$ID\\\""
 check "prod constraint"   "$EXPORT" 'value     = \"prod\"'
 check "no raw tokens"     "$(echo "$EXPORT" | grep -c '{{app_id}}' || true)" "0"
+check "compliance doc in bundle" "$EXPORT" '"docs/COMPLIANCE.md"'
+check "readme tells their story" "$EXPORT" 'post-op recovery tracker for my knee replacement patients'
+check "app becomes a template"   "$EXPORT" "$ID-template"
+check "unpack one-liner ships"   "$EXPORT" 'python3 -c'
 
 echo "-- rollback destroys the allocation"
 BACK=$(post "/api/apps/$ID/rollback")

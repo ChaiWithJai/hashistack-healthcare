@@ -13,6 +13,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::agent::{AgentDriver, RuleBasedDriver, ScaffoldStep};
 use crate::deploy;
+use crate::eject;
 use crate::gates;
 use crate::packs;
 use crate::state::{now_unix, Addendum, AppRecord, DataSource, Platform, SharedPlatform, Stage};
@@ -491,20 +492,35 @@ async fn app_audit(
     Ok(Json(json!({ "events": plat.audit.for_app(&id) })))
 }
 
+/// Ejection (#11): the whole app as an owned, documented, extendable bundle.
+/// Docs are generated from the doctor's record; live apps embed the release
+/// attestation, sandbox apps export too but marked draft — not released.
 async fn export_app(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
-) -> ApiResult<serde_json::Value> {
-    let plat = platform.read().unwrap();
-    let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
-    let job = deploy::render_job(app).map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-    Ok(Json(json!({
-        "nomad_job": job,
-        // TODO(#11): this string is a promise, not a payload. Ejection ships
-        // the generated source, the doctor's own docs (prompt + addenda +
-        // gate report + attestation), and deploy manifests per target.
-        "portability": "exports as the monorepo shape: Dockerfile + render.yaml / fly.toml / kamal deploy.yml — no hostage code",
-    })))
+) -> ApiResult<eject::EjectionBundle> {
+    let mut plat = platform.write().unwrap();
+    let app = plat
+        .apps
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| not_found("app"))?;
+    let pack = plat
+        .pack(&app.pack)
+        .cloned()
+        .ok_or_else(|| not_found("pack"))?;
+    let bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
+    plat.audit.record(
+        DOCTOR,
+        "app.exported",
+        format!(
+            "ejection bundle: {} files, docs from the record, pack {}-template derived — no hostage code",
+            bundle.files.len(),
+            app.id
+        ),
+        Some(&id),
+    );
+    Ok(Json(bundle))
 }
 
 async fn export_audit(State(platform): State<SharedPlatform>) -> impl IntoResponse {

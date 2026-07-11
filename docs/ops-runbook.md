@@ -70,7 +70,8 @@ control plane (and only then — unset, behavior is exactly the simulation):
 - a failed submission reverts the whole promotion (HTTP 502), so the record
   never claims "live" when real infrastructure said no.
 - the audit stream gains `nomad.job_submitted`, `vault.transit_verified`,
-  and `nomad.job_stopped` events as evidence.
+  and `nomad.job_stopped` events as evidence — and, with the control DB
+  attached, the #9 events below.
 
 Verify from the Nomad side directly:
 
@@ -94,14 +95,80 @@ Staging caveats (deliberate, documented):
 - CI: `staging-hashistack` (.github/workflows/staging.yml) runs this nightly
   and on demand; every PR still runs the simulated pressure test (ci.yml).
 
+## Vault (#9): dynamic DB creds, per-tenant policies, audit device
+
+With `VAULT_ADDR`+`VAULT_TOKEN` AND `CONTROL_DB_URL` set (staging-up.sh sets
+all three), the RFC's "compliance spine" claims become exercised facts:
+
+- **staging-up.sh wires Vault's database engine to the staging Postgres**:
+  connection `database/config/staging-postgres` (the control-DB superuser as
+  root credential) and role `tenant-app` — a creation template granting
+  login + CRUD on the tenant/control DB, `default_ttl=1h`, `max_ttl=2h`.
+  Host auth is scram-sha-256 (trust is tightened at boot), so password
+  checks below are real, not vacuous.
+- **promote issues per-allocation dynamic creds** (`database/creds/
+  tenant-app`) and VERIFIES them before recording anything: the control
+  plane opens a one-shot connection AS the issued user and runs `SELECT 1`.
+  The allocation's placeholder `credentials` string is replaced by the real
+  lease (`vault_lease_id`, `vault_db_username`, `vault_lease_ttl_secs`);
+  audit gains `vault.db_creds_issued`. The password is quarantined in
+  `hashi::DbLease` — never on the allocation, the audit stream, or any
+  durable surface (a cargo test greps an audit export to hold this).
+- **rollback revokes the lease and PROVES it** (`sys/leases/revoke`, only
+  after Nomad accepted the stop — #2's refusal semantics): the issued user
+  must fail to authenticate and must be gone from `pg_roles` (the engine's
+  revocation drops the role), or the rollback errors. Audit gains
+  `vault.lease_revoked`. Proof shape, honestly: the control plane retains
+  no password (secrets never persist; a kill -9 sits between promote and
+  rollback in the pressure test), so its proof is login-failure +
+  role-absence; the pressure test additionally holds a **sibling lease's
+  password** end-to-end and asserts the literal authenticate-then-fail.
+- **tenant first-promote mounts the tenant's ACL policy**: the rendered
+  `vault/policies/tenant-app.hcl` lands at `sys/policies/acl/tenant-
+  <tenant>`, naming the exact transit + database paths; audit gains
+  `vault.policy_mounted` and the pressure test reads the policy back.
+- **Vault's file audit device is on from first boot**
+  (`.staging/logs/vault-audit.log`) — the Vault audit log is itself the
+  HIPAA technical-safeguard artifact (RFC 0001); staging refuses to come up
+  without it, and the pressure test asserts it carries the transit request
+  path after a promote.
+- **rotate-proof**: the pressure test encrypts, rotates the tenant transit
+  key (`transit/keys/<key>/rotate`), and decrypts the pre-rotation
+  ciphertext intact — key versioning means rotation never strands data.
+
+Inspect the evidence directly:
+
+```bash
+export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=staging-root
+.staging/bin/vault policy read tenant-meridian        # the mounted policy
+.staging/bin/vault read database/creds/tenant-app     # mint a lease yourself
+.staging/bin/vault list sys/leases/lookup/database/creds/tenant-app
+grep transit/encrypt .staging/logs/vault-audit.log | tail -3
+```
+
+Honest edges (deliberate, documented):
+
+- **Dev-mode tokens are root**: the per-tenant policy exists, names the
+  live paths, and reads back — but the control plane still authenticates
+  with the root token, so the policy is not yet the enforcing credential.
+  Enforcement-by-token (per-allocation tokens bound to the tenant policy,
+  Vault workload identity on the Nomad client) is the Phase 1 cloud item.
+- **One shared database role** (`tenant-app`) serves all tenants in
+  staging; per-tenant DB roles land with Phase 1. The rendered Nomad job
+  and the policy template say exactly this.
+- Creds are issued per *allocation as recorded*, not injected into a
+  running container (placement stays virtual in staging, see #2 caveats);
+  the consul-template stanza in the rendered job is the cloud path.
+
 ## Control DB (#7): Postgres with a database-enforced lifecycle
 
 `CONTROL_DB_URL` unset (the default) → the platform is in-memory, exactly
 as before. Set it and the control plane becomes restart-survivable:
 
 ```bash
-# staging-up.sh boots a portable postgres on 127.0.0.1:5433 and exports this:
-CONTROL_DB_URL=postgres://staging@127.0.0.1:5433/control cargo run
+# staging-up.sh boots a portable postgres on 127.0.0.1:5433 (host auth
+# scram-sha-256, fixed dev credential like VAULT_TOKEN) and exports this:
+CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control cargo run
 # boot log: "control DB attached — restored N apps, N operations, N audit events"
 ```
 
@@ -196,7 +263,7 @@ file handle is hard to break from outside, which is exactly why the
 contract test injects a killable sink):
 
 ```bash
-CONTROL_DB_URL=postgres://staging@127.0.0.1:5433/control cargo run &
+CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control cargo run &
 # … create + fix an app, then kill the sink and try to promote:
 .staging/postgres/bin/pg_ctl -D .staging/pgdata stop -m immediate
 curl -s -X POST localhost:3000/api/apps/<id>/promote \

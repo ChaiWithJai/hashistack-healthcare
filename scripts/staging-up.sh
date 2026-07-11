@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# staging-up.sh — the virtual HashiStack staging environment (#2, #7).
+# staging-up.sh — the virtual HashiStack staging environment (#2, #7, #9).
 #
 # Boots, on one machine with no cloud account:
-#   1. a real Vault dev server (with the transit engine enabled),
+#   1. a real Vault dev server (transit engine + file audit device enabled),
 #   2. a real Nomad dev agent,
 #   3. a real Postgres control DB on 127.0.0.1:5433 (#7) — portable
 #      binaries from theseus-rs/postgresql-binaries, apt fallback,
 #      skipped entirely when CONTROL_DB_URL is already exported
-#      (e.g. a CI service container),
-#   4. the control plane, wired to all three via NOMAD_ADDR / VAULT_ADDR /
+#      (e.g. a CI service container); host auth is scram-sha-256 so
+#      password checks are real, not trust-vacuous (#9),
+#   4. Vault's database secrets engine wired against that Postgres (#9):
+#      connection database/config/staging-postgres + role tenant-app
+#      (CRUD grant, default_ttl=1h, max_ttl=2h),
+#   5. the control plane, wired to all of it via NOMAD_ADDR / VAULT_ADDR /
 #      CONTROL_DB_URL.
 #
 # Binaries are downloaded once from releases.hashicorp.com, version-pinned
@@ -144,6 +148,18 @@ wait_for vault "$VAULT_ADDR/v1/sys/health" "$LOG_DIR/vault.log"
 # Transit backs the per-tenant encryption keys; enabling twice is a no-op error.
 "$BIN_DIR/vault" secrets enable transit >/dev/null 2>&1 || true
 
+# Vault file audit device (#9): enabled from boot — the Vault audit log is
+# itself a HIPAA technical-safeguard artifact (RFC 0001). Enabling twice
+# errors ("path already in use"), so tolerate that and then ASSERT the
+# device is really on — a staging without it must not come up quietly.
+VAULT_AUDIT_LOG="$PWD/$LOG_DIR/vault-audit.log"
+"$BIN_DIR/vault" audit enable file file_path="$VAULT_AUDIT_LOG" >/dev/null 2>&1 || true
+if ! "$BIN_DIR/vault" audit list 2>/dev/null | grep -q '^file/'; then
+  echo "ERROR: vault file audit device is not enabled — refusing a staging" >&2
+  echo "without its HIPAA audit artifact. See $LOG_DIR/vault.log" >&2
+  exit 1
+fi
+
 # ---- nomad dev agent ----
 if curl -sf "$NOMAD_ADDR/v1/agent/health" >/dev/null 2>&1; then
   echo "== nomad already running at $NOMAD_ADDR"
@@ -166,11 +182,16 @@ PG_DATA="$STAGING_DIR/pgdata"
 PG_LOG="$LOG_DIR/postgres.log"
 PG_USER="staging"
 PG_DB="control"
+# A fixed, documented dev credential like VAULT_TOKEN=staging-root. Host
+# auth is tightened to scram-sha-256 below so the #9 "issued creds
+# authenticate / revoked creds fail" evidence is a real password check.
+PG_PASS="staging-pg"
+export PGPASSWORD="$PG_PASS"
 
 if [[ -n "${CONTROL_DB_URL:-}" ]]; then
   echo "== control DB: using exported CONTROL_DB_URL (not booting postgres)"
 else
-  export CONTROL_DB_URL="postgres://$PG_USER@127.0.0.1:$PG_PORT/$PG_DB"
+  export CONTROL_DB_URL="postgres://$PG_USER:$PG_PASS@127.0.0.1:$PG_PORT/$PG_DB"
   PG_VERSION="16.4.0"
   PG_DIR="$STAGING_DIR/postgres"
   PG_BIN="$PG_DIR/bin"
@@ -238,6 +259,17 @@ else
     exit 1
   }
   head -1 "$PG_DATA/postmaster.pid" >"$RUN_DIR/postgres.pid" 2>/dev/null || true
+  # #9: real password auth. initdb ships trust for host connections; give
+  # the superuser its password while trust is still in effect, then tighten
+  # pg_hba host lines to scram-sha-256 and reload. Idempotent: an already
+  # tightened data dir has no trust host lines and skips the sed+reload.
+  $PG_RUN "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" -d postgres -q -c \
+    "ALTER ROLE $PG_USER WITH PASSWORD '$PG_PASS'"
+  if grep -Eq '^host.*trust$' "$PG_DATA/pg_hba.conf"; then
+    sed -i -E 's/^(host.*[[:space:]])trust$/\1scram-sha-256/' "$PG_DATA/pg_hba.conf"
+    $PG_RUN "$PG_BIN/pg_ctl" -D "$PG_DATA" reload >/dev/null
+    echo "   host auth tightened: trust -> scram-sha-256"
+  fi
   # create the control database (idempotent)
   if ! $PG_RUN "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc \
       "SELECT 1 FROM pg_database WHERE datname='$PG_DB'" | grep -q 1; then
@@ -246,7 +278,38 @@ else
   echo "   postgres healthy: $CONTROL_DB_URL"
 fi
 
-# ---- control plane, wired to all three ----
+# ---- vault database secrets engine, wired to the staging postgres (#9) ----
+# Idempotent: enable tolerates "already enabled"; config and role writes
+# overwrite in place. The connection uses the control-DB superuser as the
+# root credential; the tenant-app role template creates login roles with a
+# CRUD grant on the tenant/control DB, default_ttl=1h (the issue's TTL),
+# max_ttl=2h. Revocation (default statements) drops the issued role — the
+# rollback proof depends on exactly that.
+echo "== vault database secrets engine (role tenant-app, 1h TTL)"
+DBU="${CONTROL_DB_URL#postgres://}"; DBU="${DBU#postgresql://}"
+if [[ "$DBU" != *@* ]]; then
+  echo "ERROR: CONTROL_DB_URL has no user@host part — cannot wire vault's" >&2
+  echo "database engine. Use postgres://user:password@host:port/db." >&2
+  exit 1
+fi
+DBU_USERINFO="${DBU%%@*}"; DBU_REST="${DBU#*@}"
+DBU_USER="${DBU_USERINFO%%:*}"
+DBU_PASS=""; [[ "$DBU_USERINFO" == *:* ]] && DBU_PASS="${DBU_USERINFO#*:}"
+DBU_HOSTPORT="${DBU_REST%%/*}"
+DBU_DB="${DBU_REST#*/}"; DBU_DB="${DBU_DB%%\?*}"
+"$BIN_DIR/vault" secrets enable database >/dev/null 2>&1 || true
+"$BIN_DIR/vault" write database/config/staging-postgres \
+  plugin_name=postgresql-database-plugin \
+  allowed_roles="tenant-app" \
+  connection_url="postgresql://{{username}}:{{password}}@$DBU_HOSTPORT/$DBU_DB?sslmode=disable" \
+  username="$DBU_USER" password="$DBU_PASS" >/dev/null
+"$BIN_DIR/vault" write database/roles/tenant-app \
+  db_name=staging-postgres \
+  creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+  default_ttl=1h max_ttl=2h >/dev/null
+echo "   database/creds/tenant-app ready (postgres $DBU_HOSTPORT/$DBU_DB)"
+
+# ---- control plane, wired to all of it ----
 echo "== building + booting the control plane"
 cargo build --quiet
 BINARY="${CARGO_TARGET_DIR:-target}/debug/rust-proof-service"
@@ -266,6 +329,8 @@ echo "== staging is up"
 echo "   control plane  http://$APP_BIND    (doctor UI at /)"
 echo "   nomad          $NOMAD_ADDR"
 echo "   vault          $VAULT_ADDR    (token: $VAULT_TOKEN)"
+echo "   vault audit    $VAULT_AUDIT_LOG    (file device — HIPAA artifact, #9)"
+echo "   db creds       database/creds/tenant-app (1h TTL, revoked on rollback)"
 echo "   control DB     $CONTROL_DB_URL"
 echo "   audit archive  $AUDIT_FILE    (broker: memory fallback + file + control-db)"
 echo "   logs           $LOG_DIR/"

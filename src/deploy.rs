@@ -3,7 +3,7 @@
 //! gate report and a co-signature, and refuses everything else. It never
 //! generates code and never writes audit prose beyond its own deploy event.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::gates::GateReport;
 use crate::hashi;
@@ -16,6 +16,12 @@ pub const CLIENT_IMAGE: &str = "client-v2026.07.1";
 pub const REGION: &str = "nyc3";
 
 const JOB_TEMPLATE: &str = include_str!("../nomad/templates/service-web.nomad.hcl.tmpl");
+const POLICY_TEMPLATE: &str = include_str!("../vault/policies/tenant-app.hcl");
+
+/// The Vault database-engine role staging-up.sh configures (#9). One shared
+/// role today — per-tenant DB roles are a Phase 1 (cloud) item, tracked in
+/// the runbook's honesty notes.
+pub const DB_CREDS_ROLE: &str = "tenant-app";
 
 /// Promote sandbox → prod. The only path by which an app may ever see real
 /// data, and it consumes the gate report it was handed as evidence.
@@ -26,8 +32,10 @@ const JOB_TEMPLATE: &str = include_str!("../nomad/templates/service-web.nomad.hc
 /// neither, the allocation stays a simulated struct exactly as before.
 /// TODO(#6): `healthy` is still a literal. Real deploys mirror Nomad's
 /// desired/observed status axes and split release from deploy.
-/// TODO(#9): the credentials string below becomes a real Vault database-
-/// engine lease; transit keys mount per tenant at onboarding.
+/// #9: with staging Vault + control DB present, [`staging_promote`] replaces
+/// the placeholder credentials string below with a real database-engine
+/// lease (lease id, username, TTL — proven to authenticate before it is
+/// recorded). Without staging env the string stays, labeled as simulation.
 pub fn promote(
     app: &mut AppRecord,
     report: &GateReport,
@@ -74,7 +82,10 @@ pub fn promote(
         image: CLIENT_IMAGE.to_string(),
         profile: "web".to_string(),
         database,
-        credentials: "vault: dynamic postgres creds, 1h TTL, auto-revoked".to_string(),
+        vault_lease_id: None,
+        vault_db_username: None,
+        vault_lease_ttl_secs: None,
+        credentials: "simulated: vault dynamic postgres creds, 1h TTL, auto-revoked (real lease issued in staging, #9)".to_string(),
         app_version: app.current_version,
         url: format!("{}.{}.app", app.id, app.tenant),
         healthy: true,
@@ -96,10 +107,18 @@ pub fn promote(
     Ok(())
 }
 
-/// Staging (#2): the real-infrastructure half of a promotion. Called after
-/// [`promote`] has produced the allocation; a no-op returning no events when
-/// neither `NOMAD_ADDR` nor `VAULT_ADDR`+`VAULT_TOKEN` is set, so every
-/// existing test and demo path is untouched.
+/// The staging control DB URL (#7/#9) — the Postgres instance Vault's
+/// database engine issues dynamic credentials against.
+fn staging_db_url() -> Option<String> {
+    std::env::var("CONTROL_DB_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Staging (#2, #9): the real-infrastructure half of a promotion. Called
+/// after [`promote`] has produced the allocation; a no-op returning no
+/// events when neither `NOMAD_ADDR` nor `VAULT_ADDR`+`VAULT_TOKEN` is set,
+/// so every existing test and demo path is untouched.
 ///
 /// Order matters: the Vault probe runs first because a tenant whose
 /// encryption keys can't be proven must not have a job registered at all.
@@ -117,6 +136,55 @@ pub fn staging_promote(app: &mut AppRecord) -> Result<Vec<(String, String)>> {
             "vault.transit_verified".to_string(),
             format!("transit key {namespace}: encrypt/decrypt round-trip ok"),
         ));
+
+        // #9: tenant first-promote mounts the tenant's ACL policy — the
+        // rendered vault/policies/tenant-app.hcl, naming the exact transit
+        // and database paths this tenant's allocations use. Honesty note:
+        // dev-mode tokens are root, so the policy EXISTS and is read back
+        // by the pressure test, but it is not yet the enforcing credential
+        // — token-per-allocation enforcement is the Phase 1 cloud item.
+        if vault.policy_read(&namespace)?.is_none() {
+            let policy = POLICY_TEMPLATE.replace("TENANT", &app.tenant);
+            vault.policy_write(&namespace, &policy)?;
+            events.push((
+                "vault.policy_mounted".to_string(),
+                format!(
+                    "acl policy {namespace} mounted at sys/policies/acl/{namespace}: \
+                     transit/{{encrypt,decrypt}}/{namespace} + database/creds/{DB_CREDS_ROLE} \
+                     (present, not yet token-enforced — dev root token; Phase 1)"
+                ),
+            ));
+        }
+
+        // #9: per-allocation dynamic database credentials, verified — the
+        // issued user must actually authenticate against the staging
+        // Postgres (SELECT 1 as that user) before the lease is recorded.
+        // The password stays in this scope: never on the allocation, never
+        // in the audit stream, never durable.
+        if let Some(db_url) = staging_db_url() {
+            let lease = vault.db_creds(DB_CREDS_ROLE)?;
+            pg_login_select1(&db_url, &lease.username, lease.password()).map_err(|e| {
+                anyhow::anyhow!(
+                    "vault issued lease {} but the credentials failed to authenticate: {e:#}",
+                    lease.lease_id
+                )
+            })?;
+            let detail = format!(
+                "role {DB_CREDS_ROLE}: {} — verified: SELECT 1 as {} against the staging DB",
+                lease.audit_detail(),
+                lease.username
+            );
+            if let Some(alloc) = app.allocation.as_mut() {
+                alloc.credentials = format!(
+                    "vault database/creds/{DB_CREDS_ROLE}: lease {} as {}, ttl {}s, revoked on rollback",
+                    lease.lease_id, lease.username, lease.ttl_secs
+                );
+                alloc.vault_lease_id = Some(lease.lease_id.clone());
+                alloc.vault_db_username = Some(lease.username.clone());
+                alloc.vault_lease_ttl_secs = Some(lease.ttl_secs);
+            }
+            events.push(("vault.db_creds_issued".to_string(), detail));
+        }
     }
 
     if let Some(nomad) = hashi::Nomad::from_env() {
@@ -138,20 +206,135 @@ pub fn staging_promote(app: &mut AppRecord) -> Result<Vec<(String, String)>> {
     Ok(events)
 }
 
-/// Staging (#2): stop the real Nomad job on rollback (stopped, not purged —
-/// the dead job stays inspectable, mirroring the append-only audit posture).
-/// No-op without `NOMAD_ADDR`.
-pub fn staging_rollback(app_id: &str, tenant: &str) -> Result<Vec<(String, String)>> {
+/// Staging (#2, #9): the real-infrastructure half of a rollback, driven from
+/// the pre-rollback snapshot (it still carries the allocation and its lease).
+///
+/// Order is the refusal semantics from #2: Nomad stops the job FIRST, and if
+/// Nomad refuses, this returns Err before any lease is touched — a job that
+/// is still running keeps its credentials. Only after the stop does Vault
+/// revoke the allocation's database lease, and revocation is then PROVEN,
+/// not claimed: the issued user must fail to authenticate and must be gone
+/// from `pg_roles` (the engine's revocation drops the role).
+///
+/// Honesty note on the proof shape: the lease password is never retained
+/// (the control plane persists no secrets, and a kill -9 restart sits
+/// between promote and rollback in the pressure test), so the platform-side
+/// proof is login-failure as the issued user plus the role's absence from
+/// `pg_roles`. The pressure test additionally holds a sibling lease's
+/// password end-to-end and asserts the literal authenticate-then-fail.
+pub fn staging_rollback(snapshot: &AppRecord) -> Result<Vec<(String, String)>> {
     let mut events = Vec::new();
+    let namespace = format!("tenant-{}", snapshot.tenant);
+
     if let Some(nomad) = hashi::Nomad::from_env() {
-        let namespace = format!("tenant-{tenant}");
-        nomad.stop_job(app_id, &namespace)?;
+        nomad.stop_job(&snapshot.id, &namespace)?;
         events.push((
             "nomad.job_stopped".to_string(),
-            format!("job {app_id} stopped in namespace {namespace}"),
+            format!("job {} stopped in namespace {namespace}", snapshot.id),
         ));
     }
+
+    if let Some(vault) = hashi::Vault::from_env() {
+        let lease = snapshot.allocation.as_ref().and_then(|a| {
+            a.vault_lease_id
+                .as_deref()
+                .zip(a.vault_db_username.as_deref())
+        });
+        if let Some((lease_id, username)) = lease {
+            vault.revoke_lease(lease_id)?;
+            if let Some(db_url) = staging_db_url() {
+                if pg_login_select1(&db_url, username, "revocation-probe").is_ok() {
+                    bail!(
+                        "vault reported lease {lease_id} revoked but {username} still authenticates"
+                    );
+                }
+                if pg_role_exists(&db_url, username)? {
+                    bail!(
+                        "vault reported lease {lease_id} revoked but role {username} still exists in pg_roles"
+                    );
+                }
+            }
+            events.push((
+                "vault.lease_revoked".to_string(),
+                format!(
+                    "lease {lease_id} revoked — verified: {username} no longer authenticates \
+                     and is dropped from pg_roles"
+                ),
+            ));
+        }
+    }
     Ok(events)
+}
+
+// ---------- staging Postgres evidence probes (#9) ----------
+
+/// One-shot `SELECT 1` AS the given user against the staging DB — the
+/// evidence that an issued credential authenticates (and, negated, that a
+/// revoked one no longer does). Runs on a dedicated thread with its own
+/// single-threaded runtime so it is callable from sync code regardless of
+/// the caller's async context; bounded by a connect timeout.
+fn pg_login_select1(db_url: &str, user: &str, password: &str) -> Result<()> {
+    let mut cfg: tokio_postgres::Config = db_url
+        .parse()
+        .with_context(|| format!("parsing staging DB url {db_url}"))?;
+    cfg.user(user);
+    cfg.password(password);
+    let n = pg_one_shot(cfg, "SELECT 1".to_string(), Vec::new())?;
+    if n != 1 {
+        bail!("SELECT 1 as {user} returned {n}");
+    }
+    Ok(())
+}
+
+/// Does a role exist in `pg_roles`? Asked as the staging superuser (the
+/// `CONTROL_DB_URL` credentials) — the read-back half of the revocation
+/// proof: the database engine's revocation drops the issued role.
+fn pg_role_exists(db_url: &str, role: &str) -> Result<bool> {
+    let cfg: tokio_postgres::Config = db_url
+        .parse()
+        .with_context(|| format!("parsing staging DB url {db_url}"))?;
+    let n = pg_one_shot(
+        cfg,
+        "SELECT count(*)::bigint FROM pg_roles WHERE rolname = $1".to_string(),
+        vec![role.to_string()],
+    )?;
+    Ok(n > 0)
+}
+
+/// Run one single-row/single-column i64-ish query on a fresh connection and
+/// tear it down. A dedicated thread + current-thread runtime keeps this
+/// usable from synchronous deploy code (which may or may not be inside the
+/// server's runtime) without `block_on` re-entrancy.
+fn pg_one_shot(mut cfg: tokio_postgres::Config, sql: String, params: Vec<String>) -> Result<i64> {
+    cfg.connect_timeout(std::time::Duration::from_secs(5));
+    let handle = std::thread::spawn(move || -> Result<i64> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("building one-shot pg runtime")?;
+        rt.block_on(async move {
+            let (client, connection) = cfg
+                .connect(tokio_postgres::NoTls)
+                .await
+                .context("connecting")?;
+            let conn = tokio::spawn(connection);
+            let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+                .iter()
+                .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            let row = client.query_one(&sql, &refs).await.context("querying")?;
+            let value: i64 = match row.try_get::<_, i64>(0) {
+                Ok(v) => v,
+                Err(_) => i64::from(row.try_get::<_, i32>(0).context("reading result column")?),
+            };
+            drop(client);
+            conn.abort();
+            Ok(value)
+        })
+    });
+    handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("one-shot pg thread panicked"))?
 }
 
 /// Roll back to the sandbox: the allocation is destroyed, not patched, and

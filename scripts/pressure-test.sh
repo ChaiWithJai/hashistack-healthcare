@@ -29,6 +29,16 @@
 # words, while the platform export and the durable archive carry only
 # hmac-sha256: forms. Targeting an already-running instance, the AUDIT_FILE
 # checks run whenever the env var points at a readable archive.
+#
+# Vault dynamic creds (#9): with VAULT_ADDR + CONTROL_DB_URL both set, the
+# test asserts the compliance spine live — the promoted allocation carries a
+# real database-engine lease (verified by the control plane with SELECT 1 as
+# the issued user), a sibling lease authenticates and then FAILS after
+# revocation (password held by this test), the per-tenant ACL policy reads
+# back from sys/policies/acl, the tenant transit key rotates with old
+# ciphertext still decryptable, Vault's file audit device carries the
+# transit request path, and no password ever appears in the platform audit
+# export. Without VAULT_ADDR those checks print "skipped" and never fail.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -61,6 +71,17 @@ check() { # check <description> <actual> <expected-substring>
 }
 post() { curl -s -X POST "$BASE$1" -H 'content-type: application/json' -d "${2:-{}}"; }
 get()  { curl -s "$BASE$1"; }
+vault_api() { # vault_api <method> <path> [json-body]
+  curl -s -H "x-vault-token: ${VAULT_TOKEN:-staging-root}" -X "$1" \
+    ${3:+-d "$3"} "$VAULT_ADDR/v1$2"
+}
+jfield() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+
+# psql, wherever it lives (staging's portable postgres, or the system one) —
+# used by the #7 restart evidence and the #9 credential-lifecycle evidence.
+PSQL=""
+[[ -x .staging/postgres/bin/psql ]] && PSQL=".staging/postgres/bin/psql"
+[[ -z "$PSQL" ]] && command -v psql >/dev/null 2>&1 && PSQL="psql"
 
 echo "== pressure test against $BASE"
 
@@ -121,6 +142,76 @@ else
   echo "  skipped (no vault): transit round-trip recorded on the allocation"
 fi
 
+echo "-- vault (#9): per-tenant policy, key rotation, audit device"
+if [[ -n "${VAULT_ADDR:-}" ]]; then
+  # The policy mounted at first promote, read back from Vault itself.
+  POL=$(vault_api GET "/sys/policies/acl/$NS")
+  check "tenant policy mounted (sys/policies/acl read-back)" "$POL" "transit/encrypt/$NS"
+  check "tenant policy names the decrypt path"               "$POL" "transit/decrypt/$NS"
+  check "tenant policy names the database path"              "$POL" 'database/creds/tenant-app'
+
+  # Rotate-proof: encrypt, rotate the tenant key, decrypt the PRE-rotation
+  # ciphertext — key versioning means rotation never strands old data.
+  RPROBE=$(printf 'rotate-proof-%s' "$ID" | base64)
+  CT=$(vault_api POST "/transit/encrypt/$NS" "{\"plaintext\":\"$RPROBE\"}" \
+    | jfield '["data"]["ciphertext"]')
+  vault_api POST "/transit/keys/$NS/rotate" >/dev/null
+  KVER=$(vault_api GET "/transit/keys/$NS" | jfield '["data"]["latest_version"]')
+  check "tenant key rotated (version advanced)" \
+    "$([[ "$KVER" -ge 2 ]] && echo advanced || echo "still v$KVER")" "advanced"
+  PT=$(vault_api POST "/transit/decrypt/$NS" "{\"ciphertext\":\"$CT\"}" \
+    | jfield '["data"]["plaintext"]')
+  check "pre-rotation ciphertext decrypts after rotate" "$PT" "$RPROBE"
+
+  # Vault's own file audit device (staging-up.sh enables it at boot): the
+  # HIPAA technical-safeguard artifact, carrying the transit request path.
+  VAF=".staging/logs/vault-audit.log"
+  if [[ -r "$VAF" ]]; then
+    check "vault audit file non-empty" \
+      "$([[ -s "$VAF" ]] && echo non-empty || echo empty)" "non-empty"
+    check "vault audit logs the transit request path" \
+      "$(grep -q "transit/encrypt/$NS" "$VAF" && echo present || echo absent)" "present"
+  else
+    echo "  skipped (no local vault audit file): non-empty, transit path logged"
+  fi
+else
+  echo "  skipped (no vault): policy read-back, rotate-proof, vault audit file"
+fi
+
+echo "-- vault (#9): dynamic db creds issued, verified, and revocable"
+PLAT_VUSER=""
+SIB_PASS=""
+if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" ]]; then
+  check "allocation carries the lease id"    "$LIVE" '"vault_lease_id":"database/creds/tenant-app/'
+  check "allocation carries the issued user" "$LIVE" '"vault_db_username":"v-'
+  check "allocation ttl is 1h"               "$LIVE" '"vault_lease_ttl_secs":3600'
+  check "credentials string is the real lease, not the placeholder" \
+    "$LIVE" 'vault database/creds/tenant-app: lease'
+  PLAT_VUSER=$(echo "$LIVE" \
+    | jfield '["app"]["allocation"].get("vault_db_username") or ""')
+
+  # A sibling lease from the same role, password in hand — the literal
+  # authenticate-then-revoke-then-fail evidence (the platform never
+  # discloses its own lease's password, by design).
+  SIB=$(vault_api GET "/database/creds/tenant-app")
+  SIB_USER=$(echo "$SIB" | jfield '["data"]["username"]')
+  SIB_PASS=$(echo "$SIB" | jfield '["data"]["password"]')
+  SIB_LEASE=$(echo "$SIB" | jfield '["lease_id"]')
+  SIB_URL=$(echo "$CONTROL_DB_URL" | sed -E "s#//[^@]+@#//$SIB_USER:$SIB_PASS@#")
+  check "issued creds authenticate (SELECT 1 as the issued user)" \
+    "$($PSQL "$SIB_URL" -tAc 'SELECT 1' 2>/dev/null | grep -qx 1 && echo authenticated || echo refused)" \
+    "authenticated"
+  vault_api PUT "/sys/leases/revoke" "{\"lease_id\":\"$SIB_LEASE\"}" >/dev/null
+  check "revoked creds fail to authenticate" \
+    "$($PSQL "$SIB_URL" -tAc 'SELECT 1' 2>/dev/null | grep -qx 1 && echo authenticated || echo refused)" \
+    "refused"
+  check "revoked role dropped from pg_roles" \
+    "$($PSQL "$CONTROL_DB_URL" -tAc "SELECT count(*) FROM pg_roles WHERE rolname='$SIB_USER'")" "0"
+else
+  echo "  skipped (no vault+control-db+psql): lease on the allocation, creds"
+  echo "  authenticate as the issued user, revoked creds fail, role dropped"
+fi
+
 echo "-- restart survival (#7): kill -9 mid-flow, reboot on the same control DB"
 if [[ -n "${CONTROL_DB_URL:-}" ]]; then
   BIND="${BASE#http://}"
@@ -167,11 +258,13 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
     check "audit survives restart (promoted)"  "$SAUDIT" '"app.promoted"'
     SOPS=$(get "/api/apps/$ID/operations")
     check "operation rows survive restart"     "$SOPS" '"kind":"scaffold"'
+    # #9: the lease HANDLE survives the restart (the password does not — the
+    # control plane persists no secrets), so rollback can still revoke it.
+    if [[ -n "${VAULT_ADDR:-}" ]]; then
+      check "vault lease handle survives restart" "$SURVIVED" '"vault_lease_id":"database/creds/tenant-app/'
+    fi
     # #8: the promote's audit row is really in postgres, and the prompt is
     # stored in its non-disclosable hmac-sha256: form.
-    PSQL=""
-    [[ -x .staging/postgres/bin/psql ]] && PSQL=".staging/postgres/bin/psql"
-    [[ -z "$PSQL" ]] && command -v psql >/dev/null 2>&1 && PSQL="psql"
     if [[ -n "$PSQL" ]]; then
       NROWS=$($PSQL "$CONTROL_DB_URL" -tAc \
         "SELECT count(*) FROM audit_events WHERE action='app.promoted'" 2>/dev/null || echo err)
@@ -238,6 +331,15 @@ if [[ -n "${NOMAD_ADDR:-}" ]]; then
 else
   echo "  skipped (no nomad): nomad job stopped on rollback"
 fi
+# #9: revocation observed — the platform's own lease died with the
+# allocation: the role Vault created for it is gone from pg_roles (the
+# control plane already proved login-failure before recording the event).
+if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" && -n "$PLAT_VUSER" ]]; then
+  check "platform-issued role dropped from pg_roles on rollback" \
+    "$($PSQL "$CONTROL_DB_URL" -tAc "SELECT count(*) FROM pg_roles WHERE rolname='$PLAT_VUSER'")" "0"
+else
+  echo "  skipped (no vault+control-db+psql): platform-issued role dropped on rollback"
+fi
 
 echo "-- routing ladder (#4, decision 0001): verified ops, no model env needed"
 ITER=$(post "/api/apps/$ID/iterate" '{"instruction":"remind patients to log their wound photos daily"}')
@@ -263,8 +365,15 @@ else
 fi
 if [[ -n "${VAULT_ADDR:-}" ]]; then
   check "audit has vault.transit_verified" "$AUDIT" '"vault.transit_verified"'
+  check "audit has vault.policy_mounted"   "$AUDIT" '"vault.policy_mounted"'
 else
-  echo "  skipped (no vault): audit has vault.transit_verified"
+  echo "  skipped (no vault): audit has vault.transit_verified, vault.policy_mounted"
+fi
+if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" ]]; then
+  check "audit has vault.db_creds_issued" "$AUDIT" '"vault.db_creds_issued"'
+  check "audit has vault.lease_revoked"   "$AUDIT" '"vault.lease_revoked"'
+else
+  echo "  skipped (no vault+control-db): audit has vault.db_creds_issued, vault.lease_revoked"
 fi
 SEQOK=$(get /api/audit/export | python3 -c '
 import json,sys
@@ -280,6 +389,19 @@ EXPORT_STREAM=$(get /api/audit/export)
 check "platform export carries the hmac form"    "$EXPORT_STREAM" 'hmac-sha256:'
 check "platform export hides the words" \
   "$(echo "$EXPORT_STREAM" | grep -c "$WORDS" || true)" "0"
+# #9: no password in the platform audit export — structurally guaranteed
+# (hashi::DbLease quarantines it; the cargo test greps an export), and
+# spot-checked here with the one dynamic password this test does hold.
+if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" ]]; then
+  check "db_creds audit rides the no-password label" \
+    "$EXPORT_STREAM" 'password held in memory only, never recorded'
+  if [[ -n "$SIB_PASS" ]]; then
+    check "no dynamic db password in the audit export" \
+      "$(echo "$EXPORT_STREAM" | grep -c "$SIB_PASS" || true)" "0"
+  fi
+else
+  echo "  skipped (no vault+control-db): no-password label + password absent from export"
+fi
 COMPLIANCE8=$(get "/api/apps/$ID/export" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
 check "ejected compliance keeps the doctor's words" "$COMPLIANCE8" "$WORDS"
@@ -288,6 +410,10 @@ if [[ -n "${AUDIT_FILE:-}" && -r "$AUDIT_FILE" ]]; then
   check "archive holds app.promoted durably"      "$(cat "$AUDIT_FILE")" '"app.promoted"'
   check "archive carries the hmac form"           "$(cat "$AUDIT_FILE")" 'hmac-sha256:'
   check "archive hides the words" "$(grep -c "$WORDS" "$AUDIT_FILE" || true)" "0"
+  if [[ -n "$SIB_PASS" ]]; then
+    check "archive holds no dynamic db password (#9)" \
+      "$(grep -c "$SIB_PASS" "$AUDIT_FILE" || true)" "0"
+  fi
 else
   echo "  skipped (no AUDIT_FILE): probe line, app.promoted, hmac form, no plaintext in archive"
 fi

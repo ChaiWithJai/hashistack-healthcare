@@ -124,3 +124,38 @@ operator's stead (rationale in decision 0004, veto-able):
 
 Issue #8 stays open for its named remainder: object-storage archive sink,
 hipaa-core runtime-event ingestion (#5), export hash-chain digests.
+
+## #9 link — 2026-07-11, vault dynamic creds (recorded ambiently, no stop)
+
+Disposition: built per issue #9's bar; three design calls made in the
+operator's stead (veto-able, all reversible):
+
+- **P6: staging Postgres host auth tightened to scram-sha-256** with a
+  fixed, documented dev credential (`staging:staging-pg`, same spirit as
+  `VAULT_TOKEN=staging-root`). Rationale: under initdb's `trust`, "issued
+  creds authenticate" is vacuous (any password passes) — the #9 evidence
+  must be a real password check. Idempotent tightening handles existing
+  trust data dirs; CI's postgres:16 service container was already scram.
+- **P7: revocation proof shape without a persisted password.** The control
+  plane never persists secrets, and the pressure test's kill -9 sits
+  between promote and rollback, so the platform-side revocation proof is
+  login-failure as the issued user + role absent from `pg_roles` (the
+  engine's revocation drops the role). The literal
+  authenticate-then-revoke-then-fail with the password in hand runs in the
+  pressure test via a sibling lease on the same role. Alternative (persist
+  the password to keep it for rollback) rejected: it would put a live DB
+  credential in the control store to strengthen a test.
+- **P8: template paths aligned to the one real staging DB role.** The
+  policy template and the rendered Nomad job now name
+  `database/creds/tenant-app` (what exists) instead of
+  `database/creds/tenant-<tenant>` (what didn't), and the job's `vault`
+  stanza names the policy that is actually mounted (`tenant-<tenant>`).
+  Honest labeling over aspirational paths; per-tenant DB roles are the
+  Phase 1 item, stated in both artifacts.
+
+Enforcement honesty (in the runbook, the policy file, and the commit):
+dev-mode tokens are root, so the mounted per-tenant policy exists and reads
+back but is not yet the enforcing credential — enforcement-by-token rides
+Phase 1. Issue #9 stays open for that remainder plus per-tenant DB roles,
+consul-template resolution in a scheduled container, and TTL-expiry
+revocation observation (#6).

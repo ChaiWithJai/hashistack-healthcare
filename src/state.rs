@@ -96,6 +96,18 @@ pub struct Allocation {
     /// round-trip against a real Vault at promote time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_transit_key: Option<String>,
+    /// Staging (#9): the database-engine lease behind this allocation's
+    /// credentials — the revocation handle. Lease id, username, and TTL are
+    /// inspection metadata, not secrets; the password itself is NEVER
+    /// stored (see `hashi::DbLease`). `None` in simulated mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_lease_id: Option<String>,
+    /// Staging (#9): the Postgres role Vault created for this allocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_db_username: Option<String>,
+    /// Staging (#9): the lease TTL in seconds (1h per the tenant-app role).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_lease_ttl_secs: Option<u64>,
 }
 
 /// The attestation a promotion carries: who co-signed, what the gate report

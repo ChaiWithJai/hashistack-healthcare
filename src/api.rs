@@ -660,11 +660,12 @@ async fn promote(
         let snapshot = app.clone();
         deploy::promote(app, &report, &req.cosigner, alloc_id)
             .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-        // Staging (#2): submit the rendered job to a real Nomad dev agent
-        // and prove the tenant transit key against a real Vault — no-op
-        // (and no events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are
-        // unset. NOTE: these are loopback dev-mode calls; a real client
-        // pool moves them off the lock like the model tiers (F4 / #6).
+        // Staging (#2, #9): submit the rendered job to a real Nomad dev
+        // agent, prove the tenant transit key, mount the tenant policy, and
+        // issue + verify dynamic DB creds against a real Vault — no-op (and
+        // no events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are unset.
+        // NOTE: these are loopback dev-mode calls; a real client pool moves
+        // them off the lock like the model tiers (F4 / #6).
         let staging_events = match deploy::staging_promote(app) {
             Ok(events) => events,
             Err(e) => {
@@ -753,10 +754,11 @@ async fn rollback(
         let snapshot = app.clone();
         deploy::rollback(app, &synthetic)
             .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-        // Staging (#2): the real allocation must actually die. If Nomad
+        // Staging (#2, #9): the real allocation must actually die. If Nomad
         // refuses the stop, the rollback is refused too — the record never
-        // claims the sandbox while a real job still runs.
-        let staging_events = match deploy::staging_rollback(&id, &snapshot.tenant) {
+        // claims the sandbox while a real job still runs — and the database
+        // lease is only revoked (and revocation proven) after the stop.
+        let staging_events = match deploy::staging_rollback(&snapshot) {
             Ok(events) => events,
             Err(e) => {
                 *app = snapshot;

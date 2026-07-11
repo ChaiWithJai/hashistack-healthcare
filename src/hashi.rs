@@ -15,6 +15,47 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+/// A dynamic database credential lease from Vault's database engine (#9).
+///
+/// The password is deliberately quarantined: private field, redacted
+/// `Debug`, no `Serialize`, and [`DbLease::audit_detail`] is built only
+/// from the non-secret fields — the password exists in memory exactly long
+/// enough to prove the credential authenticates, and is never recorded on
+/// the allocation, the audit stream, or any durable surface.
+pub struct DbLease {
+    pub lease_id: String,
+    pub username: String,
+    pub ttl_secs: u64,
+    password: String,
+}
+
+impl DbLease {
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+
+    /// The audit-safe record of this lease. Lease id and username are not
+    /// sensitive (they are revocation/inspection handles); the password is
+    /// structurally absent — this method cannot see it into the string.
+    pub fn audit_detail(&self) -> String {
+        format!(
+            "lease {} issued: user {}, ttl {}s (password held in memory only, never recorded)",
+            self.lease_id, self.username, self.ttl_secs
+        )
+    }
+}
+
+impl std::fmt::Debug for DbLease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbLease")
+            .field("lease_id", &self.lease_id)
+            .field("username", &self.username)
+            .field("ttl_secs", &self.ttl_secs)
+            .field("password", &"<redacted>")
+            .finish()
+    }
+}
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const IO_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -232,6 +273,76 @@ impl Vault {
         }
         Ok(())
     }
+
+    /// Request dynamic Postgres credentials from the database engine (#9):
+    /// `GET /v1/database/creds/<role>`. Vault creates the role in Postgres
+    /// on the spot; the returned lease is the revocation handle.
+    pub fn db_creds(&self, role: &str) -> Result<DbLease> {
+        let path = format!("/v1/database/creds/{role}");
+        let (status, resp) = http(&self.addr, "GET", &path, Some(&self.token), "")?;
+        expect_ok("vault database creds", status, &resp)?;
+        let v: Value = serde_json::from_str(&resp).context("parsing vault creds response")?;
+        let lease_id = v["lease_id"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("vault creds returned no lease_id"))?
+            .to_string();
+        let username = v["data"]["username"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("vault creds returned no username"))?
+            .to_string();
+        let password = v["data"]["password"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("vault creds returned no password"))?
+            .to_string();
+        let ttl_secs = v["lease_duration"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("vault creds returned no lease_duration"))?;
+        Ok(DbLease {
+            lease_id,
+            username,
+            ttl_secs,
+            password,
+        })
+    }
+
+    /// Revoke a lease (`PUT /v1/sys/leases/revoke`): the database engine
+    /// runs its revocation statements, dropping the issued role.
+    pub fn revoke_lease(&self, lease_id: &str) -> Result<()> {
+        let body = json!({ "lease_id": lease_id }).to_string();
+        let (status, resp) = http(
+            &self.addr,
+            "PUT",
+            "/v1/sys/leases/revoke",
+            Some(&self.token),
+            &body,
+        )?;
+        expect_ok("vault lease revoke", status, &resp)
+    }
+
+    /// Read an ACL policy back (`GET /v1/sys/policies/acl/<name>`).
+    /// `Ok(None)` means the policy does not exist yet.
+    pub fn policy_read(&self, name: &str) -> Result<Option<String>> {
+        let path = format!("/v1/sys/policies/acl/{name}");
+        let (status, resp) = http(&self.addr, "GET", &path, Some(&self.token), "")?;
+        if status == 404 {
+            return Ok(None);
+        }
+        expect_ok("vault policy read", status, &resp)?;
+        let v: Value = serde_json::from_str(&resp).context("parsing vault policy response")?;
+        Ok(v["data"]["policy"].as_str().map(str::to_string))
+    }
+
+    /// Write an ACL policy (`PUT /v1/sys/policies/acl/<name>`) — the
+    /// per-tenant policy mount (#9). Idempotent by overwrite.
+    pub fn policy_write(&self, name: &str, policy: &str) -> Result<()> {
+        let path = format!("/v1/sys/policies/acl/{name}");
+        let body = json!({ "policy": policy }).to_string();
+        let (status, resp) = http(&self.addr, "PUT", &path, Some(&self.token), &body)?;
+        expect_ok("vault policy write", status, &resp)
+    }
 }
 
 /// Standard base64 (RFC 4648, padded). Hand-rolled so the transit probe costs
@@ -261,7 +372,43 @@ fn base64(input: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::base64;
+    use super::{base64, DbLease};
+
+    /// #9's do-NOT-log-the-password rule, asserted by grepping the audit
+    /// export: a lease with a known password is recorded through the same
+    /// `audit_detail` path staging uses, and the export (plus the tenant
+    /// view and Debug) must never contain the secret.
+    #[test]
+    fn db_lease_password_never_reaches_any_audit_surface() {
+        let secret = "A1a-Sup3rS3cretVaultPw";
+        let lease = DbLease {
+            lease_id: "database/creds/tenant-app/AbC123".to_string(),
+            username: "v-token-tenant-ap-xyz".to_string(),
+            ttl_secs: 3600,
+            password: secret.to_string(),
+        };
+
+        assert!(
+            !format!("{lease:?}").contains(secret),
+            "Debug must redact the password"
+        );
+        assert!(lease.audit_detail().contains(&lease.lease_id));
+        assert!(lease.audit_detail().contains(&lease.username));
+        assert!(!lease.audit_detail().contains(secret));
+
+        let mut log = crate::audit::AuditLog::default();
+        log.record(
+            "deploy",
+            "vault.db_creds_issued",
+            lease.audit_detail(),
+            Some("app-1"),
+        );
+        let export = log.export_jsonl();
+        assert!(
+            export.contains("vault.db_creds_issued") && !export.contains(secret),
+            "audit export must carry the event but never the password: {export}"
+        );
+    }
 
     #[test]
     fn base64_matches_rfc_4648_vectors() {

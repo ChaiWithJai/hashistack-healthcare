@@ -43,13 +43,17 @@ job "{{app_id}}" {
       }
 
       vault {
-        policies = ["tenant-{{tenant}}-transit", "tenant-{{tenant}}-db"]
+        # The policy the deploy service really mounts at first promote (#9):
+        # sys/policies/acl/tenant-{{tenant}} — transit + database paths.
+        policies = ["tenant-{{tenant}}"]
       }
 
       template {
-        # Dynamic Postgres creds, 1h TTL, auto-revoked when the allocation stops.
+        # Dynamic Postgres creds, 1h TTL, revoked when the allocation stops.
+        # tenant-app is the shared staging DB role (#9); per-tenant roles
+        # are a Phase 1 (cloud) item.
         data        = <<EOT
-{{ with secret "database/creds/tenant-{{tenant}}" }}
+{{ with secret "database/creds/tenant-app" }}
 DATABASE_URL=postgres://{{ .Data.username }}:{{ .Data.password }}@postgres.internal:5432/{{database}}
 {{ end }}
 EOT

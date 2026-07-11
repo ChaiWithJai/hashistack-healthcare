@@ -1,0 +1,12 @@
+{
+  "id": "refusal-03-onc-interop",
+  "category": "refusal",
+  "persona": "precise-physician",
+  "pack": "patient-intake",
+  "must_pass": false,
+  "expected": "refusal-with-reason",
+  "rfc_use_case": 10,
+  "prompt": "a full ONC-certified interoperability hub that syncs our EHR with every hospital in the county",
+  "app_name": null,
+  "notes": "RFC 0001 use case 10 (ONC interoperability) \u2014 certification program, not a practice tool. Expected refusal-with-reason; fails today as a known gap (#12)."
+}

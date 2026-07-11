@@ -1,0 +1,45 @@
+{
+  "id": "edge-01-duplicate-names",
+  "category": "edge",
+  "edge": "duplicate-names",
+  "persona": "colloquial-physician",
+  "pack": "patient-intake",
+  "must_pass": true,
+  "prompt": "intake forms for the front desk",
+  "app_name": "front desk intake",
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5)"
+  },
+  "notes": "Two doctors (or one forgetful one) create apps with the same name. The second create must mint a distinct id, both records must stay independently addressable, and promoting the second must not touch the first."
+}

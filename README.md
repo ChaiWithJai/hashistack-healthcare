@@ -63,6 +63,7 @@ docker compose up --build
 | **The goal and the bar** | [`docs/GOAL.md`](docs/GOAL.md) |
 | Use-case enablement investigation | [`docs/investigations/0001-enable-all-use-cases.md`](docs/investigations/0001-enable-all-use-cases.md) (#12) |
 | Staging pressure test (`make staging`) | `scripts/pressure-test.sh` (#2) |
+| Platform eval harness — job-to-be-done + artifact layers, scored per scenario | `evals/`, `scripts/evals.sh`, baseline in [`docs/evals/scorecard.md`](docs/evals/scorecard.md) |
 
 **Honest label:** what runs today is a skinned UI over a simulated control
 plane — the workflow contract is real and tested; the platform underneath it

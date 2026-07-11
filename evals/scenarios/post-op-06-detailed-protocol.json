@@ -1,0 +1,62 @@
+{
+  "id": "post-op-06-detailed-protocol",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "post-op-monitor",
+  "must_pass": true,
+  "prompt": "implement our enhanced-recovery protocol: pain, wound and mobility check-ins on days 1 through 14 after knee replacement",
+  "app_name": "eras protocol tracker",
+  "iterate": [
+    {
+      "instruction": "remind patients at 8am and flag missed check-ins",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    },
+    {
+      "instruction": "add a mobility question: steps walked today",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 1,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "artifact": {
+    "expected": "playwright",
+    "checks": [
+      "renders",
+      "does-the-job",
+      "honesty-markers"
+    ]
+  },
+  "notes": "Protocol-shaped prompt with two iterations, one rules-vocabulary and one off-vocabulary."
+}

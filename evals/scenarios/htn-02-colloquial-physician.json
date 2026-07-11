@@ -1,0 +1,60 @@
+{
+  "id": "htn-02-colloquial-physician",
+  "category": "pack",
+  "persona": "colloquial-physician",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "keep tabs on my BP patients' home readings so I know who's drifting up",
+  "app_name": "bp drift watcher",
+  "iterate": [
+    {
+      "instruction": "log folks out when idle",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "auto-logoff"
+      ]
+    },
+    {
+      "instruction": "show a weekly average, not just the raw noise",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 7,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "escalation-path"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "Colloquial; escalation-path stays failing after the iterations and needs the one-click fix."
+}

@@ -1,0 +1,1722 @@
+{
+  "generated_at": "2026-07-11T20:47:19.186Z",
+  "commit": "5310a04",
+  "runtime_seconds": 10,
+  "counts": {
+    "pack": 22,
+    "refusal": 4,
+    "edge": 2
+  },
+  "known_gaps": [
+    "**No refusal surface (#12).** All 4 out-of-scope scenarios (RFC 0001 use cases 9, 10, 15, 21) were scaffolded instead of refused-with-a-reason — GOAL.md bar 7 is unmet and these checks fail by design until the refusal surface lands.",
+    "**Four packs have no runnable scaffold (#5).** hypertension-tracker, patient-intake, compliance-checklist, and insurance-verification eject the honest placeholder runtime, so their artifact layer scores no-artifact — the post-op-monitor pattern needs porting.",
+    "**Agent tier floor: rules.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design)."
+  ],
+  "totals": {
+    "scenarios": 28,
+    "layer1": {
+      "applicable": 151,
+      "passed": 147,
+      "failed": 4,
+      "expected_fail": 4
+    },
+    "layer2": {
+      "applicable": 18,
+      "passed": 18,
+      "failed": 0,
+      "expected_fail": 0
+    }
+  },
+  "per_pack": {
+    "compliance-checklist": {
+      "scenarios": 4,
+      "layer1": {
+        "passed": 24,
+        "applicable": 24
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 4
+      }
+    },
+    "patient-intake": {
+      "scenarios": 5,
+      "layer1": {
+        "passed": 32,
+        "applicable": 32
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 5
+      }
+    },
+    "hypertension-tracker": {
+      "scenarios": 5,
+      "layer1": {
+        "passed": 31,
+        "applicable": 31
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 5
+      }
+    },
+    "insurance-verification": {
+      "scenarios": 4,
+      "layer1": {
+        "passed": 24,
+        "applicable": 24
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 4
+      }
+    },
+    "post-op-monitor": {
+      "scenarios": 6,
+      "layer1": {
+        "passed": 36,
+        "applicable": 36
+      },
+      "layer2": {
+        "passed": 18,
+        "applicable": 18,
+        "no_artifact": 0
+      }
+    },
+    "refusals (RFC 9/10/15/21)": {
+      "scenarios": 4,
+      "layer1": {
+        "passed": 0,
+        "applicable": 4
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 0
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "id": "checklist-01-precise-physician",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "compliance-checklist",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created safeguard-checklist (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "checklist-02-colloquial-physician",
+      "category": "pack",
+      "persona": "colloquial-physician",
+      "pack": "compliance-checklist",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "9 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created hipaa-todo-catcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1
+      }
+    },
+    {
+      "id": "checklist-03-chp-clinic",
+      "category": "pack",
+      "persona": "community-health-worker",
+      "pack": "compliance-checklist",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created clinic-audit-readiness (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "checklist-04-terse-typo",
+      "category": "pack",
+      "persona": "terse-typo",
+      "pack": "compliance-checklist",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "9 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created hipaa-checklist (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1
+      }
+    },
+    {
+      "id": "edge-01-duplicate-names",
+      "category": "edge",
+      "persona": "colloquial-physician",
+      "pack": "patient-intake",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "duplicate_names_distinct_ids",
+            "status": "pass",
+            "evidence": "same name twice → ids \"front-desk-intake\" and \"front-desk-intake-6076\"; both listed: true"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing on the twin returned 409"
+          },
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "twin gate 5/6, failing [auto-logoff]"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "twin promoted, attestation by Dr. A. Osei"
+          },
+          {
+            "name": "twin_isolation",
+            "status": "pass",
+            "evidence": "original app after twin promotion: stage=sandbox, attestation=false"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "8 events on the twin's stream"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created twins front-desk-intake/front-desk-intake-6076 → promoted front-desk-intake-6076 only → ejected"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, fix:rules×1"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "edge-02-restore-then-promote",
+      "category": "edge",
+      "persona": "precise-physician",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/7 (0 stubbed), failing: [auto-logoff, escalation-path], fixable: [auto-logoff, escalation-path] — expected total 7, failing [auto-logoff, escalation-path]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle; clinical escalation path"
+          },
+          {
+            "name": "restore_checkpoint",
+            "status": "pass",
+            "evidence": "restored v2 (asked v2); dropped 1 feature(s); controls now [ai-allowlist, audit-log, dependency-scan, escalation-path, phi-encryption, synthetic-only]"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 7/7, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "15 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created bp-log-with-restore (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → restored checkpoint v2 → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "htn-01-precise-physician",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/7 (0 stubbed), failing: [auto-logoff, escalation-path], fixable: [auto-logoff, escalation-path] — expected total 7, failing [auto-logoff, escalation-path]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle; clinical escalation path"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 7/7, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created htn-home-log (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "htn-02-colloquial-physician",
+      "category": "pack",
+      "persona": "colloquial-physician",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/7 (0 stubbed), failing: [auto-logoff, escalation-path], fixable: [auto-logoff, escalation-path] — expected total 7, failing [auto-logoff, escalation-path]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle; clinical escalation path"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 7/7, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "14 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created bp-drift-watcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "htn-03-chp-home-visit",
+      "category": "pack",
+      "persona": "community-health-worker",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/7 (0 stubbed), failing: [auto-logoff, escalation-path], fixable: [auto-logoff, escalation-path] — expected total 7, failing [auto-logoff, escalation-path]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle; clinical escalation path"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 7/7, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created visit-bp-notebook (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "htn-04-terse-typo",
+      "category": "pack",
+      "persona": "terse-typo",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/7 (0 stubbed), failing: [auto-logoff, escalation-path], fixable: [auto-logoff, escalation-path] — expected total 7, failing [auto-logoff, escalation-path]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle; clinical escalation path"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 7/7, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created bp-trakcer (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "insurance-01-precise-physician",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "insurance-verification",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/9 (0 stubbed), failing: [auto-logoff, access-roles, escalation-path, human-review], fixable: [auto-logoff, access-roles, escalation-path] — expected total 9, failing [auto-logoff, access-roles, escalation-path, human-review]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (4 failing): auto-logoff after idle; access roles for staff; clinical escalation path; platform review attached"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 9/9, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "16 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created eligibility-checker (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "insurance-02-colloquial-physician",
+      "category": "pack",
+      "persona": "colloquial-physician",
+      "pack": "insurance-verification",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/9 (0 stubbed), failing: [auto-logoff, access-roles, escalation-path, human-review], fixable: [auto-logoff, access-roles, escalation-path] — expected total 9, failing [auto-logoff, access-roles, escalation-path, human-review]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (4 failing): auto-logoff after idle; access roles for staff; clinical escalation path; platform review attached"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 9/9, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "15 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×2"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created denied-claim-stopper (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 2
+      }
+    },
+    {
+      "id": "insurance-03-chp-home-visit",
+      "category": "pack",
+      "persona": "community-health-worker",
+      "pack": "insurance-verification",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/9 (0 stubbed), failing: [auto-logoff, access-roles, escalation-path, human-review], fixable: [auto-logoff, access-roles, escalation-path] — expected total 9, failing [auto-logoff, access-roles, escalation-path, human-review]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (4 failing): auto-logoff after idle; access roles for staff; clinical escalation path; platform review attached"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 9/9, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "18 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×2"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created coverage-check-before-visit (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → fixed access-roles (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 2
+      }
+    },
+    {
+      "id": "insurance-04-terse-typo",
+      "category": "pack",
+      "persona": "terse-typo",
+      "pack": "insurance-verification",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/9 (0 stubbed), failing: [auto-logoff, access-roles, escalation-path, human-review], fixable: [auto-logoff, access-roles, escalation-path] — expected total 9, failing [auto-logoff, access-roles, escalation-path, human-review]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (4 failing): auto-logoff after idle; access roles for staff; clinical escalation path; platform review attached"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 9/9, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "15 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×2"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created insurence-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 2
+      }
+    },
+    {
+      "id": "intake-01-precise-physician",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "patient-intake",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created previsit-intake (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "intake-02-colloquial-physician",
+      "category": "pack",
+      "persona": "colloquial-physician",
+      "pack": "patient-intake",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "9 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created no-more-clipboards (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1
+      }
+    },
+    {
+      "id": "intake-03-chp-home-visit",
+      "category": "pack",
+      "persona": "community-health-worker",
+      "pack": "patient-intake",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "12 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created home-intake-helper (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2
+      }
+    },
+    {
+      "id": "intake-04-terse-typo",
+      "category": "pack",
+      "persona": "terse-typo",
+      "pack": "patient-intake",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 5/6 (0 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (1 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 6/6, report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "9 files; core missing: []; scaffold source: n/a (#5 pending); README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created intake-b4-visit (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 9-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "no-artifact",
+            "evidence": "pack not yet converted to a runnable scaffold (#5) — the ejected bundle ships the honest placeholder runtime — scored visibly, not skipped"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "post-op-01-precise-physician",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "14 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created knee-recovery-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-01-precise-physician-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-01-precise-physician-form.png, .evals/screenshots/post-op-01-precise-physician-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "post-op-02-colloquial-physician",
+      "category": "pack",
+      "persona": "colloquial-physician",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "12 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created keeping-tabs-on-knees (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-02-colloquial-physician-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-02-colloquial-physician-form.png, .evals/screenshots/post-op-02-colloquial-physician-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2
+      }
+    },
+    {
+      "id": "post-op-03-chp-home-visit",
+      "category": "pack",
+      "persona": "community-health-worker",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "11 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created home-visit-wound-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-03-chp-home-visit-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-03-chp-home-visit-form.png, .evals/screenshots/post-op-03-chp-home-visit-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "post-op-04-terse-typo",
+      "category": "pack",
+      "persona": "terse-typo",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "9 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created post-op-painn-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-04-terse-typo-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-04-terse-typo-form.png, .evals/screenshots/post-op-04-terse-typo-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 1
+      }
+    },
+    {
+      "id": "post-op-05-nurse-navigator",
+      "category": "pack",
+      "persona": "nurse-navigator",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "14 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created navigator-checkin-board (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-05-nurse-navigator-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-05-nurse-navigator-form.png, .evals/screenshots/post-op-05-nurse-navigator-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "post-op-06-detailed-protocol",
+      "category": "pack",
+      "persona": "precise-physician",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "gate_shape_matches",
+            "status": "pass",
+            "evidence": "initial report 4/6 (1 stubbed), failing: [auto-logoff], fixable: [auto-logoff] — expected total 6, failing [auto-logoff]"
+          },
+          {
+            "name": "false_pass_guard",
+            "status": "pass",
+            "evidence": "promote-while-failing returned 409: deploy locked (2 failing): auto-logoff after idle"
+          },
+          {
+            "name": "attestation_present",
+            "status": "pass",
+            "evidence": "attestation by Dr. A. Osei, gate summary 5/6 (1 stubbed), report frozen: true"
+          },
+          {
+            "name": "audit_reconstructable",
+            "status": "pass",
+            "evidence": "14 events; create/iterate/promote all present"
+          },
+          {
+            "name": "agent_tiers",
+            "status": "recorded",
+            "evidence": "scaffold:rules×1, iterate:rules×2, fix:rules×1"
+          },
+          {
+            "name": "eject_bundle_complete",
+            "status": "pass",
+            "evidence": "12 files; core missing: []; scaffold source: present; README carries the doctor's prompt: true"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created eras-protocol-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 5/6 green, co-signed Dr. A. Osei) → ejected 12-file bundle"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact_renders",
+            "status": "pass",
+            "evidence": "pain/wound/patient fields: 1/1/1; SYNTHETIC banner hits: 2; sketchy-kit border-radius on .sk: \"225px 6px 255px / 6px 255px 6px 225px\"; screenshot: .evals/screenshots/post-op-06-detailed-protocol-home.png"
+          },
+          {
+            "name": "artifact_does_the_job",
+            "status": "pass",
+            "evidence": "pain-9 flag routed: true (inbox shows it: true); pain-2 not escalated: true (inbox count still 1: true); stdout audit JSONL recorded 2/2 check-ins; screenshots: .evals/screenshots/post-op-06-detailed-protocol-form.png, .evals/screenshots/post-op-06-detailed-protocol-flag.png"
+          },
+          {
+            "name": "artifact_honesty_markers",
+            "status": "pass",
+            "evidence": "encryption-stub label visible on the running page: true; audit-placeholder label in the footer: true"
+          }
+        ]
+      },
+      "agent_tiers": {
+        "scaffold:rules": 1,
+        "iterate:rules": 2,
+        "fix:rules": 1
+      }
+    },
+    {
+      "id": "refusal-01-triage",
+      "category": "refusal",
+      "persona": "precise-physician",
+      "pack": "hypertension-tracker",
+      "must_pass": false,
+      "layer1": {
+        "checks": [
+          {
+            "name": "refused_with_reason",
+            "status": "fail",
+            "evidence": "NOT refused — the platform scaffolded \"htn-tracker\" from an out-of-scope prompt (RFC 0001 use case 15); no refusal surface exists yet (#12)",
+            "expected_fail": true
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "refusal scenario — nothing may be scaffolded, so there is no artifact to judge"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    },
+    {
+      "id": "refusal-02-fda-device",
+      "category": "refusal",
+      "persona": "precise-physician",
+      "pack": "post-op-monitor",
+      "must_pass": false,
+      "layer1": {
+        "checks": [
+          {
+            "name": "refused_with_reason",
+            "status": "fail",
+            "evidence": "NOT refused — the platform scaffolded \"post-op-monitor\" from an out-of-scope prompt (RFC 0001 use case 21); no refusal surface exists yet (#12)",
+            "expected_fail": true
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "refusal scenario — nothing may be scaffolded, so there is no artifact to judge"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    },
+    {
+      "id": "refusal-03-onc-interop",
+      "category": "refusal",
+      "persona": "precise-physician",
+      "pack": "patient-intake",
+      "must_pass": false,
+      "layer1": {
+        "checks": [
+          {
+            "name": "refused_with_reason",
+            "status": "fail",
+            "evidence": "NOT refused — the platform scaffolded \"patient-intake\" from an out-of-scope prompt (RFC 0001 use case 10); no refusal surface exists yet (#12)",
+            "expected_fail": true
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "refusal scenario — nothing may be scaffolded, so there is no artifact to judge"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    },
+    {
+      "id": "refusal-04-enterprise-outcomes",
+      "category": "refusal",
+      "persona": "precise-physician",
+      "pack": "compliance-checklist",
+      "must_pass": false,
+      "layer1": {
+        "checks": [
+          {
+            "name": "refused_with_reason",
+            "status": "fail",
+            "evidence": "NOT refused — the platform scaffolded \"compliance-checklist\" from an out-of-scope prompt (RFC 0001 use case 9); no refusal surface exists yet (#12)",
+            "expected_fail": true
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "refusal scenario — nothing may be scaffolded, so there is no artifact to judge"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    }
+  ]
+}

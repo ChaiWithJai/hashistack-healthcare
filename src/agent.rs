@@ -194,6 +194,10 @@ impl AgentDriver for HttpModelDriver {
     fn scaffold(&self, pack: &PackManifest, prompt: &str) -> Vec<ScaffoldStep> {
         let body = json!({
             "model": self.tier,
+            // The constrained protocol never needs a long reply; the cap keeps
+            // a rambling small model from turning one attempt into minutes of
+            // CPU decode (first live staging run, investigation 0003).
+            "max_tokens": 256,
             "messages": [
                 {"role": "system", "content":
                     "You scaffold a HIPAA-scaffolded clinical app from a pack. \
@@ -224,6 +228,7 @@ impl AgentDriver for HttpModelDriver {
     ) -> AgentReply {
         let body = json!({
             "model": self.tier,
+            "max_tokens": 256,
             "messages": [
                 {"role": "system", "content": format!(
                     "You apply one constrained edit to a scaffolded clinical app. \
@@ -306,8 +311,17 @@ fn post_chat(base_url: &str, body: &serde_json::Value) -> Result<String> {
     let payload = body.to_string();
     let stream = TcpStream::connect(hostport)
         .with_context(|| format!("connecting to model endpoint {hostport}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    // Small CPU-served staging models (decision 0002) legitimately take
+    // longer than the 5s default to decode an answer; the override keeps a
+    // slow tier from being misread as an unreachable one (investigation
+    // 0003). A blown timeout still only costs one rejected attempt.
+    let timeout = std::env::var("MODEL_HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&secs| secs > 0)
+        .unwrap_or(5);
+    stream.set_read_timeout(Some(Duration::from_secs(timeout)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(timeout)))?;
     let mut stream = stream;
     let request = format!(
         "POST /v1/chat/completions HTTP/1.1\r\nhost: {hostport}\r\n\

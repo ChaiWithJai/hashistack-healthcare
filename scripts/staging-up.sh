@@ -22,7 +22,7 @@
 # Usage:
 #   scripts/staging-up.sh          # download if needed, boot everything
 #   scripts/staging-up.sh down     # stop everything this script started
-#   scripts/staging-up.sh --models # (stub) the staging inference tier
+#   scripts/staging-up.sh --models # the staging inference tier (decision 0002)
 #
 # Then drive the whole workflow against real infrastructure:
 #   NOMAD_ADDR=http://127.0.0.1:4646 VAULT_ADDR=http://127.0.0.1:8200 \
@@ -30,19 +30,121 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# ---- --models: the staging inference tier (decision 0002) — STUB ----
-# TODO(decision 0002): this step will fetch pinned, checksum-verified GGUF
-# weights (Liquid LFM2.5 family, stitched per task class) into
-# .staging/models, start llama.cpp server(s) as local processes/Nomad jobs,
-# and export LOCAL_MODEL_URL for the control plane. The router gains no
-# config — environments differ only in what the URL points at. Deliberately
-# a documented no-op today: no model weights are downloaded.
+# ---- --models: the staging inference tier (decision 0002) ----
+# Fetches pinned, sha256-verified GGUF weights into .staging/models and
+# starts one llama.cpp server on 127.0.0.1:8081 with an OpenAI-compatible
+# /v1/chat/completions. The router gains no config — environments differ
+# only in what LOCAL_MODEL_URL points at.
+#
+# Sourcing honesty (docs/investigations/0003-hermes-local-experiment.md):
+# the preferred Liquid LFM2-class weights live on huggingface.co, which many
+# sandboxed/proxied environments (including the one this was built in)
+# cannot reach. PyPI is the one artifact host that is reachable virtually
+# everywhere this repo's substrate runs, so the pinned weights below are
+# GGUF files published inside PyPI wheels, verified by sha256 at every hop
+# (wheel hash from files.pythonhosted.org, then the extracted/assembled
+# .gguf hash). Swap in the HF-hosted LFM2 GGUF (same shape: URL + sha256)
+# when your network allows it.
+#
+#   default served model : SmolLM2-135M-Instruct Q4_1 (Apache-2.0, instruct)
+#   also fetched         : gemma-3-270m Q4_K_M (base model — a deliberately
+#                          weak rung to exercise escalation, decision 0002)
+#   server               : llama-cpp-python[server], version-pinned, in a
+#                          venv under .staging/models/venv
+models_step() {
+  local models_dir=".staging/models" run_dir=".staging/run" log_dir=".staging/logs"
+  local port="${LLAMA_PORT:-8081}"
+  mkdir -p "$models_dir" "$run_dir" "$log_dir"
+
+  # pinned wheels: pkg==version, wheel sha256, gguf path inside the wheel
+  local smol_pkg="llm-smollm2" smol_ver="0.1.2"
+  local smol_whl_sha="bcc81830d10ce7d9e76640cad826a4b79ed3e4547c78a0be5c4f2fb0e2448c70"
+  local smol_gguf="SmolLM2-135M-Instruct.Q4_1.gguf"
+  local smol_gguf_sha="b179c9523d0e6a0f98a330c7562b682750a6f8c8c15e5bc70ea373728110db53"
+  # gemma chunks: 4 wheels, each carrying one .partNN of the gguf
+  local gemma_shas=(
+    "2ce8a8889efc923beb08b9c2c90df07482bad1dfc00af4bc27235f70425773cf"
+    "8fb5776bec6f322a3eca852bda800c2c27bfb5ff7f3490760b9514d676a77fe3"
+    "94a258d51e6affe7cfdcc461eefb4091a0a72b2f407e0b6ce6832c004a767b72"
+    "1bad81ad2dd240a233067f9e19bec22329b8454e76222d065f6585522077be38"
+  )
+  local gemma_gguf="gemma-3-270m-q4_k_m.gguf"
+  local gemma_gguf_sha="a5fd3b62230aa5ec60212297dc9d20eaa70578ac519e00d93a17e44c087a6818"
+
+  pypi_wheel_url() { # pypi_wheel_url <pkg> <version>
+    curl -fsSL "https://pypi.org/pypi/$1/$2/json" | python3 -c \
+      'import json,sys; [print(u["url"]) for u in json.load(sys.stdin)["urls"] if u["filename"].endswith(".whl")]'
+  }
+  fetch_wheel() { # fetch_wheel <pkg> <version> <sha256> <dest>
+    local url; url=$(pypi_wheel_url "$1" "$2")
+    curl -fsSL --retry 3 --retry-delay 2 -o "$4" "$url"
+    echo "$3  $4" | sha256sum -c - >/dev/null || {
+      echo "ERROR: wheel checksum mismatch for $1==$2 — refusing to use it" >&2; exit 1; }
+  }
+
+  # -- weights: SmolLM2-135M-Instruct (served by default) --
+  if ! echo "$smol_gguf_sha  $models_dir/$smol_gguf" | sha256sum -c - >/dev/null 2>&1; then
+    echo "== fetching $smol_gguf (pinned, via PyPI $smol_pkg==$smol_ver)"
+    fetch_wheel "$smol_pkg" "$smol_ver" "$smol_whl_sha" "$models_dir/.smol.whl"
+    (cd "$models_dir" && unzip -oq .smol.whl "llm_smollm2/$smol_gguf" && mv "llm_smollm2/$smol_gguf" . && rmdir llm_smollm2 && rm -f .smol.whl)
+    echo "$smol_gguf_sha  $models_dir/$smol_gguf" | sha256sum -c - >/dev/null || {
+      echo "ERROR: gguf checksum mismatch for $smol_gguf" >&2; exit 1; }
+  fi
+
+  # -- weights: gemma-3-270m (kept alongside as the deliberately-weak rung) --
+  if ! echo "$gemma_gguf_sha  $models_dir/$gemma_gguf" | sha256sum -c - >/dev/null 2>&1; then
+    echo "== fetching $gemma_gguf (pinned, via PyPI gemma3-270m-q4-k-m-gguf-part1..4)"
+    local i part parts=()
+    for i in 1 2 3 4; do
+      part="$models_dir/.gemma.part$i.whl"
+      fetch_wheel "gemma3-270m-q4-k-m-gguf-part$i" "1.0.0" "${gemma_shas[$((i-1))]}" "$part"
+      (cd "$models_dir" && unzip -oq ".gemma.part$i.whl" "gemma3_270m_q4_k_m_gguf_part$i/data/*")
+      parts+=("$models_dir/gemma3_270m_q4_k_m_gguf_part$i/data/gemma-3-270m-q4_k_m.gguf.part0$((i-1))")
+    done
+    cat "${parts[@]}" > "$models_dir/$gemma_gguf"
+    rm -rf "$models_dir"/.gemma.part*.whl "$models_dir"/gemma3_270m_q4_k_m_gguf_part*
+    echo "$gemma_gguf_sha  $models_dir/$gemma_gguf" | sha256sum -c - >/dev/null || {
+      echo "ERROR: gguf checksum mismatch for $gemma_gguf" >&2; exit 1; }
+  fi
+
+  # -- server: llama-cpp-python[server], version-pinned, venv-local --
+  if [[ ! -x "$models_dir/venv/bin/python" ]]; then
+    echo "== creating venv + installing llama-cpp-python[server]==0.3.16 (CPU build; takes a few minutes)"
+    python3 -m venv "$models_dir/venv"
+    "$models_dir/venv/bin/pip" install --quiet --no-cache-dir "llama-cpp-python[server]==0.3.16"
+  fi
+
+  # -- start (idempotent): OpenAI-compatible /v1/chat/completions --
+  local url="http://127.0.0.1:$port"
+  local serve="${STAGING_MODEL_FILE:-$smol_gguf}"
+  if curl -sf "$url/v1/models" >/dev/null 2>&1; then
+    echo "== llama server already running at $url"
+  else
+    echo "== starting llama server ($serve) at $url"
+    nohup "$models_dir/venv/bin/python" -m llama_cpp.server \
+      --model "$models_dir/$serve" --host 127.0.0.1 --port "$port" \
+      --n_ctx 4096 --n_threads "${LLAMA_THREADS:-$(( $(nproc) > 2 ? $(nproc) - 1 : 1 ))}" \
+      >"$log_dir/llama-server.log" 2>&1 &
+    echo $! >"$run_dir/llama-server.pid"
+    for _ in $(seq 1 300); do
+      curl -sf "$url/v1/models" >/dev/null 2>&1 && break
+      sleep 0.5
+    done
+    curl -sf "$url/v1/models" >/dev/null 2>&1 || {
+      echo "ERROR: llama server never became healthy — last log lines:" >&2
+      tail -n 30 "$log_dir/llama-server.log" >&2 || true; exit 1; }
+  fi
+  echo
+  echo "== staging model tier is up (decision 0002)"
+  echo "   serving        $serve"
+  echo "   also on disk   $gemma_gguf (STAGING_MODEL_FILE=$gemma_gguf to serve it)"
+  echo "   wire the control plane to it (small CPU models need a roomier read timeout):"
+  echo "   export LOCAL_MODEL_URL=$url MODEL_HTTP_TIMEOUT_SECS=60"
+  echo "   then (re)run: scripts/staging-up.sh   # env is inherited by the control plane"
+  echo "   tear down with the rest: scripts/staging-up.sh down"
+}
 if [[ "${1:-}" == "--models" ]]; then
-  echo "--models is a documented stub (decision 0002 — inference test tiers):"
-  echo "  will fetch pinned GGUF weights -> .staging/models/"
-  echo "  will start llama.cpp server(s) on 127.0.0.1 and print LOCAL_MODEL_URL"
-  echo "  until then: tests use in-process loopback mocks; staging runs the"
-  echo "  rules-only ladder unless you export LOCAL_MODEL_URL yourself."
+  models_step
   exit 0
 fi
 

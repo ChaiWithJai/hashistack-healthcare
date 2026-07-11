@@ -44,6 +44,12 @@ appear; never ask the operator to restate something recorded here.
   personas like a strong regression suite, and emit a scorecard baseline the
   operator can take somewhere. Honest gaps (packs without artifacts, refusal
   surface missing) appear IN the scorecard, never hidden. (Stated 2026-07-11.)
+- **Show the final artifact and profile the journey.** The capstone demo is
+  one real journey end-to-end: what the clinician typed, every stage it
+  passed through (with wall-times and the audit trail), and the final
+  artifact they own — rendered and running, not described. Keep a repeatable
+  journey profiler in the repo; the output is a show-it-to-anyone page.
+  (Stated 2026-07-11.)
 - **Ship as a stacked PR chain.** Loop through every open issue until each
   is a link in a chain of PRs that merge into each other (main <- PR#1 <-
   integration <- #5 <- #3 <- #7 <- #8 <- #9 <- #10 ...), verified link by

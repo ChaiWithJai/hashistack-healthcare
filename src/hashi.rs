@@ -194,6 +194,26 @@ impl Nomad {
             .ok_or_else(|| anyhow!("nomad register returned no EvalID: {resp}"))
     }
 
+    /// Observed job status (#6, the honest slice of real allocations):
+    /// `GET /v1/job/:id` and return Nomad's own `Status` word (`pending` |
+    /// `running` | `dead`) — the OBSERVED axis of Nomad's desired/observed
+    /// pair (steering: `structs`, desired vs observed status). On the
+    /// one-machine dev agent the `role=prod` constraint is unsatisfiable,
+    /// so an honest `pending` is exactly what this reports; per-allocation
+    /// ClientStatus and deployment health ride the real client pool
+    /// (Phase 1), together with release≠deploy and generations.
+    pub fn job_status(&self, job_id: &str, namespace: &str) -> Result<String> {
+        let path = format!("/v1/job/{job_id}?namespace={namespace}");
+        let (status, resp) = http(&self.addr, "GET", &path, None, "")?;
+        expect_ok("nomad job status", status, &resp)?;
+        let v: Value = serde_json::from_str(&resp).context("parsing nomad job response")?;
+        v["Status"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("nomad job read returned no Status for {job_id}"))
+    }
+
     /// Stop (not purge) the job: rollback destroys the allocation but keeps
     /// the record inspectable — `nomad job status` shows it dead, which is
     /// exactly what the pressure test asserts.

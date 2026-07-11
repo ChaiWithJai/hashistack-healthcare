@@ -585,7 +585,7 @@ async fn iterate(
     // the apply re-acquires it and settles `concurrent-edit` if the record
     // moved. Top-of-ladder failure changes nothing.
     let outcome = ladder
-        .run_iterate(&platform, &id, &req.instruction, &pack)
+        .run_iterate(&platform, &id, &req.instruction, &pack, &principal.id)
         .await;
     // Durably settle whatever the climb recorded (#7 + #8). An APPLIED edit
     // is load-bearing: it reverts if no durable sink confirms. A failed
@@ -1062,22 +1062,67 @@ async fn rollback(
 
 // ---------- operate + audit ----------
 
+/// Operate (#6, the honest slice of real allocations): the response carries
+/// Nomad's dual status axes. `desired_state` is the platform record's claim
+/// (live → running, sandbox → stopped); `observed_state` is polled from the
+/// real Nomad job when `NOMAD_ADDR` is set (`status_source: "nomad"` — on
+/// the one-machine dev agent an honest `pending` is expected, since
+/// `role=prod` is unsatisfiable there) and mirrors desired in simulated
+/// mode (`status_source: "simulated"` — labeled, never claimed). The poll
+/// runs on the blocking pool with NO platform lock held (F4), and a
+/// configured-but-unreachable Nomad answers 502 rather than a false
+/// "running": the platform never claims an observation it didn't make.
+/// TODO(#6): release≠deploy and generations are NOT implemented — they land
+/// with the real client pool (Phase 1), where per-allocation ClientStatus
+/// and deployment health become observable at all.
 async fn operate(
     State(platform): State<SharedPlatform>,
     Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     ensure_tenant(&platform, &id, &principal)?;
-    let plat = platform.read().unwrap();
-    let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
-    let live = app.stage == Stage::Live;
+    let (stage, allocation, tenant) = {
+        let plat = platform.read().unwrap();
+        let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        (app.stage, app.allocation.clone(), app.tenant.clone())
+    };
+    let live = stage == Stage::Live;
+    let desired = if live { "running" } else { "stopped" };
+    let (observed, source) = if live && crate::hashi::Nomad::from_env().is_some() {
+        let job_id = id.clone();
+        let namespace = format!("tenant-{tenant}");
+        let polled = tokio::task::spawn_blocking(move || {
+            crate::hashi::Nomad::from_env()
+                .expect("checked above; env does not change mid-request")
+                .job_status(&job_id, &namespace)
+        })
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("status poll panicked: {e}"),
+            )
+        })?
+        .map_err(|e| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                format!("nomad is configured but the job status poll failed — refusing to claim an unobserved state: {e:#}"),
+            )
+        })?;
+        (polled, "nomad")
+    } else {
+        (desired.to_string(), "simulated")
+    };
     Ok(Json(json!({
-        "stage": app.stage,
-        "allocation": app.allocation,
+        "stage": stage,
+        "allocation": allocation,
+        "desired_state": desired,
+        "observed_state": observed,
+        "status_source": source,
         "metrics": {
             "uptime_pct": if live { 100.0 } else { 0.0 },
             "p95_ms": if live { 120 } else { 0 },
-            "healthy": app.allocation.as_ref().map(|a| a.healthy).unwrap_or(false),
+            "healthy": allocation.as_ref().map(|a| a.healthy).unwrap_or(false),
         },
     })))
 }

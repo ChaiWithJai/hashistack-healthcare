@@ -39,8 +39,13 @@ pub const DB_CREDS_ROLE: &str = "tenant-app";
 /// rendered job to a real Nomad dev agent and records the evaluation id; with
 /// `VAULT_ADDR`/`VAULT_TOKEN` set it proves the tenant transit key. With
 /// neither, the allocation stays a simulated struct exactly as before.
-/// TODO(#6): `healthy` is still a literal. Real deploys mirror Nomad's
-/// desired/observed status axes and split release from deploy.
+/// #6 (honest slice landed): the operate endpoint now reports Nomad's dual
+/// status axes — `desired_state` from this record, `observed_state` polled
+/// from the real job when `NOMAD_ADDR` is set (src/hashi.rs `job_status`).
+/// TODO(#6): `healthy` is still a literal, and release≠deploy + generations
+/// are NOT implemented — both land with the real client pool (Phase 1),
+/// where per-allocation ClientStatus and deployment health exist to
+/// observe. Stated in docs/investigations/0001's status matrix.
 /// #9: with staging Vault + control DB present, [`staging_promote`] replaces
 /// the placeholder credentials string below with a real database-engine
 /// lease (lease id, username, TTL — proven to authenticate before it is

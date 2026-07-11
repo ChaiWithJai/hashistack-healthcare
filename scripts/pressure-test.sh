@@ -156,13 +156,28 @@ check "attestation carries the report digest" "$LIVE" '"report_digest":"sha256:'
 
 echo "-- staging: promote reaches real infrastructure (#2)"
 NS="tenant-meridian"
+# #6 (honest slice): operate reports Nomad's dual status axes. Desired is
+# the record's claim; observed is polled from the REAL job in staging
+# (status_source nomad — an honest "pending" on the one-machine dev agent,
+# where role=prod is unsatisfiable) and mirrors desired in simulated mode
+# (status_source simulated — labeled, never claimed).
+OPERATE=$(get "/api/apps/$ID/operate")
+check "operate: desired axis is the record" "$OPERATE" '"desired_state":"running"'
+check "operate: observed axis present"      "$OPERATE" '"observed_state":"'
 if [[ -n "${NOMAD_ADDR:-}" ]]; then
   check "nomad eval id recorded" "$LIVE" '"nomad_eval_id":"'
   NJOB=$(curl -s "$NOMAD_ADDR/v1/job/$ID?namespace=$NS")
   check "job registered in nomad" "$NJOB" "\"ID\":\"$ID\""
   check "nomad job not stopped"   "$NJOB" '"Stop":false'
+  # The observation must really come from Nomad, and must agree with what
+  # Nomad itself says about the job right now.
+  check "operate: observed from real nomad" "$OPERATE" '"status_source":"nomad"'
+  NSTATUS=$(echo "$NJOB" | jfield '["Status"]')
+  check "operate: observed matches nomad's own word" "$OPERATE" "\"observed_state\":\"$NSTATUS\""
 else
   echo "  skipped (no nomad): eval id recorded, job registered, job not stopped"
+  check "operate: simulated mode reports desired=observed, labeled" "$OPERATE" '"status_source":"simulated"'
+  check "operate: simulated observed mirrors desired" "$OPERATE" '"observed_state":"running"'
 fi
 if [[ -n "${VAULT_ADDR:-}" ]]; then
   check "vault transit round-trip" "$LIVE" "\"vault_transit_key\":\"$NS\""

@@ -459,3 +459,49 @@ async fn audit_actor_is_the_real_principal_id_for_every_doctor_action() {
         .unwrap()
         .contains("co-signed Dr. J. Park (dr-park)"));
 }
+
+// ---------- P14 (closeout): the doctor's edit is the doctor's act ----------
+
+#[tokio::test]
+async fn iterate_audit_event_is_attributed_to_the_requesting_principal() {
+    let router = strict_router(None);
+    let id = create_app(&router, PARK, "post-op-monitor", "wound diary").await;
+    let (status, _, _) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/iterate"),
+        Some(PARK),
+        Some(json!({"instruction": "flag rising pain to my inbox"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, audit, _) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{id}/audit"),
+        Some(PARK),
+        None,
+    )
+    .await;
+    let events = audit["events"].as_array().unwrap();
+    let iterated = events
+        .iter()
+        .find(|e| e["action"] == "app.iterated")
+        .expect("app.iterated recorded");
+    // P14 resolved: the actor is the principal who asked for the edit; the
+    // machine's contribution (which agent tier landed it) is the detail.
+    assert_eq!(iterated["actor"], "dr-park", "{iterated}");
+    let detail = iterated["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("agent tier rules"),
+        "the landing tier rides the detail: {detail}"
+    );
+    // The machine's own records keep the agent actor — attribution, not
+    // erasure.
+    let attempt = events
+        .iter()
+        .find(|e| e["action"] == "agent.attempt")
+        .expect("agent.attempt recorded");
+    assert_eq!(attempt["actor"], "agent");
+}

@@ -192,12 +192,18 @@ impl EscalationLadder {
     /// `current_version` moved during the climb, the operation settles failed
     /// with reason `concurrent-edit` rather than clobbering the newer record.
     /// Returns (reply, updated app, op id).
+    /// `actor` is the requesting principal's id (review-log P14, resolved
+    /// in the closeout): the doctor's edit is the doctor's act, so
+    /// `app.iterated` is attributed to them — the agent tier that landed it
+    /// rides in the detail, and `agent.attempt`/`agent.routed` events keep
+    /// the `agent` actor (they are the machine's own record).
     pub async fn run_iterate(
         self: &Arc<Self>,
         platform: &SharedPlatform,
         app_id: &str,
         instruction: &str,
         pack: &PackManifest,
+        actor: &str,
     ) -> Result<(AgentReply, AppRecord, String), LadderFailure> {
         let required = pack.gates.clone();
         let (mut op, before) = {
@@ -280,11 +286,15 @@ impl EscalationLadder {
         // sensitive envelope (#8) — HMAC on platform-wide surfaces,
         // plaintext in the doctor's own app-scoped view. `agent.attempt`
         // events carry only op ids / tiers / verdict reasons, so they never
-        // need the envelope.
+        // need the envelope. P14: the actor is the requesting principal —
+        // the edit is their act; the tier that landed it is the detail.
         plat.audit.record_sensitive(
-            "agent",
+            actor,
             "app.iterated",
-            format!("addendum {version}"),
+            format!(
+                "addendum {version} (landed by agent tier {}, op {})",
+                accepted.tier, op_id
+            ),
             Some(app_id),
             &[("instruction", instruction.to_string())],
         );

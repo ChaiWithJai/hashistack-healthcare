@@ -350,7 +350,13 @@ async fn operation_is_upserted_running_before_the_driver_runs() {
     let task_id = id.clone();
     let crashed = tokio::spawn(async move {
         let _ = ladder
-            .run_iterate(&task_platform, &task_id, "add a wound photo view", &pack)
+            .run_iterate(
+                &task_platform,
+                &task_id,
+                "add a wound photo view",
+                &pack,
+                "dr-osei",
+            )
             .await;
     })
     .await;

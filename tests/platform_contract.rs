@@ -562,3 +562,45 @@ async fn doctor_ui_is_served_but_holds_no_privileges() {
         "the UI is a client of the same API"
     );
 }
+
+/// #6 (honest slice): operate reports Nomad's dual status axes. In
+/// simulated mode (no NOMAD_ADDR — every test) the observed axis mirrors
+/// the desired one and SAYS SO via `status_source: "simulated"` — labeled,
+/// never claimed. The staging pressure test asserts the real-Nomad side
+/// (`status_source: "nomad"`, observed matching Nomad's own word).
+#[tokio::test]
+async fn operate_reports_dual_status_axes_labeled_simulated() {
+    let router = app();
+    let id = create_post_op_app(&router).await;
+
+    // Sandbox: nothing is desired to run, and nothing is observed running.
+    let (status, operate) = call(&router, "GET", &format!("/api/apps/{id}/operate"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(operate["desired_state"], "stopped");
+    assert_eq!(operate["observed_state"], "stopped");
+    assert_eq!(operate["status_source"], "simulated");
+
+    // Promote, then the record claims running — and simulated mode mirrors
+    // it on the observed axis rather than inventing an observation.
+    call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
+        Some(json!({})),
+    )
+    .await;
+    let (status, promoted) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        Some(json!({"cosigner": "Dr. A. Osei"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{promoted}");
+
+    let (_, operate) = call(&router, "GET", &format!("/api/apps/{id}/operate"), None).await;
+    assert_eq!(operate["desired_state"], "running");
+    assert_eq!(operate["observed_state"], "running");
+    assert_eq!(operate["status_source"], "simulated");
+    assert_eq!(operate["metrics"]["healthy"], true);
+}

@@ -79,6 +79,12 @@ pub struct Attestation {
     pub cosigner: String,
     pub gate_summary: String,
     pub reviewer_note: Option<String>,
+    /// The full gate report, frozen verbatim at promotion (F3, review-log
+    /// round 1). A released app's compliance record embeds this instead of
+    /// re-running preflight over reconstructed sandbox lineage — the report
+    /// that admitted the app IS the evidence, basis and stubs included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::gates::GateReport>,
     pub at: u64,
 }
 

@@ -99,12 +99,31 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
     let router = app();
     let id = create_post_op_app(&router).await;
 
-    // Preflight: 5/6, auto-logoff failing and marked fixable (storyboard 1a⑤).
+    // Preflight: auto-logoff failing and marked fixable (storyboard 1a⑤).
+    // Evidence basis (#3): four verdicts are inspected from the pack's
+    // scaffold source; the encryption stub reports `stubbed`, never `pass`,
+    // so `passed` counts 4 with 1 stubbed alongside.
     let (status, gate) = call(&router, "GET", &format!("/api/apps/{id}/gate"), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(gate["report"]["passed"], 5);
+    assert_eq!(gate["report"]["passed"], 4);
+    assert_eq!(gate["report"]["stubbed"], 1);
     assert_eq!(gate["report"]["total"], 6);
     assert_eq!(gate["report"]["green"], false);
+    let audit_gate = gate["report"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "audit-log")
+        .unwrap();
+    assert_eq!(audit_gate["basis"], "evidence");
+    assert_eq!(audit_gate["citation"], "45 CFR §164.312(b)");
+    let phi = gate["report"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "phi-encryption")
+        .unwrap();
+    assert_eq!(phi["status"], "stubbed", "a stub must never read as pass");
     let failing: Vec<&Value> = gate["report"]["results"]
         .as_array()
         .unwrap()
@@ -163,7 +182,10 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
     assert_eq!(promoted["app"]["allocation"]["pool"], "prod");
     assert_eq!(promoted["app"]["data_source"]["kind"], "tenant");
     assert_eq!(promoted["app"]["attestation"]["cosigner"], "Dr. A. Osei");
-    assert_eq!(promoted["app"]["attestation"]["gate_summary"], "6/6");
+    assert_eq!(
+        promoted["app"]["attestation"]["gate_summary"], "5/6 (1 stubbed)",
+        "the attestation discloses the stub instead of absorbing it"
+    );
 }
 
 #[tokio::test]
@@ -334,7 +356,10 @@ async fn audit_stream_records_the_whole_story_append_only() {
         .iter()
         .find(|e| e["action"] == "app.promoted")
         .unwrap();
-    assert!(deploy["detail"].as_str().unwrap().contains("preflight 6/6"));
+    assert!(deploy["detail"]
+        .as_str()
+        .unwrap()
+        .contains("preflight 5/6 (1 stubbed)"));
     assert!(deploy["detail"]
         .as_str()
         .unwrap()
@@ -444,9 +469,13 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     assert!(readme.contains("a post-op recovery tracker for my knee replacement patients"));
     assert!(readme.contains("make pain a 0-10 scale and flag anything over 7 to me"));
 
-    // COMPLIANCE embeds the release: re-run gate report, cosigner, audit.
+    // COMPLIANCE embeds the release: the attestation-time gate report
+    // frozen at promotion (F3), cosigner, audit — stub disclosed, cited.
     let compliance = files["docs/COMPLIANCE.md"].as_str().unwrap();
-    assert!(compliance.contains("6/6"));
+    assert!(compliance.contains("5/6 (1 stubbed)"));
+    assert!(compliance.contains("frozen at promotion"));
+    assert!(compliance.contains("STUBBED —"), "no false passes");
+    assert!(compliance.contains("45 CFR §164.312(b)"), "P1 citations");
     assert!(compliance.contains("Dr. A. Osei"));
     assert!(compliance.contains("app.promoted"), "audit trail embedded");
 

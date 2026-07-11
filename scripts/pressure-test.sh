@@ -57,11 +57,19 @@ ID=$(echo "$APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"
 check "sandbox stage"     "$APP" '"stage":"sandbox"'
 check "synthetic data"    "$APP" '"kind":"synthetic"'
 
-echo "-- gate: 5/6, auto-logoff failing and fixable"
+echo "-- gate: auto-logoff failing and fixable; evidence-based verdicts (#3)"
 GATE=$(get "/api/apps/$ID/gate")
-check "5/6 passed"        "$GATE" '"passed":5'
+check "4 passed"          "$GATE" '"passed":4'
+check "1 stubbed"         "$GATE" '"stubbed":1'
 check "not green"         "$GATE" '"green":false'
 check "names auto-logoff" "$GATE" '"id":"auto-logoff"'
+# Evidence over claims: verdicts say what they rest on, and the scaffold's
+# labeled encryption stub is reported stubbed — never as a pass.
+check "evidence basis present"  "$GATE" '"basis":"evidence"'
+check "control basis present"   "$GATE" '"basis":"control"'
+check "stub never reads as pass" "$(echo "$GATE" | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["report"]["results"] if x["id"]=="phi-encryption"][0]; print(r["basis"], r["status"])')" "evidence stubbed"
+# Dual-register vocabulary (P1): HIPAA citations ride the report JSON.
+check "citation on audit-log"   "$GATE" '"citation":"45 CFR §164.312(b)"'
 
 echo "-- false-pass guard: promotion locked while failing"
 LOCKED=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei"}')
@@ -77,7 +85,7 @@ check "blank co-sign refused" "$NOSIGN" 'co-signature'
 LIVE=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei"}')
 check "live"              "$LIVE" '"stage":"live"'
 check "prod pool"         "$LIVE" '"pool":"prod"'
-check "attested 6/6"      "$LIVE" '"gate_summary":"6/6"'
+check "attestation discloses the stub" "$LIVE" '"gate_summary":"5/6 (1 stubbed)"'
 
 echo "-- staging: promote reaches real infrastructure (#2)"
 NS="tenant-meridian"
@@ -119,6 +127,19 @@ check "unpack one-liner ships"   "$EXPORT" 'python3 -c'
 # bundle carries real app source and the runbook drops its old caveat.
 check "real scaffold source ships" "$EXPORT" '"app/src/main.rs"'
 check "runbook drops placeholder caveat" "$(echo "$EXPORT" | python3 -c 'import json,sys; rb=json.load(sys.stdin)["files"]["docs/RUNBOOK.md"]; print("caveat-present" if "scaffold placeholder" in rb else "real-source")')" "real-source"
+# F1 (review-log round 1): staging submission strips the vault stanza for
+# the dev agent, but the RENDERED job text the doctor owns must always
+# carry it — the stripped path may never quietly become load-bearing.
+check "rendered job keeps vault stanza" "$(echo "$EXPORT" | python3 -c 'import json,sys; job=json.load(sys.stdin)["files"]["nomad/job.nomad.hcl"]; print("stanza-present" if "vault {" in job else "stanza-missing")')" "stanza-present"
+# F3: a released app's compliance record embeds the report frozen at
+# promotion — the evidence that admitted it — never a lineage re-run.
+COMPLIANCE=$(echo "$EXPORT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
+check "compliance report frozen at promotion" "$COMPLIANCE" 'frozen at promotion'
+check "compliance names the stub"             "$COMPLIANCE" 'STUBBED —'
+check "compliance carries HIPAA citations"    "$COMPLIANCE" '45 CFR §164.312(b)'
+# The adversarial broken scaffold (#3) is cargo-test-only fixture data:
+# it must never register as a pack or reach any API surface.
+check "adversarial fixture is not a shipped pack" "$(get /api/packs | python3 -c 'import json,sys; p=json.load(sys.stdin)["packs"]; print("absent" if not any("broken" in x["id"] for x in p) and len(p)==5 else "present")')" "absent"
 
 echo "-- rollback destroys the allocation"
 BACK=$(post "/api/apps/$ID/rollback")

@@ -202,12 +202,14 @@ function meterHtml(withFix) {
   }
   const r = S.gate.report;
   const rows = r.results.map(g => {
-    const ok = g.status === "pass";
-    const fix = withFix && !ok && g.fixable ? `<span class="fixlink" onclick="fixGate('${g.id}')">fix</span>` : "";
-    return `<div class="gline ${ok ? "pass" : "fail"}">${ok ? "✓" : "○"} ${esc(g.title)}${fix}</div>`;
+    const ok = g.status === "pass", stub = g.status === "stubbed";
+    const fix = withFix && !ok && !stub && g.fixable ? `<span class="fixlink" onclick="fixGate('${g.id}')">fix</span>` : "";
+    // A labeled stub satisfies the meter but is never drawn as a check (#3).
+    return `<div class="gline ${ok || stub ? "pass" : "fail"}">${ok ? "✓" : stub ? "◐" : "○"} ${esc(g.title)}${stub ? ' <span class="muted">stubbed</span>' : ""}${fix}</div>`;
   }).join("");
-  return `<b>Compliance ${r.passed}/${r.total}</b>
-    <div class="sk track"><div class="fill" style="width:${r.total ? Math.max(4, 100*r.passed/r.total) : 4}%"></div></div>
+  const done = r.passed + (r.stubbed || 0);
+  return `<b>Compliance ${r.passed}/${r.total}${r.stubbed ? ` <span class="muted">+${r.stubbed} stubbed</span>` : ""}</b>
+    <div class="sk track"><div class="fill" style="width:${r.total ? Math.max(4, 100*done/r.total) : 4}%"></div></div>
     ${rows}
     <div class="muted">${r.green ? "all green — promote unlocks below" : "checks fill in as you build — deploy unlocks at " + r.total + "/" + r.total}</div>`;
 }
@@ -288,6 +290,8 @@ function viewBuilder() {
     const r = S.gate.report;
     const rows = r.results.map(g => g.status === "pass"
       ? `<div class="pass">✓ ${esc(g.title)}</div>`
+      : g.status === "stubbed"
+      ? `<div class="pass">◐ ${esc(g.title)} — <span class="muted">stubbed: ${esc(g.reason)}</span></div>`
       : `<div class="fail">✗ ${esc(g.title)} — ${esc(g.reason)} ${g.fixable ? `<button class="b" style="font-size:12px;padding:1px 8px" onclick="fixGate('${g.id}')">fix it for me</button>` : ""}</div>`).join("");
     const needsReview = r.results.some(g => g.id === "human-review" && g.status !== "pass");
     return `<div class="modalwrap"><div class="modal">
@@ -297,7 +301,7 @@ function viewBuilder() {
       ${S.gate.reviewer_note ? `<div class="sk" style="padding:5px 9px;background:#f4f2ec;font-size:13px">"${esc(S.gate.reviewer_note)}" — platform reviewer</div>` : ""}
       <div class="row" style="margin-top:6px">
         <input type="text" id="cosign" placeholder="co-sign: Dr. A. Osei" style="flex:1">
-        <button class="b bp ${r.green ? "" : "locked"}" ${r.green ? "" : "disabled"} onclick="promote()">${r.green ? "Deploy →" : `Deploy — locked (${r.total - r.passed} failing)`}</button>
+        <button class="b bp ${r.green ? "" : "locked"}" ${r.green ? "" : "disabled"} onclick="promote()">${r.green ? "Deploy →" : `Deploy — locked (${r.total - r.passed - (r.stubbed || 0)} failing)`}</button>
       </div>
       <span class="fixlink" style="margin-left:0" onclick="S.modal=null;render()">close</span>
     </div></div>`;
@@ -372,7 +376,7 @@ function viewPipeline() {
     const r = S.gate.report;
     const needsReview = r.results.some(g => g.id === "human-review" && g.status !== "pass");
     body = `<div class="col" style="flex:1;padding:16px 20px">
-      <div><b>Compliance ${r.passed}/${r.total}</b> ${r.green ? '<span class="tag tg">all green</span> — you cleared these as you built.' : `<span class="tag ty">${r.total - r.passed} open</span> — fix from the meter, then promote.`}</div>
+      <div><b>Compliance ${r.passed}/${r.total}${r.stubbed ? ` <span class="muted">+${r.stubbed} stubbed</span>` : ""}</b> ${r.green ? '<span class="tag tg">all green</span> — you cleared these as you built.' : `<span class="tag ty">${r.total - r.passed - (r.stubbed || 0)} open</span> — fix from the meter, then promote.`}</div>
       ${needsReview ? `<button class="b" style="align-self:flex-start" onclick="runReview()">request platform review</button>` : ""}
       ${S.gate.reviewer_note ? `<div class="sk" style="padding:5px 9px;background:#f4f2ec">"${esc(S.gate.reviewer_note)}" — platform reviewer</div>` : ""}
       <div class="sk" style="padding:8px 12px;font-size:13.5px">
@@ -459,7 +463,7 @@ function viewChart() {
     <div class="sk" style="padding:10px 14px;background:#fff">
       <div class="row"><span class="sk" style="width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center">🛡</span>
       <div><b>Compliance review</b><br><span class="muted">automated · attestation attached to record</span></div></div>
-      <div style="margin-top:6px">${S.gate.report.results.map(g => `<span class="${g.status === "pass" ? "pass" : "fail"}">${g.status === "pass" ? "✓" : "✗"} ${esc(g.title)}</span>`).join(" &nbsp; ")}</div>
+      <div style="margin-top:6px">${S.gate.report.results.map(g => `<span class="${g.status === "fail" ? "fail" : "pass"}">${g.status === "pass" ? "✓" : g.status === "stubbed" ? "◐" : "✗"} ${esc(g.title)}</span>`).join(" &nbsp; ")}</div>
       <div class="sk" style="padding:5px 9px;background:#f4f2ec;margin-top:6px">"${esc(S.review.reviewer_note)}" — platform reviewer</div>
       <div class="row" style="margin-top:8px">
         <input type="text" id="cosign" placeholder="Dr. A. Osei" style="max-width:200px;border-width:0 0 1.4px 0;border-radius:0">

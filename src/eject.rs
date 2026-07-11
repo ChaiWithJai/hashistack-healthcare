@@ -32,7 +32,7 @@ pub struct EjectionBundle {
 /// Build the ejection bundle. Pure over its inputs: the same record and
 /// audit slice always produce the same bundle, so an export is evidence.
 pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> EjectionBundle {
-    let report = preflight_report(app, pack);
+    let (report, provenance) = preflight_report(app, pack);
     // Packs converted to the full spec (#5) ship a runnable scaffold whose
     // sources are compile-time embedded next to the manifests (packs.rs) —
     // the same no-drift guarantee PACK_SOURCES gives. `scaffold_path` on the
@@ -61,7 +61,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     );
     files.insert(
         "docs/COMPLIANCE.md".to_string(),
-        compliance_md(app, &report, audit),
+        compliance_md(app, &report, provenance, audit),
     );
     files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
     files.insert("render.yaml".to_string(), render_yaml(app));
@@ -75,17 +75,35 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     }
 }
 
-/// Re-run the preflight for the compliance record. A live allocation reads
-/// tenant data by design, and the synthetic-only gate attests the *sandbox
-/// lineage* — so a released app is evaluated the way the gate engine saw it
-/// at promotion, not against its (legitimately tenant-backed) live view.
-fn preflight_report(app: &AppRecord, pack: &PackManifest) -> GateReport {
+/// Where the compliance record's gate report came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReportProvenance {
+    /// Frozen verbatim at promotion (F3): the report that admitted the app.
+    Frozen,
+    /// Re-run live at export — the draft path, where preflight is current.
+    Rerun,
+}
+
+/// The gate report for the compliance record (F3, review-log round 1):
+/// a released app embeds the report frozen on its attestation at promotion
+/// — the evidence that admitted it — never a re-run over reconstructed
+/// lineage. Draft bundles keep the live re-run, where preflight is simply
+/// the current truth. The lineage-reconstruction fallback survives only for
+/// live records that predate stored reports (a released app legitimately
+/// reads tenant data and would fail synthetic-only forever if re-run raw).
+fn preflight_report(app: &AppRecord, pack: &PackManifest) -> (GateReport, ReportProvenance) {
     if app.stage == Stage::Live {
+        if let Some(report) = app.attestation.as_ref().and_then(|a| a.report.clone()) {
+            return (report, ReportProvenance::Frozen);
+        }
         let mut release_view = app.clone();
         release_view.data_source = DataSource::Synthetic(pack.synthetic_dataset.clone());
-        gates::preflight(&release_view, &pack.gates)
+        (
+            gates::preflight(&release_view, &pack.gates),
+            ReportProvenance::Rerun,
+        )
     } else {
-        gates::preflight(app, &pack.gates)
+        (gates::preflight(app, &pack.gates), ReportProvenance::Rerun)
     }
 }
 
@@ -206,7 +224,12 @@ fn runbook_md(app: &AppRecord, real_source: bool) -> String {
 
 // ---------- COMPLIANCE.md: gate report + attestation + audit trail ----------
 
-fn compliance_md(app: &AppRecord, report: &GateReport, audit: &[&AuditEvent]) -> String {
+fn compliance_md(
+    app: &AppRecord,
+    report: &GateReport,
+    provenance: ReportProvenance,
+    audit: &[&AuditEvent],
+) -> String {
     let mut md = String::new();
     md.push_str(&format!("# Compliance record — {}\n\n", app.name));
 
@@ -228,8 +251,12 @@ fn compliance_md(app: &AppRecord, report: &GateReport, audit: &[&AuditEvent]) ->
         }
     }
 
+    let heading = match provenance {
+        ReportProvenance::Frozen => "frozen at promotion",
+        ReportProvenance::Rerun => "re-run at export",
+    };
     md.push_str(&format!(
-        "## Gate report (re-run at export, app v{})\n\n{} checks passed — {}\n\n",
+        "## Gate report ({heading}, app v{})\n\n{} checks passed — {}\n\n",
         report.app_version,
         report.summary(),
         if report.green {
@@ -238,20 +265,35 @@ fn compliance_md(app: &AppRecord, report: &GateReport, audit: &[&AuditEvent]) ->
             "NOT green: promotion is locked until every check passes"
         }
     ));
-    md.push_str("| gate | check | verdict |\n|---|---|---|\n");
+    if provenance == ReportProvenance::Frozen {
+        md.push_str(
+            "This is the attestation-time report, embedded verbatim at release — the \
+             evidence that admitted the app, not a re-run.\n\n",
+        );
+    }
+    // Dual-register table (P1): plain-language check + the HIPAA citation it
+    // implements; basis says whether the verdict was inspected or claimed.
+    md.push_str("| gate | check | HIPAA citation | basis | verdict |\n|---|---|---|---|---|\n");
     for result in &report.results {
         let verdict = match &result.outcome {
             GateStatus::Pass => "pass".to_string(),
+            GateStatus::Stubbed { reason } => format!("STUBBED — {}", md_cell(reason)),
             GateStatus::Fail { reason, fixable } => format!(
                 "FAIL — {}{}",
                 md_cell(reason),
                 if *fixable { " (one-click fixable)" } else { "" }
             ),
         };
+        let basis = match result.basis {
+            gates::Basis::Control => "control (self-reported)",
+            gates::Basis::Evidence => "evidence (source inspected)",
+        };
         md.push_str(&format!(
-            "| `{}` | {} | {} |\n",
+            "| `{}` | {} | {} | {} | {} |\n",
             result.id,
             md_cell(&result.title),
+            result.citation.as_deref().unwrap_or("— (pack-defined)"),
+            basis,
             verdict
         ));
     }
@@ -645,12 +687,14 @@ mod tests {
         assert!(compliance.contains("draft — not released"));
         assert!(compliance.contains("omitted by design"));
         assert!(!compliance.contains("co-signed by:"));
+        // Draft bundles keep the live re-run (F3 applies to releases only).
+        assert!(compliance.contains("Gate report (re-run at export"));
         assert!(bundle.files["nomad/job.nomad.hcl"].contains("no live allocation yet"));
         assert!(bundle.unpack.contains("python3"));
     }
 
     #[test]
-    fn live_bundle_embeds_attestation_and_rendered_job() {
+    fn live_bundle_embeds_the_frozen_attestation_report_and_rendered_job() {
         let pack = post_op_pack();
         let mut app = sample_app(&pack);
         let report = gates::preflight(&app, &pack.gates);
@@ -658,16 +702,46 @@ mod tests {
         deploy::promote(&mut app, &report, "Dr. A. Osei", "a-0001".to_string())
             .expect("promotion succeeds on a green report");
 
+        // F3: the attestation carries the admitting report verbatim.
+        assert!(app.attestation.as_ref().unwrap().report.is_some());
+
         let bundle = bundle(&app, &pack, &[]);
         let compliance = &bundle.files["docs/COMPLIANCE.md"];
         assert!(compliance.contains("Status: **released**"));
         assert!(compliance.contains("**Dr. A. Osei**"));
-        assert!(compliance.contains("**6/6**"));
-        assert!(
-            compliance.contains("6/6 checks passed — green"),
-            "the re-run gate report must reflect the released record, not fail synthetic-only: {compliance}"
-        );
+        assert!(compliance.contains("**5/6 (1 stubbed)**"));
+        // The released record embeds the frozen attestation-time report —
+        // never a re-run over the (legitimately tenant-backed) live view.
+        assert!(compliance.contains("Gate report (frozen at promotion"));
+        assert!(compliance.contains("embedded verbatim at release"));
+        assert!(!compliance.contains("re-run at export"));
+        assert!(compliance.contains("5/6 (1 stubbed) checks passed — green"));
+        // No false passes (#3): the encryption stub is named, not blessed.
+        assert!(compliance.contains("STUBBED —"), "{compliance}");
+        // Dual-register vocabulary (P1): citations next to plain language.
+        assert!(compliance.contains("45 CFR §164.312(b)"));
+        assert!(compliance.contains("evidence (source inspected)"));
         assert!(bundle.files["nomad/job.nomad.hcl"].contains("job \"post-op-tracker\""));
         assert!(bundle.files["README.md"].contains("knee replacement patients"));
+    }
+
+    #[test]
+    fn frozen_report_survives_even_though_the_live_app_reads_tenant_data() {
+        // The F3 rationale made concrete: after promotion the app record is
+        // tenant-wired, so a raw re-run would fail synthetic-only forever.
+        // The frozen report keeps the promotion-time truth instead.
+        let pack = post_op_pack();
+        let mut app = sample_app(&pack);
+        let report = gates::preflight(&app, &pack.gates);
+        deploy::promote(&mut app, &report, "Dr. A. Osei", "a-0001".to_string()).unwrap();
+        assert!(matches!(app.data_source, DataSource::Tenant(_)));
+
+        let live_rerun = gates::preflight(&app, &pack.gates);
+        assert!(!live_rerun.green, "raw re-run fails synthetic-only");
+
+        let (frozen, provenance) = preflight_report(&app, &pack);
+        assert_eq!(provenance, ReportProvenance::Frozen);
+        assert!(frozen.green, "the frozen admitting report is the record");
+        assert_eq!(frozen.summary(), "5/6 (1 stubbed)");
     }
 }

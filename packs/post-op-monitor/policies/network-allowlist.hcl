@@ -18,6 +18,17 @@ allowlist "post-op-monitor" {
     "api.anthropic.com", # platform LLM key, scoped per environment, under BAA
   ]
 
+  # Browser-loaded static assets: fetched by the patient's browser for the
+  # scaffold's wireframe skin, never by the server, and the requests carry
+  # no PHI (a font fetch does expose the client IP to Google — an accepted,
+  # named trade for Phase 0; self-hosting the fonts removes it). Declared
+  # here so the ai-allowlist evidence gate (#3) sees every host literal in
+  # the scaffold accounted for — an undeclared host fails promotion.
+  asset_endpoints = [
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+  ]
+
   # Deliberately absent: patient-notification vendors (SMS/email reminders
   # for the "daily reminder schedule" feature). Adding one is a pack.hcl
   # revision plus a signed BAA — not an app-level edit.

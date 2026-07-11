@@ -20,7 +20,7 @@
 use std::env;
 
 use crate::agent::{AgentDriver, AgentReply, HttpModelDriver, RuleBasedDriver, ScaffoldStep};
-use crate::gates::{self, GateReport, GateStatus};
+use crate::gates::{self, GateReport};
 use crate::packs::{EscalationReason, PackManifest, RoutingPolicy, RoutingTier};
 use crate::state::{now_unix, AppRecord, AttemptRecord, OpKind, OpStatus, Operation, Platform};
 
@@ -397,15 +397,16 @@ fn verify_iterate(
         return Verdict::Reject(format!("unknown-control({})", unknown.join(", ")));
     }
 
-    // 2. No gate regression: every check that passed before the edit must
-    //    still pass after it. preflight evaluates `required` in order, so
+    // 2. No gate regression: every check satisfied before the edit (passing
+    //    or a labeled stub — anything that wasn't blocking) must still be
+    //    satisfied after it. preflight evaluates `required` in order, so
     //    the reports zip positionally.
     let report_after = gates::preflight(candidate, required);
     let lost: Vec<String> = report_before
         .results
         .iter()
         .zip(report_after.results.iter())
-        .filter(|(b, a)| b.outcome == GateStatus::Pass && a.outcome != GateStatus::Pass)
+        .filter(|(b, a)| b.outcome.satisfied() && !a.outcome.satisfied())
         .map(|(_, a)| a.id.clone())
         .collect();
     if !lost.is_empty() {

@@ -16,6 +16,14 @@
 //!   inbox (pack gate semantics — see ../gates/README.md)
 //! - synthetic seed loaded at boot from ../synthetic/post-op-demo.json;
 //!   the app refuses any dataset not marked SYNTHETIC
+//!
+//! PHI inventory (#3): fields that would hold protected health information
+//! in a real deployment carry a `// phi:` marker, and each struct holding
+//! them declares its encryption disposition with `// phi-encryption:` —
+//! `stub` today (everything lives in memory over synthetic data; hipaa-core
+//! encryptField via Vault transit is the labeled TODO). The platform's
+//! phi-encryption gate reads these markers as evidence and reports the stub
+//! as `stubbed`, never as a pass.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -63,39 +71,46 @@ struct Dataset {
 
 #[derive(Clone, Debug, Deserialize)]
 struct Patient {
+    // phi-encryption: stub — in-memory over the synthetic seed only;
+    // hipaa-core encryptField via Vault transit before any real storage.
     id: String,
-    name: String,
-    age: u8,
-    procedure: String,
-    surgery_date: String,
-    surgeon: String,
+    name: String,      // phi: patient name
+    age: u8,           // phi: age
+    procedure: String, // phi: procedure performed
+    surgery_date: String, // phi: date of surgery
+    surgeon: String,   // phi: treating surgeon
     #[serde(default)]
     checkins: Vec<SeedCheckin>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 struct SeedCheckin {
+    // phi-encryption: stub — rides inside Patient, same labeled TODO.
     day: u32,
-    pain: u8,
-    wound: String,
-    note: String,
+    pain: u8,      // phi: reported pain score
+    wound: String, // phi: reported wound status
+    note: String,  // phi: free-text clinical note
 }
 
 // ---------- runtime state ----------
 
 #[derive(Clone, Debug)]
 struct Checkin {
-    patient_id: String,
-    pain: u8,
-    wound: String,
-    note: String,
+    // phi-encryption: stub — held in memory only; hipaa-core encryptField
+    // via Vault transit before any real storage backend is wired.
+    patient_id: String, // phi: patient identifier
+    pain: u8,           // phi: reported pain score
+    wound: String,      // phi: reported wound status
+    note: String,       // phi: free-text clinical note
     at: u64,
 }
 
 #[derive(Clone, Debug)]
 struct PhotoStub {
-    patient_id: String,
-    filename: String,
+    // phi-encryption: stub — see encrypted_at_rest below; the label is the
+    // whole point of this struct.
+    patient_id: String, // phi: patient identifier
+    filename: String,   // phi: wound photo filename
     bytes: usize,
     /// Honest label: photos are held in memory and NOT encrypted at rest.
     /// TODO(hipaa-core): encryptField via Vault transit before any real

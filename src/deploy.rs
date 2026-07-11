@@ -73,6 +73,9 @@ pub fn promote(
         cosigner: cosigner.trim().to_string(),
         gate_summary: report.summary(),
         reviewer_note: app.reviewer_note.clone(),
+        // F3: freeze the admitting report on the attestation verbatim — the
+        // released app's compliance record embeds this, never a re-run.
+        report: Some(report.clone()),
         at: now_unix(),
     });
     app.stage = Stage::Live;

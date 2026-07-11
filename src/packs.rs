@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::LazyLock;
 
 /// Signature roots the registry accepts. Phase 0: the platform key only.
 /// Open question 2 in the RFC — clinician identity in the chain — lands here.
@@ -213,6 +214,53 @@ const POST_OP_MONITOR_SCAFFOLD: &[PackSourceFile] = &[
 pub fn scaffold_sources(pack_id: &str) -> Option<&'static [PackSourceFile]> {
     match pack_id {
         "post-op-monitor" => Some(POST_OP_MONITOR_SCAFFOLD),
+        _ => None,
+    }
+}
+
+/// The pack's signed network policy, embedded like everything else the gate
+/// engine consumes so the evidence (#3) and the git tree can never disagree.
+const POST_OP_MONITOR_ALLOWLIST: &str =
+    include_str!("../packs/post-op-monitor/policies/network-allowlist.hcl");
+
+#[derive(Deserialize)]
+struct AllowlistFile {
+    allowlist: BTreeMap<String, AllowlistPolicy>,
+}
+
+/// One `allowlist "<pack>" {}` block. Every list is a set of bare hosts; the
+/// split mirrors why each host is acceptable (internal, BAA-covered, or a
+/// browser-loaded static asset that carries no PHI).
+#[derive(Deserialize, Default)]
+struct AllowlistPolicy {
+    #[serde(default)]
+    endpoints: Vec<String>,
+    #[serde(default)]
+    baa_endpoints: Vec<String>,
+    #[serde(default)]
+    asset_endpoints: Vec<String>,
+}
+
+/// Every host the pack's policies/network-allowlist.hcl declares, when the
+/// pack ships one. The ai-allowlist gate's evidence pass (#3) checks host
+/// literals in the scaffold source against exactly this list — so widening
+/// an app's reach is a signed pack revision, never an app-level edit.
+pub fn network_allowlist(pack_id: &str) -> Option<Vec<String>> {
+    static POST_OP: LazyLock<Vec<String>> = LazyLock::new(|| {
+        let file: AllowlistFile = hcl::from_str(POST_OP_MONITOR_ALLOWLIST)
+            .expect("embedded network-allowlist.hcl must parse");
+        file.allowlist
+            .into_values()
+            .flat_map(|p| {
+                p.endpoints
+                    .into_iter()
+                    .chain(p.baa_endpoints)
+                    .chain(p.asset_endpoints)
+            })
+            .collect()
+    });
+    match pack_id {
+        "post-op-monitor" => Some(POST_OP.clone()),
         _ => None,
     }
 }

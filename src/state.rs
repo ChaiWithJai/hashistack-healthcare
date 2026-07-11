@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::agent::RouterDriver;
 use crate::audit::AuditLog;
 use crate::packs::PackManifest;
 
@@ -108,6 +109,11 @@ pub struct Platform {
     pub packs: Vec<PackManifest>,
     pub apps: HashMap<String, AppRecord>,
     pub audit: AuditLog,
+    /// Treatment 4a: the composite router driver. Default construction reads
+    /// `LOCAL_MODEL_URL` / `FRONTIER_MODEL_URL`; with neither set it is a
+    /// pure rule-based passthrough — today's exact behavior. Tests inject a
+    /// configured router pointed at mock endpoints.
+    pub agent_driver: RouterDriver,
     next_id: u64,
 }
 
@@ -117,6 +123,7 @@ impl Platform {
             packs,
             apps: HashMap::new(),
             audit: AuditLog::default(),
+            agent_driver: RouterDriver::from_env(),
             next_id: 1,
         }
     }

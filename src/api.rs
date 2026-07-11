@@ -11,7 +11,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
-use crate::agent::{AgentDriver, RuleBasedDriver, ScaffoldStep};
+use crate::agent::{AgentDriver, ScaffoldStep};
 use crate::deploy;
 use crate::gates;
 use crate::packs;
@@ -125,7 +125,7 @@ async fn create_app(
         slug
     };
 
-    let scaffold = RuleBasedDriver.scaffold(&pack, &req.prompt);
+    let scaffold = plat.agent_driver.scaffold(&pack, &req.prompt);
     let controls: BTreeSet<String> = pack.prewired.iter().cloned().collect();
 
     let app = AppRecord {
@@ -160,6 +160,7 @@ async fn create_app(
         format!("described {:?} from pack {}", app.prompt, pack.id),
         Some(&id),
     );
+    record_routing(&mut plat, &id);
     plat.audit.record(
         "agent",
         "agent.scaffolded",
@@ -207,6 +208,7 @@ async fn iterate(
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
     let mut plat = platform.write().unwrap();
+    let plat = &mut *plat;
     let required = plat
         .apps
         .get(&id)
@@ -215,7 +217,7 @@ async fn iterate(
         .ok_or_else(|| not_found("app"))?;
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
-    let reply = RuleBasedDriver.iterate(app, &req.instruction, &required);
+    let reply = plat.agent_driver.iterate(app, &req.instruction, &required);
     app.current_version += 1;
     let version = app.current_version;
     app.addenda.push(Addendum {
@@ -228,6 +230,7 @@ async fn iterate(
     });
     let app = app.clone();
 
+    record_routing(plat, &id);
     plat.audit.record(
         "agent",
         "app.iterated",
@@ -236,6 +239,16 @@ async fn iterate(
     );
 
     Ok(Json(json!({ "reply": reply, "app": app })))
+}
+
+/// Drain the router's pending decisions into the audit stream — one
+/// `agent.routed` event per decision. Routing is only trustworthy if it is
+/// observable; the driver holds decisions only between the call and here.
+fn record_routing(plat: &mut Platform, app_id: &str) {
+    for d in plat.agent_driver.drain_decisions() {
+        plat.audit
+            .record("agent-router", "agent.routed", d.detail(), Some(app_id));
+    }
 }
 
 #[derive(Deserialize)]

@@ -392,6 +392,25 @@ async fn create_app(
             .ok_or_else(|| not_found("pack"))?
             .clone();
 
+        // Refusal surface (#12, GOAL.md bar 7): the four RFC 0001
+        // out-of-scope shapes are refused at describe time with a WRITTEN
+        // reason — nothing is scaffolded, no app id is minted, and the
+        // refusal itself is on the record (`app.refused`, prompt riding the
+        // sensitive envelope like `app.created`'s).
+        if let Some(refusal) = crate::refusals::screen(&req.prompt, &pack) {
+            plat.audit.record_sensitive(
+                &principal.id,
+                "app.refused",
+                format!(
+                    "describe refused — RFC 0001 use case {} ({}): {}",
+                    refusal.rfc_use_case, refusal.class, refusal.reason
+                ),
+                None,
+                &[("prompt", req.prompt.clone())],
+            );
+            return Err(ApiError(StatusCode::UNPROCESSABLE_ENTITY, refusal.reason));
+        }
+
         let name = req.name.clone().unwrap_or_else(|| pack.name.clone());
         let tenant = principal.tenant.clone();
         let slug: String = name

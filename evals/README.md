@@ -28,11 +28,13 @@ realistic sampling of scenarios, and emits a portable scorecard baseline:
   encryption stub is labeled, never claimed). Unconverted packs score
   **no-artifact (#5 pending)** — visible in the scorecard, never skipped.
 
-Known gaps are **expected failures**, not errors: the four refusal
-scenarios (RFC 0001 use cases 9/10/15/21) run against a platform with no
-refusal surface (#12) and fail into the scorecard's known-gaps section.
+Known gaps are **expected failures**, not errors, and land visibly in the
+scorecard's known-gaps section (today: the four packs without runnable
+scaffolds, the rules-tier floor, the keyword shape of the refusal screen).
 The harness exits nonzero only on harness errors or a failing check in a
 scenario marked `must_pass` — it is a regression baseline, not a trophy.
+The four refusal scenarios (RFC 0001 use cases 9/10/15/21) are `must_pass`
+since the refusal surface landed (src/refusals.rs, #12).
 
 ## The corpus (evals/scenarios/*.json)
 
@@ -98,9 +100,13 @@ One JSON file per scenario. Fields by category:
 | `expected` | `"refusal-with-reason"` | the platform should refuse and say why (GOAL.md bar 7) |
 | `rfc_use_case` | int | which RFC 0001 out-of-scope case this is (9, 10, 15, 21) |
 
-The refusal check is marked `expected_fail` in the results until the
-refusal surface (#12) lands — when it does, flip `must_pass` to `true` and
-the baseline starts protecting it.
+The refusal surface landed (src/refusals.rs, #12): all four scenarios are
+`must_pass` and assert the full contract — 422, a written reason quoting
+the RFC rationale and naming the use-case class, an `app.refused` audit
+event, and an empty tenant app list afterward. The screen's unit tests
+(`cargo test refusals::`) additionally run **every** committed scenario
+prompt through it both ways, so a new eval scenario is screened for false
+positives the moment it lands.
 
 ### `category: "auth"`
 

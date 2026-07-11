@@ -456,20 +456,39 @@ async function runStaffDenial(scenario, base, score) {
   return null;
 }
 
-// Refusal scenarios: the platform SHOULD refuse with a written reason
-// (GOAL.md bar 7, RFC 0001). There is no refusal surface yet (#12), so
-// these run, fail honestly, and land in the scorecard as known gaps.
+// Refusal scenarios (GOAL.md bar 7): the four RFC 0001 out-of-scope shapes
+// must be refused at describe time — HTTP 422, a WRITTEN reason quoting the
+// RFC rationale, an `app.refused` audit event, and nothing scaffolded.
+// must_pass since the Phase 0 refusal surface landed (src/refusals.rs, #12):
+// a regression here fails the run.
 async function runRefusal(scenario, base, score) {
   const created = await api(base, 'POST', '/api/apps',
     { prompt: scenario.prompt, pack: scenario.pack });
-  const refused = created.status !== 200;
-  const reasoned = refused && /scope|refus/i.test(created.json?.error ?? '');
+  const error = created.json?.error ?? '';
+  const refused = created.status === 422;
+  const reasoned = /out of platform scope/.test(error)
+    && /trust feature/.test(error)
+    && new RegExp(`use case ${scenario.rfc_use_case}\\b`).test(error);
   score.add('refused_with_reason', refused && reasoned,
     refused
-      ? `refused with: ${(created.json?.error ?? created.text).slice(0, 160)}`
-      : `NOT refused — the platform scaffolded ${JSON.stringify(created.json?.app?.id)} from an out-of-scope prompt ` +
-        `(RFC 0001 use case ${scenario.rfc_use_case}); no refusal surface exists yet (#12)`,
-    { expected_fail: true });
+      ? `422 with the written reason (RFC class named: ${reasoned}): ${error.slice(0, 200)}`
+      : `NOT refused — status ${created.status}` +
+        (created.status === 200 ? `, scaffolded ${JSON.stringify(created.json?.app?.id)}` : `: ${(error || created.text).slice(0, 160)}`) +
+        ` (RFC 0001 use case ${scenario.rfc_use_case} must answer 422)`);
+
+  // nothing may have been scaffolded: the tenant's app list stays empty
+  const list = await api(base, 'GET', '/api/apps');
+  const appCount = (list.json?.apps ?? []).length;
+  score.add('nothing_scaffolded', appCount === 0,
+    `apps in the tenant after the refusal: ${appCount}`);
+
+  // the refusal itself is on the record: app.refused in the platform export
+  // (clinician-pulled, HMAC side — the prompt rides the sensitive envelope)
+  const exported = await api(base, 'GET', '/api/audit/export');
+  const audited = exported.text.includes('"action":"app.refused"');
+  score.add('refusal_audited', audited,
+    audited ? 'app.refused present in the platform audit export'
+            : 'app.refused missing from the platform audit export');
   return null;
 }
 
@@ -671,7 +690,7 @@ function renderMarkdown(results, agg, meta) {
     const l1 = r.layer1.checks.filter((c) => c.status === 'pass' || c.status === 'fail');
     const l1Passed = l1.filter((c) => c.status === 'pass').length;
     const l1Cell = r.category === 'refusal'
-      ? (l1Passed === l1.length ? 'refused ✓' : '**not refused — known gap (#12)**')
+      ? (l1Passed === l1.length ? 'refused with a written reason ✓' : '**REGRESSION — not refused**')
       : `${l1Passed}/${l1.length}${l1Passed === l1.length ? '' : ' ⚠'}`;
     const l2 = r.layer2.checks;
     const l2Applicable = l2.filter((c) => c.status === 'pass' || c.status === 'fail');
@@ -823,9 +842,9 @@ async function main() {
     runtime_seconds: Math.round((Date.now() - t0) / 1000),
     counts,
     known_gaps: [
-      `**No refusal surface (#12).** All ${counts.refusal} out-of-scope scenarios (RFC 0001 use cases 9, 10, 15, 21) were scaffolded instead of refused-with-a-reason — GOAL.md bar 7 is unmet and these checks fail by design until the refusal surface lands.`,
       '**Four packs have no runnable scaffold (#5).** hypertension-tracker, patient-intake, compliance-checklist, and insurance-verification eject the honest placeholder runtime, so their artifact layer scores no-artifact — the post-op-monitor pattern needs porting.',
       `**Agent tier floor: ${[...tiersSeen].join(', ') || 'rules'}.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design).`,
+      '**The refusal screen is Phase 0 keyword rules (src/refusals.rs).** The four RFC out-of-scope classes are refused with written reasons and every corpus prompt is tuned both ways (unit tests), but a paraphrase outside the rule vocabulary can slip past — a model-based screen slots in behind the same seam (#12).',
     ],
   };
 

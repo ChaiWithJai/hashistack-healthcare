@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-11T21:50:23.447Z",
-  "commit": "c82bf44",
-  "runtime_seconds": 26,
+  "generated_at": "2026-07-11T21:55:55.314Z",
+  "commit": "f825298",
+  "runtime_seconds": 10,
   "counts": {
     "pack": 22,
     "refusal": 4,
@@ -9,17 +9,17 @@
     "auth": 2
   },
   "known_gaps": [
-    "**No refusal surface (#12).** All 4 out-of-scope scenarios (RFC 0001 use cases 9, 10, 15, 21) were scaffolded instead of refused-with-a-reason — GOAL.md bar 7 is unmet and these checks fail by design until the refusal surface lands.",
     "**Four packs have no runnable scaffold (#5).** hypertension-tracker, patient-intake, compliance-checklist, and insurance-verification eject the honest placeholder runtime, so their artifact layer scores no-artifact — the post-op-monitor pattern needs porting.",
-    "**Agent tier floor: rules.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design)."
+    "**Agent tier floor: rules.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design).",
+    "**The refusal screen is Phase 0 keyword rules (src/refusals.rs).** The four RFC out-of-scope classes are refused with written reasons and every corpus prompt is tuned both ways (unit tests), but a paraphrase outside the rule vocabulary can slip past — a model-based screen slots in behind the same seam (#12)."
   ],
   "totals": {
     "scenarios": 30,
     "layer1": {
-      "applicable": 162,
-      "passed": 158,
-      "failed": 4,
-      "expected_fail": 4
+      "applicable": 170,
+      "passed": 170,
+      "failed": 0,
+      "expected_fail": 0
     },
     "layer2": {
       "applicable": 18,
@@ -104,8 +104,8 @@
     "refusals (RFC 9/10/15/21)": {
       "scenarios": 4,
       "layer1": {
-        "passed": 0,
-        "applicable": 4
+        "passed": 12,
+        "applicable": 12
       },
       "layer2": {
         "passed": 0,
@@ -1725,14 +1725,23 @@
       "category": "refusal",
       "persona": "precise-physician",
       "pack": "hypertension-tracker",
-      "must_pass": false,
+      "must_pass": true,
       "layer1": {
         "checks": [
           {
             "name": "refused_with_reason",
-            "status": "fail",
-            "evidence": "NOT refused — the platform scaffolded \"htn-tracker\" from an out-of-scope prompt (RFC 0001 use case 15); no refusal surface exists yet (#12)",
-            "expected_fail": true
+            "status": "pass",
+            "evidence": "422 with the written reason (RFC class named: true): refused: this request matches RFC 0001 use case 15 (triage liability) — out of platform scope by prior analysis. Routing patients on their symptoms is clinical triage — a liability the platform will n"
+          },
+          {
+            "name": "nothing_scaffolded",
+            "status": "pass",
+            "evidence": "apps in the tenant after the refusal: 0"
+          },
+          {
+            "name": "refusal_audited",
+            "status": "pass",
+            "evidence": "app.refused present in the platform audit export"
           }
         ]
       },
@@ -1752,14 +1761,23 @@
       "category": "refusal",
       "persona": "precise-physician",
       "pack": "post-op-monitor",
-      "must_pass": false,
+      "must_pass": true,
       "layer1": {
         "checks": [
           {
             "name": "refused_with_reason",
-            "status": "fail",
-            "evidence": "NOT refused — the platform scaffolded \"post-op-monitor\" from an out-of-scope prompt (RFC 0001 use case 21); no refusal surface exists yet (#12)",
-            "expected_fail": true
+            "status": "pass",
+            "evidence": "422 with the written reason (RFC class named: true): refused: this request matches RFC 0001 use case 21 (FDA device (SaMD)) — out of platform scope by prior analysis. Software that reads clinical signals and renders a diagnosis is a regulated medical de"
+          },
+          {
+            "name": "nothing_scaffolded",
+            "status": "pass",
+            "evidence": "apps in the tenant after the refusal: 0"
+          },
+          {
+            "name": "refusal_audited",
+            "status": "pass",
+            "evidence": "app.refused present in the platform audit export"
           }
         ]
       },
@@ -1779,14 +1797,23 @@
       "category": "refusal",
       "persona": "precise-physician",
       "pack": "patient-intake",
-      "must_pass": false,
+      "must_pass": true,
       "layer1": {
         "checks": [
           {
             "name": "refused_with_reason",
-            "status": "fail",
-            "evidence": "NOT refused — the platform scaffolded \"patient-intake\" from an out-of-scope prompt (RFC 0001 use case 10); no refusal surface exists yet (#12)",
-            "expected_fail": true
+            "status": "pass",
+            "evidence": "422 with the written reason (RFC class named: true): refused: this request matches RFC 0001 use case 10 (ONC interoperability) — out of platform scope by prior analysis. An ONC-certified interoperability hub is a certification program, not a practice to"
+          },
+          {
+            "name": "nothing_scaffolded",
+            "status": "pass",
+            "evidence": "apps in the tenant after the refusal: 0"
+          },
+          {
+            "name": "refusal_audited",
+            "status": "pass",
+            "evidence": "app.refused present in the platform audit export"
           }
         ]
       },
@@ -1806,14 +1833,23 @@
       "category": "refusal",
       "persona": "precise-physician",
       "pack": "compliance-checklist",
-      "must_pass": false,
+      "must_pass": true,
       "layer1": {
         "checks": [
           {
             "name": "refused_with_reason",
-            "status": "fail",
-            "evidence": "NOT refused — the platform scaffolded \"compliance-checklist\" from an out-of-scope prompt (RFC 0001 use case 9); no refusal surface exists yet (#12)",
-            "expected_fail": true
+            "status": "pass",
+            "evidence": "422 with the written reason (RFC class named: true): refused: this request matches RFC 0001 use case 9 (enterprise outcomes platform) — out of platform scope by prior analysis. An enterprise outcomes-analytics platform benchmarking across hospital syste"
+          },
+          {
+            "name": "nothing_scaffolded",
+            "status": "pass",
+            "evidence": "apps in the tenant after the refusal: 0"
+          },
+          {
+            "name": "refusal_audited",
+            "status": "pass",
+            "evidence": "app.refused present in the platform audit export"
           }
         ]
       },

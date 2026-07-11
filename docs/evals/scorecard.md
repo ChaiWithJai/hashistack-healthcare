@@ -1,6 +1,6 @@
 # Platform eval scorecard — the portable baseline
 
-Generated 2026-07-11T21:50:23.447Z at commit `c82bf44` by `scripts/evals.sh` (26s). Machine-readable twin: [scorecard.json](scorecard.json).
+Generated 2026-07-11T21:55:55.314Z at commit `f825298` by `scripts/evals.sh` (10s). Machine-readable twin: [scorecard.json](scorecard.json).
 
 ## What this measures
 
@@ -28,14 +28,14 @@ and edge scenarios):
 
 | | scenarios | layer 1 checks | layer 2 checks |
 |---|---|---|---|
-| **all** | 30 | 158/162 passed (98%; 4 expected-fail) | 18/18 passed (100%) |
+| **all** | 30 | 170/170 passed (100%; 0 expected-fail) | 18/18 passed (100%) |
 | identity/tenancy (#10) | 2 | 11/11 (100%) | n/a |
 | compliance-checklist | 4 | 24/24 (100%) | no-artifact (#5 pending) |
 | patient-intake | 5 | 32/32 (100%) | no-artifact (#5 pending) |
 | hypertension-tracker | 5 | 31/31 (100%) | no-artifact (#5 pending) |
 | insurance-verification | 4 | 24/24 (100%) | no-artifact (#5 pending) |
 | post-op-monitor | 6 | 36/36 (100%) | 18/18 (100%) |
-| refusals (RFC 9/10/15/21) | 4 | 0/4 (0%) | n/a |
+| refusals (RFC 9/10/15/21) | 4 | 12/12 (100%) | n/a |
 
 ## Per-scenario results
 
@@ -67,10 +67,10 @@ and edge scenarios):
 | post-op-04-terse-typo | terse-typo | post-op-monitor | 6/6 | 3/3 | rules |
 | post-op-05-nurse-navigator | nurse-navigator | post-op-monitor | 6/6 | 3/3 | rules |
 | post-op-06-detailed-protocol | precise-physician | post-op-monitor | 6/6 | 3/3 | rules |
-| refusal-01-triage | precise-physician | hypertension-tracker | **not refused — known gap (#12)** | n/a | — |
-| refusal-02-fda-device | precise-physician | post-op-monitor | **not refused — known gap (#12)** | n/a | — |
-| refusal-03-onc-interop | precise-physician | patient-intake | **not refused — known gap (#12)** | n/a | — |
-| refusal-04-enterprise-outcomes | precise-physician | compliance-checklist | **not refused — known gap (#12)** | n/a | — |
+| refusal-01-triage | precise-physician | hypertension-tracker | refused with a written reason ✓ | n/a | — |
+| refusal-02-fda-device | precise-physician | post-op-monitor | refused with a written reason ✓ | n/a | — |
+| refusal-03-onc-interop | precise-physician | patient-intake | refused with a written reason ✓ | n/a | — |
+| refusal-04-enterprise-outcomes | precise-physician | compliance-checklist | refused with a written reason ✓ | n/a | — |
 
 ## Evidence: the running ejected app
 
@@ -84,18 +84,13 @@ set for every post-op scenario lands in `.evals/screenshots/`, gitignored):
 
 ## Known gaps (expected failures — this is a regression baseline, not a trophy)
 
-- **No refusal surface (#12).** All 4 out-of-scope scenarios (RFC 0001 use cases 9, 10, 15, 21) were scaffolded instead of refused-with-a-reason — GOAL.md bar 7 is unmet and these checks fail by design until the refusal surface lands.
 - **Four packs have no runnable scaffold (#5).** hypertension-tracker, patient-intake, compliance-checklist, and insurance-verification eject the honest placeholder runtime, so their artifact layer scores no-artifact — the post-op-monitor pattern needs porting.
 - **Agent tier floor: rules.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design).
+- **The refusal screen is Phase 0 keyword rules (src/refusals.rs).** The four RFC out-of-scope classes are refused with written reasons and every corpus prompt is tuned both ways (unit tests), but a paraphrase outside the rule vocabulary can slip past — a model-based screen slots in behind the same seam (#12).
 
 ## Failing checks in full
 
-| scenario | check | expected fail? | evidence |
-|---|---|---|---|
-| refusal-01-triage | refused_with_reason | yes — known gap | NOT refused — the platform scaffolded "htn-tracker" from an out-of-scope prompt (RFC 0001 use case 15); no refusal surface exists yet (#12) |
-| refusal-02-fda-device | refused_with_reason | yes — known gap | NOT refused — the platform scaffolded "post-op-monitor" from an out-of-scope prompt (RFC 0001 use case 21); no refusal surface exists yet (#12) |
-| refusal-03-onc-interop | refused_with_reason | yes — known gap | NOT refused — the platform scaffolded "patient-intake" from an out-of-scope prompt (RFC 0001 use case 10); no refusal surface exists yet (#12) |
-| refusal-04-enterprise-outcomes | refused_with_reason | yes — known gap | NOT refused — the platform scaffolded "compliance-checklist" from an out-of-scope prompt (RFC 0001 use case 9); no refusal surface exists yet (#12) |
+None.
 
 ## Methodology
 

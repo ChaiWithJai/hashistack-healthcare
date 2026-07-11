@@ -36,6 +36,14 @@ appear; never ask the operator to restate something recorded here.
   asynchronously. (Stated explicitly 2026-07-11: "This stuff should be
   recorded ambiently by you and then you'll know how I deal with [it] to
   improve gating.")
+- **Evaluate at the nested layers, and make the scorecard portable.** The
+  evaluation that matters: can a doctor/CHP vibe-code the thing (job-to-be-
+  done layer), and is what gets produced actually good (artifact layer: does
+  it build, boot, render well, and do the clinical job — verified in a real
+  browser)? Test both layers across a sampling of realistic phrasings and
+  personas like a strong regression suite, and emit a scorecard baseline the
+  operator can take somewhere. Honest gaps (packs without artifacts, refusal
+  surface missing) appear IN the scorecard, never hidden. (Stated 2026-07-11.)
 - **Ship as a stacked PR chain.** Loop through every open issue until each
   is a link in a chain of PRs that merge into each other (main <- PR#1 <-
   integration <- #5 <- #3 <- #7 <- #8 <- #9 <- #10 ...), verified link by

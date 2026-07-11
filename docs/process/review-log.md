@@ -198,6 +198,13 @@ made in the operator's stead (veto-able, all reversible):
   tenant-guarded, so attribution is safe; threading the principal through
   the ladder adds signature churn without new enforcement. An
   "on-behalf-of principal" field on ladder events is a closeout item.
+  **Resolved in the closeout link:** `run_iterate` takes the requesting
+  principal's id and `app.iterated` is attributed to them — the doctor's
+  edit is the doctor's act — with the landing agent tier and op id in the
+  detail. `agent.attempt`/`agent.routed` keep the `agent` actor
+  (attribution, not erasure). Asserted by
+  `iterate_audit_event_is_attributed_to_the_requesting_principal`
+  (tests/identity_contract.rs).
 - Rollback stays role-open (staff may withdraw an app from use): safety
   beats ceremony, and the issue's role bar names promote/co-sign/export
   only.
@@ -211,3 +218,61 @@ Issue #10 stays open for its named remainder: OIDC token source,
 NPI-verified clinician identity, operator Target/Session (decision 0005 —
 design record only, absent by design until real placement exists), and a
 UI login for strict instances.
+
+## Closeout link — 2026-07-11, chain convergence (recorded ambiently, no stop)
+
+The final link: converges the two sibling branches (`claude/eval-harness`,
+`claude/experiment-hermes-local`) into the chain, lands GOAL bar 7, and
+closes the queued items. Dispositions and judgment calls made in the
+operator's stead (veto-able, all reversible):
+
+- **Eval-auth pass done as the #10 entry demanded:** the harness sends the
+  Phase 0 dev bearer tokens on every request (no dev-fallback riding), and
+  two must_pass identity scenarios land — two-tenant isolation (cross-tenant
+  fetch 404, denial on the owning stream per P12, wrong token 401 per P9)
+  and staff denial (403 on a GREEN app, then the clinician's 200 with a
+  principal-bound attestation). Baseline: layer 1 158/162 → then 170/170
+  after the refusal flip; layer 2 18/18.
+- **P15: the refusal screen is grouped keyword rules, committed as such.**
+  Phase 0 honesty over false sophistication: `screen(prompt, pack)` is the
+  seam a model classifier later fills; the rules are CNF groups so hot
+  words ("triage", "benchmark", "diagnos-") never fire alone, and the unit
+  tests run EVERY committed eval prompt through the screen both ways — a
+  new scenario is regression-screened the day it lands. Known edge accepted
+  and documented: substring needles ("ai ", "reads") are crude; a
+  paraphrase outside the vocabulary slips past (under-refusal) rather than
+  over-refusing legitimate clinical language — chosen deliberately, since a
+  false refusal blocks a doctor while a miss still faces every gate.
+- **P16: refusals audit as `app.refused` with no app id.** Nothing was
+  created, so the event rides the platform stream (actor = the requesting
+  principal, prompt on the sensitive envelope) rather than minting an id
+  for a thing that must not exist. The eval fixtures read it back from the
+  platform export.
+- **P17: observed allocation status polls Nomad per request and fails
+  loudly.** The #6 honest slice: operate reports desired (the record's
+  claim) vs observed (Nomad's own `Status` word) with a `status_source`
+  label; a configured-but-unreachable Nomad answers 502 rather than a false
+  "running", and simulated mode says "simulated" instead of pretending. On
+  the one-machine dev agent the honest observation is `pending`
+  (`role=prod` unsatisfiable) — asserted equal to Nomad's own word by the
+  staging pressure path (117/117 in-container this link).
+- **Cherry-pick over re-merge for the experiment branch:** only 539a70e
+  (the --models staging tier + driver cap/timeout) carries code the chain
+  needs; the experiment's docs commit stays on its branch and investigation
+  0003 is copied in verbatim so the chain owns its record. The experiment
+  branch is superseded by this link (ref deletion is denied under these
+  credentials — recorded here instead).
+- **#6 remainder stated, not simulated:** `healthy` stays a literal and
+  release≠deploy + generations are NOT implemented — they need
+  per-allocation ClientStatus and deployment health, which only a real
+  client pool (Phase 1) makes observable. Stated in deploy.rs, the
+  investigation matrix, and the operate endpoint's doc.
+
+Chain state at closeout: PRs #1→#13→#14→#15→#16→#17→#19→#20→(this link);
+sibling #18 (evals) merged here with its auth pass; GOAL bars 1–4 and 7
+verified by tests/evals today, bars 5–6 pattern-proven on post-op-monitor
+pending #5's four ports. Issues staying open with named remainders: #5
+(four scaffold ports), #6 (release≠deploy, generations, healthy), #8
+(archive sink, runtime ingestion, hash chains), #9 (token enforcement,
+per-tenant roles), #10 (OIDC, NPI, operator sessions), #12 (model-based
+screen behind the refusal seam).

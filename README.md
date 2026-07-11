@@ -95,6 +95,24 @@ curl -s localhost:3000/api/apps/post-op-tracker/export
 curl -s localhost:3000/api/audit/export
 ```
 
+## The chain
+
+The work ships as a stacked PR chain — each link makes one contract true of
+real infrastructure without changing the workflow the clinician sees.
+Review in order:
+
+| PR | Link | One line |
+|---|---|---|
+| [#1](https://github.com/ChaiWithJai/hashistack-healthcare/pull/1) | `demo:` | The honest start: a skinned UI over a simulated control plane, every simulation point labeled `TODO(#n)`, the false-pass guard already load-bearing |
+| [#13](https://github.com/ChaiWithJai/hashistack-healthcare/pull/13) | `platform:` | Real staging on one machine (#2), the ejection ownership bundle (#11), and the verified escalation ladder (#4) |
+| [#14](https://github.com/ChaiWithJai/hashistack-healthcare/pull/14) | `packs:` | post-op-monitor becomes a runnable scaffold — ejected bundles carry real app source (#5, pattern-setter) |
+| [#15](https://github.com/ChaiWithJai/hashistack-healthcare/pull/15) | `gates:` | Verdicts rest on evidence over real scaffolds, stubs never pass, HIPAA citations, frozen attestation reports (#3) |
+| [#16](https://github.com/ChaiWithJai/hashistack-healthcare/pull/16) | `state:` | Postgres control store with DB-enforced transitions; model I/O off the platform lock (#7, resolves F4) |
+| [#17](https://github.com/ChaiWithJai/hashistack-healthcare/pull/17) | `audit:` | The broker invariant — no durable audit write, no operation; salted HMAC for doctor-authored text (#8) |
+| [#19](https://github.com/ChaiWithJai/hashistack-healthcare/pull/19) | `vault:` | Dynamic DB creds issued, verified, and provably revoked; per-tenant policy mounts; Vault audit device (#9) |
+| [#20](https://github.com/ChaiWithJai/hashistack-healthcare/pull/20) | `identity:` | Real principals on every route: tenancy as 404, roles as capabilities, cryptographic co-sign (#10) |
+| (this) | `closeout` | Converges the siblings — the eval harness ([#18](https://github.com/ChaiWithJai/hashistack-healthcare/pull/18)) with its auth pass, the hermes-local staging tier (investigation 0003) — and lands the refusal surface (GOAL bar 7) plus observed allocation status (#6 honest slice) |
+
 ## Design authority
 
 The Tao of HashiCorp, applied literally — workflows not technologies,

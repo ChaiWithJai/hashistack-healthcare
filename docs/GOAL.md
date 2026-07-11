@@ -43,7 +43,7 @@ testing:
 | 4 | Every action lands in one append-only audit stream, exportable for a security review | tested today; durable + load-bearing in #8 |
 | 5 | Eject produces a repo a stranger can run from the included docs alone | ejection ticket (#11), eval harness layer 2: the ejected bundle is unpacked, built, and RUN, then driven with Playwright ([evals/scorecard.md](evals/scorecard.md)) |
 | 6 | The ejected app works as the clinician's own template: re-import, extend, share | ejection ticket (#11), pack spec (#5 — pattern set by post-op-monitor: ejected bundles carry its real scaffold source), eval harness layer 1: every scenario's bundle must carry the derived pack.hcl and the doctor's own prompt ([evals/scorecard.md](evals/scorecard.md)) |
-| 7 | Out-of-scope use cases (RFC: 9, 10, 15, 21) are refused **with a written reason** in the product | enablement investigation (#12) |
+| 7 | Out-of-scope use cases (RFC: 9, 10, 15, 21) are refused **with a written reason** in the product | refusal surface (`src/refusals.rs`, #12): describe answers 422 quoting the RFC rationale + an `app.refused` audit event, nothing scaffolded; eval refusal scenarios are must_pass and assert the full contract ([evals/scorecard.md](evals/scorecard.md)); Phase 0 keyword screen tuned against the whole corpus — a model screen slots behind the same seam |
 
 The demo in this repo proves bars 2–4 as *contracts* over a simulated
 platform. The ticket chain (#2–#11) makes each contract true of real

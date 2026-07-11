@@ -65,10 +65,16 @@ format.
 
 ### The refusals (9, 10, 15, 21)
 
-Not a spike — a product surface. The describe endpoint must recognize these
-shapes and refuse with the RFC's written reasons. Add refusal fixtures to the
-pressure test: `"triage bot for chest pain"` → 422 with a reason, never a
-scaffold.
+Not a spike — a product surface. **Implemented (Phase 0)**: `src/refusals.rs`
+screens every describe against the four RFC classes and answers 422 with the
+written reason (quoting the RFC rationale — "a refusal with a reason is a
+trust feature") plus an `app.refused` audit event; nothing is scaffolded.
+The mechanism is honest keyword rules (grouped so hot words like "triage"
+never fire alone), tuned against the whole eval corpus: unit tests run every
+committed scenario prompt through the screen both ways, and the four eval
+refusal scenarios are must_pass end-to-end fixtures. A model-based screen
+slots in behind the same seam (`screen(prompt, pack) → Option<Refusal>`)
+when its false-positive rate can be measured against this corpus.
 
 ## Deliverables
 
@@ -132,11 +138,17 @@ Every decision record scores its options against, in order:
 
 ## Status
 
+Updated at the chain closeout. Evidence:
+[docs/evals/scorecard.md](../evals/scorecard.md) (layer 1 170/170, layer 2
+18/18 — 30 scenarios, authenticated, refusals must_pass) and
+[investigation 0003](0003-hermes-local-experiment.md) (first live local-tier
+data: the escalation machinery is proven, sub-1B models are not).
+
 | Use case (RFC #) | Pack | Profile | Status |
 |---|---|---|---|
-| 1 hypertension-tracker · 4 compliance-checklist · 6 patient-intake | shipped (manifest) | web | contract-proven in simulation; real enablement = #2–#11 chain |
-| 2 post-op-monitor · 14 insurance-verification | shipped (manifest) | web | same, storyboard packs |
-| 5, 7, 12, 13, 16 | wave 2 backlog | web | blocked on spike 1 exit |
+| 2 post-op-monitor | shipped (full pack spec, #5) | web | **fully proven at the bar**: the #2–#11 chain landed AND both eval layers — 4+ personas describe→gate→co-sign→eject over real HTTP, then the ejected bundle is built, run, and Playwright-judged (renders, does the clinical job, keeps its honesty markers) |
+| 1 hypertension-tracker · 4 compliance-checklist · 6 patient-intake · 14 insurance-verification | shipped (manifest) | web | **layer-1-proven via evals** (4 personas each: workflow, gate shape, false-pass guard, attestation, audit, bundle); artifact layer scores no-artifact until #5 ports the post-op scaffold pattern |
+| 5, 7, 12, 13, 16 | wave 2 backlog | web | blocked on spike 1 exit (the "someone who isn't us" run) |
 | 3, 8, 11 | wave 3 backlog | stream | blocked on spike 2 |
-| 17, 18, 19, 20 | wave 4 backlog | local | blocked on spike 3 |
-| 9, 10, 15, 21 | — | refused | needs refusal surface + pressure-test fixtures |
+| 17, 18, 19, 20 | wave 4 backlog | local | blocked on spike 3 — first runtime data point in investigation 0003: hermes-agent installs and confines cleanly but ≤270M local models emit zero tool calls; the local profile needs the LFM2/prod-tier weights decision 0002 names |
+| 9, 10, 15, 21 | — | refused | **implemented, Phase 0** (`src/refusals.rs`): 422 + written RFC reason + `app.refused`, nothing scaffolded; eval refusal scenarios must_pass; keyword rules now, model screen behind the same seam later |

@@ -7,6 +7,7 @@
 | contract | done | [tests/platform_contract.rs](../tests/platform_contract.rs) | Typed gate report; false-pass test: promote returns 409 naming the failing check, app stays sandboxed |
 | reliability | done | `gate_blocks_promotion_until_fixed_then_admits_with_cosign`, `rollback_destroys_allocation_and_returns_to_synthetic_data` | Terminal states + rollback path exercised end-to-end through the public API |
 | ops | done | [docs/ops-runbook.md](ops-runbook.md) | Full describe→audit workflow drivable from curl; smoke check documented |
+| staging | done | [scripts/staging-up.sh](../scripts/staging-up.sh), [staging.yml](../.github/workflows/staging.yml) | Real Nomad dev agent + Vault dev server bootable on one machine; pressure test asserts job registration, transit round-trip, and stop-on-rollback (#2) |
 | revision | pending | — | Awaiting first design-partner / reviewer feedback round |
 | capstone | in progress | [docs/capstone-case-study.md](capstone-case-study.md) | Phase 0 slice done; Phase 1 (owned substrate) not started |
-| public | pending | — | Publish after design-partner cohort; limitation to lead with: allocations are simulated in-process |
+| public | pending | — | Publish after design-partner cohort; limitation to lead with: staging registers real Nomad jobs, but placement stays virtual (no containers run) |

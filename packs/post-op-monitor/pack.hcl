@@ -10,6 +10,10 @@ pack "post-op-monitor" {
   wave        = 2
   signed_by   = "platform-root-v1"
 
+  # This pack ships a real runnable app template (issue #5): scaffold/ is a
+  # standalone axum crate seeded from synthetic/, ejected as the app source.
+  scaffold_path = "scaffold"
+
   # What the agent scaffolds before the doctor's first edit, hipaa-core pre-wired.
   scaffold = [
     "pain + wound check-in form",

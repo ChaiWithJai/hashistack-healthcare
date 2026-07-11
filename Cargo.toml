@@ -3,7 +3,10 @@ name = "rust-proof-service"
 version = "0.1.0"
 edition = "2021"
 
+# Pack scaffolds are standalone crates a doctor can eject and own; they are
+# never part of the platform build (CI tests each one in its own job).
 [workspace]
+exclude = ["packs/*/scaffold"]
 
 [dependencies]
 anyhow = "1"

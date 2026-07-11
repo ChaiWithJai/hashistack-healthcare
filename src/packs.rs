@@ -127,11 +127,20 @@ pub struct PackManifest {
     pub tier: u8,
     pub wave: u8,
     pub signed_by: String,
-    /// TODO(#5): demo scaffolds are feature strings. The pack spec calls for
-    /// a scaffold/ directory holding a runnable hipaa-core app template, plus
-    /// prompts/, policies/, gates/, synthetic/ (Synthea), and docs/ — the
-    /// ejection payload for #11.
+    /// Scaffold feature strings — still real: they drive the demo UI's
+    /// generate animation and become the app's initial feature list.
+    /// post-op-monitor additionally ships the full RFC 0001 folder spec
+    /// (scaffold/ as a runnable axum crate, prompts/, policies/, gates/,
+    /// synthetic/, docs/) — the #5 pattern the other packs follow.
+    /// TODO(#5), still pending: converting the other four packs,
+    /// Synthea-generated synthetic data, and a registry signature covering
+    /// the whole pack folder rather than the manifest alone.
     pub scaffold: Vec<String>,
+    /// Relative path (inside the pack directory) of a runnable scaffold
+    /// crate, when the pack ships one. `None` → feature strings only; the
+    /// ejection bundle keeps its placeholder runtime and says so.
+    #[serde(default)]
+    pub scaffold_path: Option<String>,
     pub prewired: Vec<String>,
     pub gates: Vec<String>,
     pub synthetic_dataset: String,
@@ -174,6 +183,40 @@ const PACK_SOURCES: &[&str] = &[
     include_str!("../packs/insurance-verification/pack.hcl"),
 ];
 
+/// One embedded pack file: (path relative to the pack directory, content).
+pub type PackSourceFile = (&'static str, &'static str);
+
+/// Runnable-scaffold sources, embedded at compile time exactly like
+/// [`PACK_SOURCES`] so the ejection bundle and the git tree can never
+/// disagree. Only packs converted to the full folder spec (issue #5) appear
+/// here; the `scaffold/` prefix is what the ejection service remaps to
+/// `app/`, and the synthetic seed rides along at the pack-relative path the
+/// scaffold's `include_str!` and runtime loader both expect.
+const POST_OP_MONITOR_SCAFFOLD: &[PackSourceFile] = &[
+    (
+        "scaffold/Cargo.toml",
+        include_str!("../packs/post-op-monitor/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/src/main.rs",
+        include_str!("../packs/post-op-monitor/scaffold/src/main.rs"),
+    ),
+    (
+        "synthetic/post-op-demo.json",
+        include_str!("../packs/post-op-monitor/synthetic/post-op-demo.json"),
+    ),
+];
+
+/// The embedded scaffold sources for a pack, if it ships a runnable
+/// scaffold. Kept in lockstep with each manifest's `scaffold_path` — a test
+/// below fails the build if the two ever disagree.
+pub fn scaffold_sources(pack_id: &str) -> Option<&'static [PackSourceFile]> {
+    match pack_id {
+        "post-op-monitor" => Some(POST_OP_MONITOR_SCAFFOLD),
+        _ => None,
+    }
+}
+
 pub fn parse_pack(source: &str) -> Result<PackManifest> {
     let file: PackFile = hcl::from_str(source).context("invalid pack.hcl")?;
     let (id, mut manifest) = file
@@ -215,6 +258,51 @@ mod tests {
             .find(|p| p.id == "insurance-verification")
             .unwrap();
         assert_eq!(iv.gates.len(), 9, "storyboard 1b promises nine checks");
+    }
+
+    #[test]
+    fn scaffold_path_and_embedded_sources_agree_for_every_pack() {
+        for pack in builtin_packs() {
+            match (&pack.scaffold_path, scaffold_sources(&pack.id)) {
+                (Some(path), Some(files)) => {
+                    assert_eq!(path, "scaffold", "{}: spec fixes the folder name", pack.id);
+                    assert!(
+                        files.iter().any(|(p, _)| *p == "scaffold/src/main.rs"),
+                        "{}: a runnable scaffold has source",
+                        pack.id
+                    );
+                    assert!(
+                        files.iter().any(|(p, _)| *p == "scaffold/Cargo.toml"),
+                        "{}: a runnable scaffold has a manifest",
+                        pack.id
+                    );
+                }
+                (None, None) => {} // not yet converted (#5) — honestly absent
+                (path, files) => panic!(
+                    "{}: scaffold_path ({path:?}) and embedded sources ({}) disagree",
+                    pack.id,
+                    files.map(|f| f.len()).unwrap_or(0)
+                ),
+            }
+        }
+        // The pattern-setter is converted; this flips per pack as #5 lands.
+        let post_op = builtin_packs()
+            .into_iter()
+            .find(|p| p.id == "post-op-monitor")
+            .unwrap();
+        assert_eq!(post_op.scaffold_path.as_deref(), Some("scaffold"));
+    }
+
+    #[test]
+    fn post_op_synthetic_seed_is_marked_synthetic() {
+        let (_, seed) = POST_OP_MONITOR_SCAFFOLD
+            .iter()
+            .find(|(p, _)| *p == "synthetic/post-op-demo.json")
+            .expect("seed ships with the scaffold");
+        assert!(
+            seed.contains("SYNTHETIC DATA — generated, not derived from any real person"),
+            "the seed must carry the synthetic notice the scaffold refuses to boot without"
+        );
     }
 
     #[test]

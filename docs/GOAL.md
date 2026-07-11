@@ -37,12 +37,12 @@ testing:
 
 | # | Bar | Verified by |
 |---|-----|-------------|
-| 1 | Natural-language description + pack → running sandbox app on synthetic data, no hand-edits | staging pressure test (#2), agent driver (#4), runnable scaffolds (#5) |
+| 1 | Natural-language description + pack → running sandbox app on synthetic data, no hand-edits | staging pressure test (#2), agent driver (#4), runnable scaffolds (#5 — post-op-monitor converted and CI-tested; four packs pending) |
 | 2 | The app cannot reach real data while any gate fails; the failure is named and, where safe, one-click fixable | false-pass guard (tested today), evidence-based gates (#3) |
 | 3 | Promotion requires a clinician co-signature and produces an attestation bound to the gate report | tested today; cryptographic binding in #10 |
 | 4 | Every action lands in one append-only audit stream, exportable for a security review | tested today; durable + load-bearing in #8 |
 | 5 | Eject produces a repo a stranger can run from the included docs alone | ejection ticket (#11) |
-| 6 | The ejected app works as the clinician's own template: re-import, extend, share | ejection ticket (#11), pack spec (#5) |
+| 6 | The ejected app works as the clinician's own template: re-import, extend, share | ejection ticket (#11), pack spec (#5 — pattern set by post-op-monitor: ejected bundles carry its real scaffold source) |
 | 7 | Out-of-scope use cases (RFC: 9, 10, 15, 21) are refused **with a written reason** in the product | enablement investigation (#12) |
 
 The demo in this repo proves bars 2–4 as *contracts* over a simulated

@@ -450,9 +450,24 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     assert!(compliance.contains("Dr. A. Osei"));
     assert!(compliance.contains("app.promoted"), "audit trail embedded");
 
-    // RUNBOOK says plainly that the app source is a scaffold placeholder (#5).
+    // post-op-monitor is converted to the runnable-scaffold spec (#5): the
+    // bundle carries the real app source and the runbook drops the
+    // placeholder caveat it used to need.
+    assert!(
+        files.contains_key("app/src/main.rs"),
+        "real app source ships"
+    );
+    assert!(files.contains_key("app/Cargo.toml"));
+    assert!(
+        files["synthetic/post-op-demo.json"]
+            .as_str()
+            .unwrap()
+            .contains("SYNTHETIC DATA"),
+        "the synthetic seed travels with the app"
+    );
     let runbook = files["docs/RUNBOOK.md"].as_str().unwrap();
-    assert!(runbook.contains("scaffold placeholder"));
+    assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
+    assert!(runbook.contains("The app source is real"));
 
     // pack.hcl parses with the platform's own parser: their own template.
     let pack_hcl = files["pack.hcl"].as_str().unwrap();

@@ -33,14 +33,37 @@ pub struct EjectionBundle {
 /// audit slice always produce the same bundle, so an export is evidence.
 pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> EjectionBundle {
     let report = preflight_report(app, pack);
+    // Packs converted to the full spec (#5) ship a runnable scaffold whose
+    // sources are compile-time embedded next to the manifests (packs.rs) —
+    // the same no-drift guarantee PACK_SOURCES gives. `scaffold_path` on the
+    // signed manifest is the opt-in; the embedded table is the content.
+    let scaffold = pack
+        .scaffold_path
+        .as_deref()
+        .and_then(|_| crate::packs::scaffold_sources(&pack.id));
     let mut files = BTreeMap::new();
+    if let Some(sources) = scaffold {
+        for (path, content) in sources {
+            // scaffold/* becomes the bundle's app/ source tree; everything
+            // else (the synthetic seed) keeps its pack-relative path so the
+            // app's `../synthetic/…` loading and `include_str!` both resolve.
+            let dest = match path.strip_prefix("scaffold/") {
+                Some(rest) => format!("app/{rest}"),
+                None => (*path).to_string(),
+            };
+            files.insert(dest, (*content).to_string());
+        }
+    }
     files.insert("README.md".to_string(), readme_md(app, pack));
-    files.insert("docs/RUNBOOK.md".to_string(), runbook_md(app));
+    files.insert(
+        "docs/RUNBOOK.md".to_string(),
+        runbook_md(app, scaffold.is_some()),
+    );
     files.insert(
         "docs/COMPLIANCE.md".to_string(),
         compliance_md(app, &report, audit),
     );
-    files.insert("Dockerfile".to_string(), dockerfile(app));
+    files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
     files.insert("render.yaml".to_string(), render_yaml(app));
     files.insert("fly.toml".to_string(), fly_toml(app));
     files.insert("config/deploy.yml".to_string(), kamal_deploy_yml(app));
@@ -124,22 +147,38 @@ fn readme_md(app: &AppRecord, pack: &PackManifest) -> String {
 
 // ---------- RUNBOOK.md: a stranger gets it running from this alone ----------
 
-fn runbook_md(app: &AppRecord) -> String {
+fn runbook_md(app: &AppRecord, real_source: bool) -> String {
     let id = &app.id;
+    let source_section = if real_source {
+        "## The app source is real\n\n\
+         `app/` is this pack's runnable scaffold — a standalone Rust (axum) crate:\n\
+         the check-in form, photo upload stub, audit middleware (JSONL on stdout —\n\
+         a labeled hipaa-core placeholder), auto-logoff, and the synthetic seed in\n\
+         `synthetic/` it boots against. The placeholders that remain live *inside*\n\
+         the app and are labeled in its source (photo encryption at rest; the\n\
+         stdout audit sink). Run it directly:\n\n\
+         ```bash\n\
+         cd app && cargo run    # http://127.0.0.1:8080 — or APP_BIND=host:port\n\
+         cargo test             # the scaffold's own contract\n\
+         ```\n"
+    } else {
+        "## Honest caveat: the app source is a scaffold placeholder\n\n\
+         Until this app's pack is converted to the runnable-scaffold spec (platform\n\
+         issue #5; the post-op-monitor pack sets the pattern), this bundle does\n\
+         **not** include generated application source. The Dockerfile builds a stub\n\
+         that serves `/health` on port 8080 so every deploy manifest below is\n\
+         exercisable end-to-end today. The record, documentation, gate report, and\n\
+         manifests are real; the runtime is the placeholder.\n"
+    };
     format!(
         "# Runbook — {name}\n\n\
          This bundle is self-contained. Nothing here phones home to the platform.\n\n\
-         ## Honest caveat: the app source is a scaffold placeholder\n\n\
-         Until the platform's runnable-scaffold work (platform issue #5) lands, this\n\
-         bundle does **not** include generated application source. The Dockerfile\n\
-         builds a stub that serves `/health` on port 8080 so every deploy manifest\n\
-         below is exercisable end-to-end today. The record, documentation, gate\n\
-         report, and manifests are real; the runtime is the placeholder.\n\n\
+         {source_section}\n\
          ## Unpack (if you received the raw export JSON)\n\n\
          ```bash\n\
          {unpack}\n\
          ```\n\n\
-         ## Run locally\n\n\
+         ## Run with Docker\n\n\
          ```bash\n\
          docker build -t {id} .\n\
          docker run --rm -p 8080:8080 {id}\n\
@@ -254,7 +293,40 @@ fn compliance_md(app: &AppRecord, report: &GateReport, audit: &[&AuditEvent]) ->
 
 // ---------- deploy manifests ----------
 
-fn dockerfile(app: &AppRecord) -> String {
+fn dockerfile(
+    app: &AppRecord,
+    scaffold: Option<&'static [crate::packs::PackSourceFile]>,
+) -> String {
+    if let Some(sources) = scaffold {
+        // The scaffold crate names its binary `app` ([[bin]] in its
+        // Cargo.toml) precisely so this manifest never depends on a package
+        // name. Layout mirrors the bundle: app/ crate + synthetic/ seed,
+        // whose path is read off the embedded table rather than assumed.
+        let seed = sources
+            .iter()
+            .map(|(path, _)| *path)
+            .find(|path| path.starts_with("synthetic/"))
+            .unwrap_or("synthetic/");
+        return format!(
+            "# {} — real app source: this pack's runnable scaffold (issue #5).\n\
+             # Builds app/ and boots it against the bundled synthetic dataset.\n\
+             FROM rust:1-alpine AS build\n\
+             RUN apk add --no-cache musl-dev\n\
+             WORKDIR /srv\n\
+             COPY synthetic ./synthetic\n\
+             COPY app ./app\n\
+             RUN cargo build --release --manifest-path app/Cargo.toml\n\
+             \n\
+             FROM alpine:3\n\
+             COPY --from=build /srv/app/target/release/app /usr/local/bin/app\n\
+             COPY synthetic /srv/synthetic\n\
+             ENV APP_BIND=0.0.0.0:8080\n\
+             ENV SYNTHETIC_DATA=/srv/{seed}\n\
+             EXPOSE 8080\n\
+             CMD [\"app\"]\n",
+            app.name
+        );
+    }
     format!(
         "# {} — placeholder runtime (see docs/RUNBOOK.md, \"Honest caveat\").\n\
          # The generated app source ships when the platform's runnable scaffolds\n\
@@ -515,6 +587,52 @@ mod tests {
             assert!(app.controls.contains(control));
         }
         assert_eq!(template.prewired.len(), pack.gates.len());
+    }
+
+    #[test]
+    fn converted_pack_bundle_ships_real_scaffold_source_and_drops_the_caveat() {
+        let pack = post_op_pack();
+        assert_eq!(pack.scaffold_path.as_deref(), Some("scaffold"));
+        let app = sample_app(&pack);
+        let bundle = bundle(&app, &pack, &[]);
+
+        // The scaffold's source tree lands under app/, byte-identical to
+        // the compile-time embedded packs/post-op-monitor/scaffold/.
+        let main_rs = &bundle.files["app/src/main.rs"];
+        assert!(main_rs.contains("PAIN_ESCALATION_THRESHOLD"));
+        assert!(bundle.files["app/Cargo.toml"].contains("post-op-monitor-scaffold"));
+        // The synthetic seed rides along where the app's loader expects it.
+        assert!(bundle.files["synthetic/post-op-demo.json"]
+            .contains("SYNTHETIC DATA — generated, not derived from any real person"));
+
+        // The runbook stops apologizing: real source, no placeholder caveat.
+        let runbook = &bundle.files["docs/RUNBOOK.md"];
+        assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
+        assert!(runbook.contains("The app source is real"));
+        assert!(runbook.contains("cd app && cargo run"));
+
+        // And the Dockerfile builds the real crate instead of the stub.
+        let dockerfile = &bundle.files["Dockerfile"];
+        assert!(dockerfile.contains("FROM rust:1-alpine AS build"));
+        assert!(dockerfile.contains("SYNTHETIC_DATA=/srv/synthetic/post-op-demo.json"));
+        assert!(!dockerfile.contains("python3"));
+    }
+
+    #[test]
+    fn unconverted_pack_bundle_keeps_the_honest_placeholder_caveat() {
+        let pack = packs::builtin_packs()
+            .into_iter()
+            .find(|p| p.id == "hypertension-tracker")
+            .expect("hypertension-tracker is a built-in pack");
+        assert!(pack.scaffold_path.is_none(), "not yet converted (#5)");
+        let mut app = sample_app(&pack);
+        app.pack = pack.id.clone();
+        let bundle = bundle(&app, &pack, &[]);
+
+        assert!(!bundle.files.contains_key("app/src/main.rs"));
+        let runbook = &bundle.files["docs/RUNBOOK.md"];
+        assert!(runbook.contains("scaffold placeholder"));
+        assert!(bundle.files["Dockerfile"].contains("placeholder runtime"));
     }
 
     #[test]

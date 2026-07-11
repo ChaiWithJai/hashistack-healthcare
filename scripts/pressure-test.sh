@@ -115,6 +115,10 @@ check "compliance doc in bundle" "$EXPORT" '"docs/COMPLIANCE.md"'
 check "readme tells their story" "$EXPORT" 'post-op recovery tracker for my knee replacement patients'
 check "app becomes a template"   "$EXPORT" "$ID-template"
 check "unpack one-liner ships"   "$EXPORT" 'python3 -c'
+# post-op-monitor is converted to the runnable-scaffold spec (#5): the
+# bundle carries real app source and the runbook drops its old caveat.
+check "real scaffold source ships" "$EXPORT" '"app/src/main.rs"'
+check "runbook drops placeholder caveat" "$(echo "$EXPORT" | python3 -c 'import json,sys; rb=json.load(sys.stdin)["files"]["docs/RUNBOOK.md"]; print("caveat-present" if "scaffold placeholder" in rb else "real-source")')" "real-source"
 
 echo "-- rollback destroys the allocation"
 BACK=$(post "/api/apps/$ID/rollback")

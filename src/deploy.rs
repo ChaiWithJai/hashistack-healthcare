@@ -79,9 +79,13 @@ pub fn promote(
     }
     if !report.green {
         let failing: Vec<String> = report.failing().iter().map(|r| r.title.clone()).collect();
+        // Count what the message names: labeled stubs are satisfied-with-a-
+        // caveat (#3), so `total - passed` would overcount and contradict
+        // both the named list and the UI's meter (caught by the journey
+        // profiler capturing this refusal verbatim).
         bail!(
             "deploy locked ({} failing): {}",
-            report.total - report.passed,
+            failing.len(),
             failing.join("; ")
         );
     }

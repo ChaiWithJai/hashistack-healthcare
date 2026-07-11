@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::audit::AuditLog;
+use crate::ladder::EscalationLadder;
 use crate::packs::PackManifest;
 
 pub type SharedPlatform = Arc<RwLock<Platform>>;
@@ -110,6 +111,66 @@ impl AppRecord {
     }
 }
 
+/// Waypoint-style operation status. Running and Escalated are non-terminal:
+/// finding one with no terminal successor IS the record of an interrupted
+/// action — crash-visibility by construction, not by logging discipline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpStatus {
+    Running,
+    Success,
+    Escalated,
+    Failed,
+}
+
+/// Which agent verb the operation wraps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpKind {
+    Scaffold,
+    Iterate,
+    Fix,
+}
+
+impl OpKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OpKind::Scaffold => "scaffold",
+            OpKind::Iterate => "iterate",
+            OpKind::Fix => "fix",
+        }
+    }
+}
+
+/// One rung of the escalation ladder: which tier ran, when, and what the
+/// verifier said about its output.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttemptRecord {
+    pub tier: String,
+    pub started_at: u64,
+    pub finished_at: u64,
+    /// "accepted" or "rejected" — the verifier's binary call.
+    pub verdict: String,
+    /// Why a rejected attempt was rejected ("empty-edit",
+    /// "gate-regression(auto-logoff lost)", …).
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// A Waypoint-style operation row: upserted RUNNING before any driver work
+/// begins (steering §4), then updated after every attempt. The attempt list
+/// is the routing decision, recorded rather than predicted (decision 0001).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Operation {
+    pub op_id: String,
+    pub app_id: String,
+    pub kind: OpKind,
+    pub status: OpStatus,
+    pub attempts: Vec<AttemptRecord>,
+    pub started_at: u64,
+    pub finished_at: Option<u64>,
+}
+
 // TODO(#7): in-memory demo state. Real control plane: Postgres with a
 // database-enforced app_valid_state transition table + append-only state
 // history (Boundary pattern), and Waypoint-style upsert-first operation rows.
@@ -117,6 +178,13 @@ pub struct Platform {
     pub packs: Vec<PackManifest>,
     pub apps: HashMap<String, AppRecord>,
     pub audit: AuditLog,
+    /// Waypoint-style operation rows, in creation order. Upsert-first: a row
+    /// exists from the moment work is promised, not from when it finishes.
+    pub operations: Vec<Operation>,
+    /// The escalation ladder the agent supervisor climbs. Built from env at
+    /// startup (rules-only when no model endpoints are configured); tests
+    /// inject custom ladders here.
+    pub ladder: Arc<EscalationLadder>,
     next_id: u64,
 }
 
@@ -126,8 +194,25 @@ impl Platform {
             packs,
             apps: HashMap::new(),
             audit: AuditLog::default(),
+            operations: Vec::new(),
+            ladder: Arc::new(EscalationLadder::from_env()),
             next_id: 1,
         }
+    }
+
+    /// Insert or replace an operation row by op_id — the Waypoint upsert.
+    pub fn upsert_operation(&mut self, op: Operation) {
+        match self.operations.iter_mut().find(|o| o.op_id == op.op_id) {
+            Some(existing) => *existing = op,
+            None => self.operations.push(op),
+        }
+    }
+
+    pub fn operations_for_app(&self, app_id: &str) -> Vec<&Operation> {
+        self.operations
+            .iter()
+            .filter(|o| o.app_id == app_id)
+            .collect()
     }
 
     pub fn pack(&self, id: &str) -> Option<&PackManifest> {

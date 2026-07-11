@@ -127,6 +127,17 @@ else
   echo "  skipped (no nomad): nomad job stopped on rollback"
 fi
 
+echo "-- routing ladder (#4, decision 0001): verified ops, no model env needed"
+ITER=$(post "/api/apps/$ID/iterate" '{"instruction":"remind patients to log their wound photos daily"}')
+check "iterate lands"     "$ITER" '"added_feature"'
+OPS=$(get "/api/apps/$ID/operations")
+check "operation recorded"        "$OPS" '"kind":"iterate"'
+check "operation settled success" "$OPS" '"status":"success"'
+RAUDIT=$(get "/api/apps/$ID/audit")
+check "audit has agent.attempt"      "$RAUDIT" '"agent.attempt"'
+check "rules tier verdict accepted"  "$RAUDIT" 'tier=rules verdict=accepted'
+check "pack routing policy cited"    "$(get "/api/apps/$ID2/audit")" 'per pack insurance-verification routing policy'
+
 echo "-- audit stream: complete story, strictly increasing"
 AUDIT=$(get "/api/apps/$ID/audit")
 for action in app.created agent.scaffolded gate.fixed gate.passed app.promoted app.rolled_back; do

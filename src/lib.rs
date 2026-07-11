@@ -21,6 +21,7 @@ pub mod deploy;
 pub mod eject;
 pub mod gates;
 pub mod hashi;
+pub mod ladder;
 pub mod packs;
 pub mod state;
 

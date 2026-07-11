@@ -13,12 +13,29 @@
 # Usage:
 #   scripts/staging-up.sh          # download if needed, boot everything
 #   scripts/staging-up.sh down     # stop everything this script started
+#   scripts/staging-up.sh --models # (stub) the staging inference tier
 #
 # Then drive the whole workflow against real infrastructure:
 #   NOMAD_ADDR=http://127.0.0.1:4646 VAULT_ADDR=http://127.0.0.1:8200 \
 #     scripts/pressure-test.sh http://127.0.0.1:39100
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# ---- --models: the staging inference tier (decision 0002) — STUB ----
+# TODO(decision 0002): this step will fetch pinned, checksum-verified GGUF
+# weights (Liquid LFM2.5 family, stitched per task class) into
+# .staging/models, start llama.cpp server(s) as local processes/Nomad jobs,
+# and export LOCAL_MODEL_URL for the control plane. The router gains no
+# config — environments differ only in what the URL points at. Deliberately
+# a documented no-op today: no model weights are downloaded.
+if [[ "${1:-}" == "--models" ]]; then
+  echo "--models is a documented stub (decision 0002 — inference test tiers):"
+  echo "  will fetch pinned GGUF weights -> .staging/models/"
+  echo "  will start llama.cpp server(s) on 127.0.0.1 and print LOCAL_MODEL_URL"
+  echo "  until then: tests use in-process loopback mocks; staging runs the"
+  echo "  rules-only ladder unless you export LOCAL_MODEL_URL yourself."
+  exit 0
+fi
 
 # ---- pinned versions + SHA256 (from releases.hashicorp.com *_SHA256SUMS) ----
 NOMAD_VERSION="1.8.4"

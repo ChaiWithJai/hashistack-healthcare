@@ -113,6 +113,35 @@ python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,ex
 cat docs/RUNBOOK.md
 ```
 
+## Agent routing ladder (#4, [decision 0001](decisions/0001-agent-routing.md))
+
+Every agent action (scaffold, iterate, fix) is a Waypoint-style operation —
+upserted `running` before any driver runs, settled after each attempt —
+climbing the verified ladder rules → local → frontier. A deterministic
+verifier (gate preflight on a cloned record) judges every tier's output;
+routing emerges from verdicts, not prediction. Pack `routing` policy in
+pack.hcl picks each action's first tier and consents to frontier escalation.
+
+```bash
+# both unset (default): rules-only ladder, exactly today's behavior
+# local tier: any in-VPC OpenAI-compatible endpoint (vLLM, llama.cpp, LM Studio)
+LOCAL_MODEL_URL=http://127.0.0.1:8080 \
+FRONTIER_MODEL_URL=http://127.0.0.1:8090 \
+  cargo run
+
+# the routing record for one app: attempt history, tiers, verdicts
+curl -s localhost:3000/api/apps/post-op-tracker/operations
+# every decision is also in the audit stream:
+#   agent.routed  — "per pack ... routing policy: iterate→local"
+#   agent.attempt — "op op-1234 iterate v2 tier=local verdict=accepted → applied"
+```
+
+Plain `http://` only (refusing TLS refuses off-VPC by construction); debug
+and test builds additionally refuse non-loopback endpoints (decision 0002).
+Offline or misbehaving model tiers cost rejected attempts, never a broken
+app — the rules floor still lands the doctor's edit. Staging model serving
+is stubbed at `scripts/staging-up.sh --models` (decision 0002).
+
 ## Troubleshooting
 - If Rust is missing, install stable Rust and rerun CI commands, or `docker compose up --build`.
 - If `nomad agent -dev` dies with `failed to detect memset: open

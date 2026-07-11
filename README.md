@@ -49,10 +49,11 @@ docker compose up --build
 
 | Piece | Path |
 |---|---|
-| Control plane API (15 routes, API-first) | `src/api.rs` |
+| Control plane API (16 routes, API-first) | `src/api.rs` |
 | Pack registry — signed HCL use-case packs | `src/packs.rs`, `packs/*/pack.hcl` |
 | Gate engine — compliance checks as plugins ★ the product | `src/gates.rs` |
 | Agent service — driver interface, rule-based Phase 0 driver | `src/agent.rs` |
+| Routing ladder — verified escalation rules→local→frontier, pack-declared policy (#4, [decision 0001](docs/decisions/0001-agent-routing.md)) | `src/ladder.rs` |
 | Deploy service — promote on green + co-sign, renders Nomad jobs | `src/deploy.rs`, `nomad/templates/` |
 | Ejection service — owned bundle: docs from the record, derived pack (#11) | `src/eject.rs` |
 | Audit pipeline — append-only, JSONL export | `src/audit.rs` |

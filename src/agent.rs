@@ -5,7 +5,12 @@
 //! Phase 0 tests and offline dev, Claude driver next) without any caller
 //! noticing — workflows over technologies.
 
-use serde::Serialize;
+use anyhow::{anyhow, bail, Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::time::Duration;
 
 use crate::packs::PackManifest;
 use crate::state::AppRecord;
@@ -43,10 +48,13 @@ pub trait AgentDriver: Send + Sync {
 /// Deterministic Phase 0 driver: keyword rules instead of a model, so the
 /// full describe→audit loop runs offline and in CI with stable assertions.
 ///
-/// TODO(#4): the ClaudeDriver lands behind this same trait — scaffold()
-/// renders the pack template into a real workspace, iterate() produces
-/// checkpointed diffs, prompts versioned in packs/<id>/prompts/. This
-/// rule-based driver stays as the offline/CI driver to prove the swap.
+/// #4 / decision 0001: this driver is now the bottom rung (and degradation
+/// floor) of the verified escalation ladder in `src/ladder.rs`. The
+/// supervisor climbs rules → local → frontier (`HttpModelDriver` serves both
+/// model tiers), a deterministic verifier judges every tier's output the
+/// same way, and pack.hcl `routing` policy picks each action's first tier.
+/// The real ClaudeDriver slots in behind the frontier rung of the same
+/// trait; prompts versioned in packs/<id>/prompts/ remain TODO(#5).
 pub struct RuleBasedDriver;
 
 impl AgentDriver for RuleBasedDriver {
@@ -118,6 +126,213 @@ impl AgentDriver for RuleBasedDriver {
             compliance_nudge,
         }
     }
+}
+
+/// OpenAI-compatible chat-completions driver: ONE struct serves both the
+/// local tier (`LOCAL_MODEL_URL` — vLLM, llama.cpp, LM Studio) and the
+/// frontier tier (`FRONTIER_MODEL_URL`; the real ClaudeDriver replaces it
+/// behind the same rung). It never routes itself — the ladder's verifier
+/// decides whether its output is accepted, so a wrong, empty, or unreachable
+/// model can only ever cost an attempt, never a broken app (4a restraint).
+///
+/// The edit protocol is deliberately constrained (the pack shrinks the job
+/// the model must do): the model replies with one JSON object —
+/// `{"feature": str?, "controls": [gate ids], "drop_controls": [gate ids],
+/// "message": str?}` for iterate, `{"steps": [str]}` for scaffold. Anything
+/// unparseable becomes a no-op edit the verifier rejects as `empty-edit`.
+pub struct HttpModelDriver {
+    tier: &'static str,
+    base_url: String,
+}
+
+impl HttpModelDriver {
+    /// In-VPC model endpoint (`LOCAL_MODEL_URL`).
+    pub fn local(base_url: String) -> Self {
+        Self {
+            tier: "local",
+            base_url,
+        }
+    }
+
+    /// Frontier endpoint stub (`FRONTIER_MODEL_URL`) — same client shape.
+    /// Phase 0 never calls a real API: the URL is only ever a test double or
+    /// in-VPC proxy, and offline it degrades to a rejected attempt the
+    /// ladder resolves at the rules floor (the doctor's edit always lands).
+    pub fn frontier(base_url: String) -> Self {
+        Self {
+            tier: "frontier",
+            base_url,
+        }
+    }
+
+    fn no_op(&self, why: String) -> AgentReply {
+        AgentReply {
+            message: why,
+            added_feature: None,
+            wired_controls: Vec::new(),
+            compliance_nudge: None,
+        }
+    }
+}
+
+/// The constrained edit a model may propose. `drop_controls` exists so a bad
+/// edit that loses a safeguard is representable — and therefore catchable by
+/// the verifier's gate-regression check.
+#[derive(Debug, Default, Deserialize)]
+struct EditSpec {
+    #[serde(default)]
+    feature: Option<String>,
+    #[serde(default)]
+    controls: Vec<String>,
+    #[serde(default)]
+    drop_controls: Vec<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+impl AgentDriver for HttpModelDriver {
+    fn scaffold(&self, pack: &PackManifest, prompt: &str) -> Vec<ScaffoldStep> {
+        let body = json!({
+            "model": self.tier,
+            "messages": [
+                {"role": "system", "content":
+                    "You scaffold a HIPAA-scaffolded clinical app from a pack. \
+                     Reply with exactly one JSON object: {\"steps\": [string]}."},
+                {"role": "user", "content": format!("pack {}: {}", pack.id, prompt)},
+            ],
+        });
+        let Ok(content) = post_chat(&self.base_url, &body) else {
+            return Vec::new(); // verifier rejects an empty scaffold
+        };
+        #[derive(Deserialize)]
+        struct StepSpec {
+            #[serde(default)]
+            steps: Vec<String>,
+        }
+        let spec: StepSpec = serde_json::from_str(&content).unwrap_or(StepSpec { steps: vec![] });
+        spec.steps
+            .into_iter()
+            .map(|label| ScaffoldStep { label, done: true })
+            .collect()
+    }
+
+    fn iterate(
+        &self,
+        app: &mut AppRecord,
+        instruction: &str,
+        required_gates: &[String],
+    ) -> AgentReply {
+        let body = json!({
+            "model": self.tier,
+            "messages": [
+                {"role": "system", "content": format!(
+                    "You apply one constrained edit to a scaffolded clinical app. \
+                     Reply with exactly one JSON object: {{\"feature\": string, \
+                     \"controls\": [gate ids to wire], \"drop_controls\": [], \
+                     \"message\": string}}. Required gates: {}.",
+                    required_gates.join(", ")
+                )},
+                {"role": "user", "content": instruction},
+            ],
+        });
+        let content = match post_chat(&self.base_url, &body) {
+            Ok(c) => c,
+            Err(e) => return self.no_op(format!("{} tier unreachable: {e}", self.tier)),
+        };
+        let edit: EditSpec = match serde_json::from_str(&content) {
+            Ok(e) => e,
+            Err(_) => {
+                return self.no_op(format!("{} tier returned an unparseable edit", self.tier))
+            }
+        };
+
+        let mut wired = Vec::new();
+        for control in &edit.controls {
+            if app.controls.insert(control.clone()) {
+                wired.push(control.clone());
+            }
+        }
+        for control in &edit.drop_controls {
+            app.controls.remove(control);
+        }
+        if let Some(feature) = &edit.feature {
+            app.features.push(feature.clone());
+            app.routes += 1;
+        }
+
+        let message = edit.message.unwrap_or_else(|| {
+            format!(
+                "✓ done — {}. Nothing leaves the sandbox yet.",
+                edit.feature.as_deref().unwrap_or("edit applied")
+            )
+        });
+        AgentReply {
+            message,
+            added_feature: edit.feature,
+            wired_controls: wired,
+            compliance_nudge: None,
+        }
+    }
+}
+
+/// Minimal OpenAI-compatible POST /v1/chat/completions over std TcpStream —
+/// no HTTP client dependency for an endpoint that is loopback/in-VPC by
+/// definition (the ai-allowlist gate is the topology, not a library).
+/// Plain http:// only — refusing TLS is refusing off-VPC by construction.
+/// Returns choices[0].message.content.
+fn post_chat(base_url: &str, body: &serde_json::Value) -> Result<String> {
+    let hostport = base_url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow!("model endpoint must be http:// (in-VPC): {base_url}"))?;
+    let hostport = hostport.split('/').next().unwrap_or(hostport);
+
+    // Decision 0002: no test path may ever bill a real API. Debug builds —
+    // which is everything `cargo test` compiles, unit and integration alike
+    // — refuse any non-loopback endpoint outright; release builds allow
+    // in-VPC addresses.
+    #[cfg(debug_assertions)]
+    {
+        let host = hostport.rsplit_once(':').map_or(hostport, |(h, _)| h);
+        if host != "localhost"
+            && !host
+                .parse::<std::net::IpAddr>()
+                .map(|ip| ip.is_loopback())
+                .unwrap_or(false)
+        {
+            bail!("refusing non-loopback model endpoint {base_url} in a debug/test build (decision 0002)");
+        }
+    }
+
+    let payload = body.to_string();
+    let stream = TcpStream::connect(hostport)
+        .with_context(|| format!("connecting to model endpoint {hostport}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    let mut stream = stream;
+    let request = format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nhost: {hostport}\r\n\
+         content-type: application/json\r\ncontent-length: {}\r\n\
+         connection: close\r\n\r\n{payload}",
+        payload.len()
+    );
+    stream.write_all(request.as_bytes())?;
+
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw)?;
+    let text = String::from_utf8_lossy(&raw);
+    let (head, response_body) = text
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| anyhow!("malformed HTTP response from model endpoint"))?;
+    let status_line = head.lines().next().unwrap_or("");
+    if !status_line.contains(" 200 ") && !status_line.ends_with(" 200") {
+        bail!("model endpoint returned {status_line:?}");
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(response_body.trim()).context("model response is not JSON")?;
+    value["choices"][0]["message"]["content"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("model response has no choices[0].message.content"))
 }
 
 fn summarize_feature(instruction: &str) -> String {

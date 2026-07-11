@@ -64,6 +64,7 @@ docker compose up --build
 | Use-case enablement investigation | [`docs/investigations/0001-enable-all-use-cases.md`](docs/investigations/0001-enable-all-use-cases.md) (#12) |
 | Staging pressure test (`make staging`) | `scripts/pressure-test.sh` (#2) |
 | Platform eval harness — job-to-be-done + artifact layers, scored per scenario | `evals/`, `scripts/evals.sh`, baseline in [`docs/evals/scorecard.md`](docs/evals/scorecard.md) |
+| Journey profiler — one clinician journey run end-to-end: timed, audit-cross-referenced, ejected app driven | `scripts/journey.sh`, narrative in [`docs/evals/journey/journey.md`](docs/evals/journey/journey.md) |
 
 **Honest label:** what runs today is a skinned UI over a simulated control
 plane — the workflow contract is real and tested; the platform underneath it

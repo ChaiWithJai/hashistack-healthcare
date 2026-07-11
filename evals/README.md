@@ -28,6 +28,15 @@ realistic sampling of scenarios, and emits a portable scorecard baseline:
   encryption stub is labeled, never claimed). Unconverted packs score
   **no-artifact (#5 pending)** — visible in the scorecard, never skipped.
 
+**The journey profiler is the harness's single-journey sibling**: where the
+scorecard samples 30 scenarios for a regression baseline, `scripts/journey.sh`
+(→ `evals/journey/profile.mjs`, ports 39400/39450) runs THE flagship journey
+once — describe → iterate → failing gate → fix → co-sign → eject → the
+ejected app compiled, booted, and driven — timing every step, cross-
+referencing each to its audit seqs, and emitting a narrative anyone can be
+shown: [docs/evals/journey/journey.md](../docs/evals/journey/journey.md)
+(+ journey.json and six stage screenshots).
+
 Known gaps are **expected failures**, not errors, and land visibly in the
 scorecard's known-gaps section (today: the four packs without runnable
 scaffolds, the rules-tier floor, the keyword shape of the refusal screen).

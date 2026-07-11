@@ -6,4 +6,6 @@
 /.staging
 /target-w
 /.evals
+/.journey
+/.journey-target
 /node_modules

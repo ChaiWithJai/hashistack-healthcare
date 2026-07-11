@@ -16,12 +16,16 @@
 //! (`state::VALID_STAGE_TRANSITIONS`) — tests/store_contract.rs asserts
 //! they never drift.
 //!
-//! Failure policy (precursor of #8's broker invariant): a failed write on a
-//! STAGE TRANSITION fails the operation — the caller reverts the in-memory
-//! record and returns 503. Failed writes elsewhere degrade durability, are
-//! logged loudly, and re-mark their rows dirty for the next write-through.
+//! Failure policy: a failed write on a STAGE TRANSITION fails the operation
+//! — the caller reverts the in-memory record and returns 503. Failed writes
+//! elsewhere degrade durability, are logged loudly, and re-mark their rows
+//! dirty for the next write-through. Since #8 the broker invariant extends
+//! this to every load-bearing operation's AUDIT record: [`PgSink`] exposes
+//! the `audit_events` table as a broker sink (src/audit.rs), and
+//! `api::settle_durable` fails the operation when no durable sink confirms.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tokio_postgres::NoTls;
@@ -106,12 +110,14 @@ impl PgStore {
         let mut events = Vec::new();
         for row in client
             .query(
-                "SELECT seq, at, actor, action, detail, app_id \
+                "SELECT seq, at, actor, action, detail, app_id, sensitive, sensitive_pt \
                  FROM audit_events ORDER BY seq",
                 &[],
             )
             .await?
         {
+            let sensitive: serde_json::Value = row.get(6);
+            let sensitive_pt: serde_json::Value = row.get(7);
             events.push(AuditEvent {
                 seq: row.get::<_, i64>(0) as u64,
                 at: row.get::<_, i64>(1) as u64,
@@ -119,11 +125,15 @@ impl PgStore {
                 action: row.get(3),
                 detail: row.get(4),
                 app_id: row.get(5),
+                sensitive: serde_json::from_value(sensitive)
+                    .context("audit_events.sensitive does not parse")?,
+                sensitive_pt: serde_json::from_value(sensitive_pt)
+                    .context("audit_events.sensitive_pt does not parse")?,
             });
         }
         let max_seq = events.last().map(|e| e.seq).unwrap_or(0);
         let counts = (plat.apps.len(), plat.operations.len(), events.len());
-        plat.audit = crate::audit::AuditLog::restore(events);
+        plat.audit.restore(events);
         self.persisted_seq.store(max_seq, Ordering::SeqCst);
 
         if let Some(row) = client
@@ -203,21 +213,7 @@ impl PgStore {
 
         let mut max_seq = 0u64;
         for event in &batch.audit {
-            tx.execute(
-                "INSERT INTO audit_events (seq, at, actor, action, detail, app_id) \
-                 VALUES ($1, $2, $3, $4, $5, $6) \
-                 ON CONFLICT (seq) DO NOTHING",
-                &[
-                    &(event.seq as i64),
-                    &(event.at as i64),
-                    &event.actor,
-                    &event.action,
-                    &event.detail,
-                    &event.app_id,
-                ],
-            )
-            .await
-            .with_context(|| format!("appending audit event {}", event.seq))?;
+            insert_audit_event(&tx, event).await?;
             max_seq = max_seq.max(event.seq);
         }
 
@@ -231,6 +227,113 @@ impl PgStore {
         tx.commit().await.context("committing write-through")?;
         self.persisted_seq.fetch_max(max_seq, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Audit-only append (#8): the [`PgSink`] path when a broker
+    /// confirmation runs without (or after a failed) full write-through.
+    /// One INSERT-only transaction past the shared durable watermark.
+    async fn append_audit(&self, events: &[AuditEvent]) -> Result<()> {
+        let since = self.persisted_seq.load(Ordering::SeqCst);
+        let pending: Vec<&AuditEvent> = events.iter().filter(|e| e.seq > since).collect();
+        let Some(last) = pending.last() else {
+            return Ok(());
+        };
+        let max_seq = last.seq;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        for event in &pending {
+            insert_audit_event(&tx, event).await?;
+        }
+        tx.commit().await.context("committing audit append")?;
+        self.persisted_seq.fetch_max(max_seq, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// `LogTestMessage`-style registration probe (#8): prove the write path
+    /// through the append-only trigger with a real INSERT, then roll it
+    /// back so the probe never occupies a sequence number.
+    async fn probe_audit(&self) -> Result<()> {
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(
+            "INSERT INTO audit_events (seq, at, actor, action, detail, app_id) \
+             VALUES ($1, $2, 'audit-broker', 'audit.sink_probe', \
+                     'registration self-test (rolled back)', NULL)",
+            &[&i64::MAX, &(crate::state::now_unix() as i64)],
+        )
+        .await
+        .context("audit probe INSERT")?;
+        tx.rollback().await.context("audit probe rollback")?;
+        Ok(())
+    }
+}
+
+/// One audit row, INSERT-only, idempotent by seq. Shared by the
+/// write-through batch and the audit-only [`PgSink`] append so the two
+/// paths can never drift in shape.
+async fn insert_audit_event(
+    client: &impl tokio_postgres::GenericClient,
+    event: &AuditEvent,
+) -> Result<()> {
+    let sensitive = serde_json::to_value(&event.sensitive).context("sensitive map serializes")?;
+    // The Boundary-style paired plaintext rides its own column: the control
+    // DB is the tenant-scoped store (apps.record already carries the
+    // prompt), so the doctor's own audit view survives a restart. Every
+    // *serialized* surface still carries only the HMAC form (see
+    // src/audit.rs module doc / decision 0004).
+    let sensitive_pt =
+        serde_json::to_value(&event.sensitive_pt).context("sensitive_pt map serializes")?;
+    client
+        .execute(
+            "INSERT INTO audit_events \
+               (seq, at, actor, action, detail, app_id, sensitive, sensitive_pt) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+             ON CONFLICT (seq) DO NOTHING",
+            &[
+                &(event.seq as i64),
+                &(event.at as i64),
+                &event.actor,
+                &event.action,
+                &event.detail,
+                &event.app_id,
+                &sensitive,
+                &sensitive_pt,
+            ],
+        )
+        .await
+        .with_context(|| format!("appending audit event {}", event.seq))?;
+    Ok(())
+}
+
+/// The control-DB audit sink (#8): wraps the #7 `audit_events` table as a
+/// broker sink. Shares the durable watermark with the write-through path,
+/// so when a write-through already carried this operation's events the
+/// confirmation is free; when it failed, `append` retries audit-first.
+pub struct PgSink {
+    store: Arc<PgStore>,
+}
+
+impl PgSink {
+    pub fn new(store: Arc<PgStore>) -> Self {
+        Self { store }
+    }
+}
+
+impl crate::audit::AuditSink for PgSink {
+    fn name(&self) -> &'static str {
+        "control-db"
+    }
+    fn durable(&self) -> bool {
+        true
+    }
+    fn confirmed_seq(&self) -> u64 {
+        self.store.persisted_seq.load(Ordering::SeqCst)
+    }
+    fn probe(&self) -> crate::audit::SinkFuture<'_> {
+        Box::pin(self.store.probe_audit())
+    }
+    fn append<'a>(&'a self, events: &'a [AuditEvent]) -> crate::audit::SinkFuture<'a> {
+        Box::pin(self.store.append_audit(events))
     }
 }
 
@@ -293,8 +396,9 @@ pub async fn write_through(
 
 /// Like [`write_through`], but non-fatal: a durability-degrading failure is
 /// logged loudly and the touched rows retry on the next write-through.
-/// Used everywhere except stage transitions, whose failures MUST fail the
-/// operation (precursor of #8's broker invariant).
+/// Used only by best-effort operations (see the classification in
+/// src/audit.rs); load-bearing operations go through `api::settle_durable`,
+/// which applies the #8 broker invariant on top of this write.
 pub async fn write_through_or_warn(
     platform: &SharedPlatform,
     app_ids: &[&str],

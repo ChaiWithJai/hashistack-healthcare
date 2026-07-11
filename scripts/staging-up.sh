@@ -73,6 +73,10 @@ export NOMAD_ADDR="${NOMAD_ADDR:-http://127.0.0.1:4646}"
 export VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
 export VAULT_TOKEN="${VAULT_TOKEN:-staging-root}"
 APP_BIND="${APP_BIND:-127.0.0.1:39100}"
+# Audit broker (#8): staging always runs with the JSONL file sink attached,
+# so the broker invariant (no durable audit write, no operation) is live on
+# every staging run alongside the control-DB sink.
+export AUDIT_FILE="${AUDIT_FILE:-$STAGING_DIR/logs/audit.jsonl}"
 
 # ---- down: stop everything we started ----
 if [[ "${1:-}" == "down" ]]; then
@@ -251,7 +255,7 @@ if curl -sf "http://$APP_BIND/health" >/dev/null 2>&1; then
 else
   nohup env APP_BIND="$APP_BIND" \
     NOMAD_ADDR="$NOMAD_ADDR" VAULT_ADDR="$VAULT_ADDR" VAULT_TOKEN="$VAULT_TOKEN" \
-    CONTROL_DB_URL="$CONTROL_DB_URL" \
+    CONTROL_DB_URL="$CONTROL_DB_URL" AUDIT_FILE="$AUDIT_FILE" \
     "$BINARY" >"$LOG_DIR/control-plane.log" 2>&1 &
   echo $! >"$RUN_DIR/control-plane.pid"
 fi
@@ -263,10 +267,12 @@ echo "   control plane  http://$APP_BIND    (doctor UI at /)"
 echo "   nomad          $NOMAD_ADDR"
 echo "   vault          $VAULT_ADDR    (token: $VAULT_TOKEN)"
 echo "   control DB     $CONTROL_DB_URL"
+echo "   audit archive  $AUDIT_FILE    (broker: memory fallback + file + control-db)"
 echo "   logs           $LOG_DIR/"
 echo
 echo "pressure-test it (real job registration + transit round-trip + restart survival):"
 echo "   NOMAD_ADDR=$NOMAD_ADDR VAULT_ADDR=$VAULT_ADDR CONTROL_DB_URL=$CONTROL_DB_URL \\"
+echo "   AUDIT_FILE=$AUDIT_FILE \\"
 echo "     scripts/pressure-test.sh http://$APP_BIND"
 echo "tear down:"
 echo "   scripts/staging-up.sh down"

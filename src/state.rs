@@ -245,6 +245,10 @@ pub struct Platform {
     /// the platform purely in-memory; `Some` makes every mutation write
     /// through after its lock is released.
     pub store: Option<Arc<crate::store::PgStore>>,
+    /// The audit broker (#8): memory-fallback-only in dev; with durable
+    /// sinks registered (AUDIT_FILE, control DB), load-bearing operations
+    /// require ≥1 durable confirmation — no audit write, no operation.
+    pub broker: Arc<crate::audit::Broker>,
     /// Operation rows upserted since the last write-through — tracked only
     /// when a store is attached, drained by [`Platform::take_dirty_operations`].
     dirty_ops: BTreeSet<String>,
@@ -260,6 +264,7 @@ impl Platform {
             operations: Vec::new(),
             ladder: Arc::new(EscalationLadder::from_env()),
             store: None,
+            broker: Arc::new(crate::audit::Broker::new()),
             dirty_ops: BTreeSet::new(),
             next_id: 1,
         }

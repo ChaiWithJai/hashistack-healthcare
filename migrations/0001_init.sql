@@ -71,14 +71,29 @@ CREATE TABLE IF NOT EXISTS operations (
 -- The audit stream, append-only (INSERT+SELECT only; no UPDATE/DELETE
 -- grants). seq is written explicitly by the control plane so the durable
 -- stream and the in-memory stream are the same numbering.
+--
+-- #8: `sensitive` holds doctor-authored free text as hmac-sha256:<hex>
+-- (Vault salted-HMAC — the platform-wide, non-disclosable form);
+-- `sensitive_pt` is the Boundary-style paired plaintext for the owning
+-- tenant's own view. The control DB is tenant-scoped storage (apps.record
+-- already carries the prompt in plaintext); every cross-tenant surface
+-- serializes only the HMAC form (decision 0004).
 CREATE TABLE IF NOT EXISTS audit_events (
-  seq    BIGSERIAL PRIMARY KEY,
-  at     BIGINT NOT NULL,
-  actor  TEXT NOT NULL,
-  action TEXT NOT NULL,
-  detail TEXT NOT NULL,
-  app_id TEXT
+  seq          BIGSERIAL PRIMARY KEY,
+  at           BIGINT NOT NULL,
+  actor        TEXT NOT NULL,
+  action       TEXT NOT NULL,
+  detail       TEXT NOT NULL,
+  app_id       TEXT,
+  sensitive    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  sensitive_pt JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+-- Idempotent upgrade for control DBs initialized before #8.
+ALTER TABLE audit_events
+  ADD COLUMN IF NOT EXISTS sensitive JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE audit_events
+  ADD COLUMN IF NOT EXISTS sensitive_pt JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Control-plane metadata (id-minting counter survives restarts).
 CREATE TABLE IF NOT EXISTS control_meta (

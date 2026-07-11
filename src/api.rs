@@ -79,6 +79,84 @@ fn not_found(what: &str) -> ApiError {
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
+// ---------- the broker invariant (#8): no audit write, no operation ----------
+
+/// Durably settle a load-bearing operation (classification in src/audit.rs):
+/// write through to the control store (#7), then require ≥1 durable audit
+/// sink to confirm every event through the current head (#8, Vault broker).
+///
+/// - Dev mode (no durable sink): returns Ok immediately after the (no-op)
+///   write-through — byte-identical to the pre-#8 behavior.
+/// - A stage transition the control DB refused fails here regardless of
+///   other sinks (#7's rule: the state itself was not durable).
+/// - Every failed sink lands an `audit.sink_failed` event in the in-memory
+///   fallback — the record of the failure is never lost — and retries past
+///   its own watermark on the next confirmation.
+///
+/// On Err the caller must revert its state change and answer 503: the
+/// operation did not happen.
+async fn settle_durable(
+    platform: &SharedPlatform,
+    app_ids: &[&str],
+    transition: Option<StageTransition>,
+) -> Result<(), String> {
+    let is_stage_transition = transition.as_ref().is_some_and(|t| t.prior.is_some());
+    if let Err(e) = store::write_through(platform, app_ids, transition).await {
+        if is_stage_transition {
+            return Err(format!(
+                "control DB refused or missed the stage transition: {e:#}"
+            ));
+        }
+        // Elsewhere a control-store miss degrades durability (retried on
+        // the next write-through); the AUDIT record below still decides
+        // whether the operation stands.
+        tracing::warn!("control DB write-through failed (durability degraded): {e:#}");
+    }
+
+    let (broker, events, target) = {
+        let plat = platform.read().unwrap();
+        if !plat.broker.durable_configured() {
+            return Ok(()); // dev mode: memory is the fallback AND the record
+        }
+        (
+            plat.broker.clone(),
+            plat.audit.events().to_vec(),
+            plat.audit.head_seq(),
+        )
+    };
+    let outcome = broker.confirm(&events, target).await;
+    if !outcome.failed.is_empty() {
+        let mut plat = platform.write().unwrap();
+        for (name, err) in &outcome.failed {
+            tracing::error!("audit sink {name} failed: {err}");
+            plat.audit.record(
+                "audit-broker",
+                "audit.sink_failed",
+                format!("sink {name} did not confirm through seq {target}: {err}"),
+                app_ids.first().copied(),
+            );
+        }
+    }
+    if outcome.confirmed.is_empty() {
+        let causes: Vec<String> = outcome
+            .failed
+            .iter()
+            .map(|(n, e)| format!("{n}: {e}"))
+            .collect();
+        return Err(format!(
+            "audit unavailable — no durable sink confirmed the write (seq {target}; {})",
+            causes.join("; ")
+        ));
+    }
+    Ok(())
+}
+
+/// The 503 a load-bearing operation answers when durability failed and its
+/// state change was reverted.
+fn audit_unavailable(what: &str, cause: String) -> ApiError {
+    ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{what} — {cause}"))
+}
+
 // ---------- packs ----------
 
 async fn list_packs(State(platform): State<SharedPlatform>) -> ApiResult<serde_json::Value> {
@@ -137,11 +215,15 @@ async fn create_app(
             slug
         };
 
-        plat.audit.record(
+        // The prompt is doctor-authored free text: it rides the sensitive
+        // envelope (#8) — HMAC on every platform-wide surface, plaintext in
+        // the doctor's own app-scoped view.
+        plat.audit.record_sensitive(
             DOCTOR,
             "app.created",
-            format!("described {:?} from pack {}", req.prompt, pack.id),
+            format!("described from pack {}", pack.id),
             Some(&id),
+            &[("prompt", req.prompt.clone())],
         );
         let ladder = plat.ladder.clone();
         (pack, id, name, tenant, ladder)
@@ -204,10 +286,12 @@ async fn create_app(
         plat.apps.insert(id.clone(), app.clone());
     }
 
-    // #7 write-through: the new record plus its creation history row
-    // (prior NULL → sandbox). Not a stage transition — a failure degrades
-    // durability and is logged, never blocks the doctor's draft.
-    store::write_through_or_warn(
+    // #7 write-through (the creation history row, prior NULL → sandbox) +
+    // #8 broker invariant: the scaffold settle is load-bearing. If no
+    // durable audit sink confirms `app.created`/`agent.scaffolded`, the
+    // draft is withdrawn — an app that the audit stream cannot prove was
+    // created does not exist.
+    if let Err(cause) = settle_durable(
         &platform,
         &[&id],
         Some(StageTransition {
@@ -217,7 +301,11 @@ async fn create_app(
             operation_id: None,
         }),
     )
-    .await;
+    .await
+    {
+        platform.write().unwrap().apps.remove(&id);
+        return Err(audit_unavailable("draft withdrawn", cause));
+    }
     Ok(Json(CreatedApp { app, scaffold }))
 }
 
@@ -252,15 +340,18 @@ async fn iterate(
     Path(id): Path<String>,
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
-    let (pack, ladder) = {
+    let (pack, ladder, snapshot) = {
         let plat = platform.read().unwrap();
-        let pack = plat
+        let app = plat
             .apps
             .get(&id)
-            .and_then(|a| plat.pack(&a.pack))
             .cloned()
             .ok_or_else(|| not_found("app"))?;
-        (pack, plat.ladder.clone())
+        let pack = plat
+            .pack(&app.pack)
+            .cloned()
+            .ok_or_else(|| not_found("app"))?;
+        (pack, plat.ladder.clone(), app)
     };
     // The edit is an operation climbing the verified escalation ladder:
     // each tier's output is applied to a clone and gate-checked; only an
@@ -270,9 +361,11 @@ async fn iterate(
     let outcome = ladder
         .run_iterate(&platform, &id, &req.instruction, &pack)
         .await;
-    // Persist whatever the climb recorded — settled attempts and audit on
-    // failure, the applied edit on success (#7; no stage change here).
-    store::write_through_or_warn(&platform, &[&id], None).await;
+    // Durably settle whatever the climb recorded (#7 + #8). An APPLIED edit
+    // is load-bearing: it reverts if no durable sink confirms. A failed
+    // climb keeps its own error below — its attempt records are retried
+    // into the sinks on the next confirmation.
+    let durable = settle_durable(&platform, &[&id], None).await;
     let (reply, app, _op_id) = outcome.map_err(|f| {
         if f.is_concurrent_edit() {
             ApiError(
@@ -292,6 +385,13 @@ async fn iterate(
             )
         }
     })?;
+    if let Err(cause) = durable {
+        let mut plat = platform.write().unwrap();
+        if let Some(a) = plat.apps.get_mut(&id) {
+            *a = snapshot;
+        }
+        return Err(audit_unavailable("edit reverted", cause));
+    }
     Ok(Json(json!({ "reply": reply, "app": app })))
 }
 
@@ -349,6 +449,9 @@ async fn restore(
         );
         app
     };
+    // Best-effort by classification (src/audit.rs): restore is a
+    // sandbox-only rebuild from scaffold + addenda, whose creation was
+    // itself durably settled by the load-bearing operations above.
     store::write_through_or_warn(&platform, &[&id], None).await;
     Ok(Json(app))
 }
@@ -384,7 +487,7 @@ async fn fix_gate(
             format!("gate {gate_id} cannot be auto-fixed — it needs a code change via iterate"),
         ));
     }
-    let (wired_response, already) = {
+    let (wired_response, already, snapshot) = {
         let mut plat = platform.write().unwrap();
         if !plat.apps.contains_key(&id) {
             return Err(not_found("app"));
@@ -407,6 +510,7 @@ async fn fix_gate(
         plat.upsert_operation(op.clone());
 
         let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        let snapshot = app.clone();
         let newly_wired = app.controls.insert(gate_id.clone());
         if newly_wired {
             app.current_version += 1;
@@ -448,9 +552,17 @@ async fn fix_gate(
             format!("wired control {gate_id}"),
             Some(&id),
         );
-        (app, !newly_wired)
+        (app, !newly_wired, snapshot)
     };
-    store::write_through_or_warn(&platform, &[&id], None).await;
+    // Load-bearing (#8): a wired compliance control the audit stream cannot
+    // prove was wired is unwired again.
+    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+        let mut plat = platform.write().unwrap();
+        if let Some(a) = plat.apps.get_mut(&id) {
+            *a = snapshot;
+        }
+        return Err(audit_unavailable("gate fix reverted", cause));
+    }
     Ok(Json(
         json!({ "wired": gate_id, "already_wired": already, "app": wired_response }),
     ))
@@ -463,7 +575,7 @@ async fn review(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
-    let (note, report) = {
+    let (note, report, snapshot) = {
         let mut plat = platform.write().unwrap();
         let pack = plat
             .apps
@@ -485,6 +597,7 @@ async fn review(
             Some(&id),
         );
         let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        let snapshot = app.clone();
 
         let reviewable: Vec<String> = required
             .iter()
@@ -503,9 +616,17 @@ async fn review(
             note.clone(),
             Some(&id),
         );
-        (note, report)
+        (note, report, snapshot)
     };
-    store::write_through_or_warn(&platform, &[&id], None).await;
+    // Load-bearing (#8): an attested review must be durably recorded — the
+    // note and the satisfied human-review control revert otherwise.
+    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+        let mut plat = platform.write().unwrap();
+        if let Some(a) = plat.apps.get_mut(&id) {
+            *a = snapshot;
+        }
+        return Err(audit_unavailable("review reverted", cause));
+    }
     Ok(Json(json!({ "reviewer_note": note, "report": report })))
 }
 
@@ -587,11 +708,12 @@ async fn promote(
         (app, report, snapshot)
     };
 
-    // #7, the broker-invariant precursor: a stage transition that the
-    // durable store did not confirm DID NOT HAPPEN. The DB trigger checks
-    // sandbox→live against app_valid_state inside this write; on any
-    // failure the in-memory record reverts and the doctor sees 503.
-    if let Err(e) = store::write_through(
+    // #7 + #8: a stage transition the durable store did not confirm DID NOT
+    // HAPPEN (the DB trigger checks sandbox→live against app_valid_state
+    // inside this write), and a promotion no durable audit sink recorded
+    // did not happen either — the broker invariant. On any failure the
+    // in-memory record reverts and the doctor sees 503.
+    if let Err(cause) = settle_durable(
         &platform,
         &[&id],
         Some(StageTransition {
@@ -607,16 +729,9 @@ async fn promote(
         if let Some(a) = plat.apps.get_mut(&id) {
             *a = snapshot;
         }
-        plat.audit.record(
-            "deploy",
-            "app.promotion_reverted",
-            format!("control DB refused or missed the stage transition: {e:#}"),
-            Some(&id),
-        );
-        return Err(ApiError(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("control DB write failed — promotion reverted: {e:#}"),
-        ));
+        plat.audit
+            .record("deploy", "app.promotion_reverted", cause.clone(), Some(&id));
+        return Err(audit_unavailable("promotion reverted", cause));
     }
 
     Ok(Json(json!({ "app": app, "report": report })))
@@ -664,9 +779,9 @@ async fn rollback(
         (app, snapshot)
     };
 
-    // #7: same broker-invariant precursor as promote — the live→sandbox
-    // transition must be durably confirmed or it did not happen.
-    if let Err(e) = store::write_through(
+    // #7 + #8: same rule as promote — the live→sandbox transition AND its
+    // audit record must be durably confirmed or the rollback did not happen.
+    if let Err(cause) = settle_durable(
         &platform,
         &[&id],
         Some(StageTransition {
@@ -682,16 +797,9 @@ async fn rollback(
         if let Some(a) = plat.apps.get_mut(&id) {
             *a = snapshot;
         }
-        plat.audit.record(
-            "deploy",
-            "app.rollback_reverted",
-            format!("control DB refused or missed the stage transition: {e:#}"),
-            Some(&id),
-        );
-        return Err(ApiError(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("control DB write failed — rollback reverted: {e:#}"),
-        ));
+        plat.audit
+            .record("deploy", "app.rollback_reverted", cause.clone(), Some(&id));
+        return Err(audit_unavailable("rollback reverted", cause));
     }
     Ok(Json(app))
 }
@@ -730,6 +838,10 @@ async fn app_operations(
     Ok(Json(json!({ "operations": plat.operations_for_app(&id) })))
 }
 
+/// The doctor's own app-scoped stream — the TENANT side of the HMAC
+/// boundary (#8, decision 0004): sensitive values render as the doctor's
+/// own plaintext here, and only here. The platform-wide export below keeps
+/// the `hmac-sha256:` form.
 async fn app_audit(
     State(platform): State<SharedPlatform>,
     Path(id): Path<String>,
@@ -738,7 +850,9 @@ async fn app_audit(
     if !plat.apps.contains_key(&id) {
         return Err(not_found("app"));
     }
-    Ok(Json(json!({ "events": plat.audit.for_app(&id) })))
+    Ok(Json(
+        json!({ "events": plat.audit.for_app_tenant_view(&id) }),
+    ))
 }
 
 /// Ejection (#11): the whole app as an owned, documented, extendable bundle.
@@ -772,10 +886,18 @@ async fn export_app(
         );
         bundle
     };
-    store::write_through_or_warn(&platform, &[], None).await;
+    // Load-bearing (#8): the bundle is withheld unless the record that it
+    // left the platform is durable. Nothing to revert — the append-only
+    // `app.exported` event stands as the record of the refused attempt.
+    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+        return Err(audit_unavailable("export withheld", cause));
+    }
     Ok(Json(bundle))
 }
 
+/// Platform-wide export — the CROSS-TENANT side of the HMAC boundary (#8):
+/// doctor-authored free text appears only as `hmac-sha256:<hex>`, so the
+/// stream stays searchable and correlatable without being disclosable.
 async fn export_audit(State(platform): State<SharedPlatform>) -> impl IntoResponse {
     let plat = platform.read().unwrap();
     (

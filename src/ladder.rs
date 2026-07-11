@@ -276,11 +276,17 @@ impl EscalationLadder {
             accepted.started,
             version,
         );
-        plat.audit.record(
+        // The instruction is doctor-authored free text: it rides the
+        // sensitive envelope (#8) — HMAC on platform-wide surfaces,
+        // plaintext in the doctor's own app-scoped view. `agent.attempt`
+        // events carry only op ids / tiers / verdict reasons, so they never
+        // need the envelope.
+        plat.audit.record_sensitive(
             "agent",
             "app.iterated",
-            format!("addendum {version} — {instruction:?}"),
+            format!("addendum {version}"),
             Some(app_id),
+            &[("instruction", instruction.to_string())],
         );
         Ok((reply, candidate, op_id))
     }

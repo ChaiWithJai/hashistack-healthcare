@@ -103,3 +103,24 @@ frozen released-report, F4 lock-holding I/O, plus stop-2's substring-assert
 watch item); three provisional product decisions (P1 dual-register gates,
 P2 skin consolidation, P3 ship-as-labeled). Vetoes welcome asynchronously —
 each flag names its ticket.
+
+## #8 link — 2026-07-11, audit broker (recorded ambiently, no stop)
+
+Disposition: built per issue #8's bar; two design calls made in the
+operator's stead (rationale in decision 0004, veto-able):
+
+- **P4: the control DB stores the Boundary-style pt/HMAC pair** for
+  sensitive audit values rather than HMAC-only. Rationale: the control DB
+  already holds the prompt in plaintext inside `apps.record` — it IS the
+  tenant-scoped store — and the pairing is what keeps the doctor's own
+  audit view plaintext across a restart. The HMAC rule governs *surfaces*
+  (platform export, AUDIT_FILE archive: hash only; tenant views: words).
+  Alternative (HMAC-only storage) degrades the restored tenant view to
+  hashes; real at-rest envelope encryption rides #10, not this link.
+- **P5: `restore` stays best-effort** while every other mutation is
+  load-bearing under the broker. Rationale: sandbox-only rebuild from
+  scaffold + addenda whose creation was itself durably settled; blocking it
+  on a degraded sink adds doctor-visible failure without adding evidence.
+
+Issue #8 stays open for its named remainder: object-storage archive sink,
+hipaa-core runtime-event ingestion (#5), export hash-chain digests.

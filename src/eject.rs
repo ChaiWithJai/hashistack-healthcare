@@ -321,13 +321,21 @@ fn compliance_md(
     md.push_str("\n## Audit trail (append-only, as exported)\n\n");
     md.push_str("| seq | at | actor | action | detail |\n|---|---|---|---|---|\n");
     for event in audit {
+        // The ejected bundle is the doctor's own record, so sensitive
+        // values render as their own plaintext here — the tenant side of
+        // the HMAC boundary (#8, decision 0004). The platform-wide export
+        // keeps the hmac-sha256: form.
+        let mut detail = event.detail.clone();
+        for (key, value) in event.tenant_sensitive() {
+            detail.push_str(&format!(" — {key}: {value:?}"));
+        }
         md.push_str(&format!(
             "| {} | {} | {} | `{}` | {} |\n",
             event.seq,
             utc(event.at),
             md_cell(&event.actor),
             event.action,
-            md_cell(&event.detail)
+            md_cell(&detail)
         ));
     }
     md

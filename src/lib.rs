@@ -51,21 +51,45 @@ pub fn app() -> Router {
 /// The control plane as `main` boots it: with `CONTROL_DB_URL` set (#7),
 /// connect to the Postgres control store, apply migrations idempotently,
 /// and load the durable state back — apps, operations, audit stream, and
-/// the id counter all survive a restart. Unset, identical to [`app`].
+/// the id counter all survive a restart. With `AUDIT_FILE` set (#8), a
+/// JSONL file sink joins the audit broker. Each durable sink must pass its
+/// registration probe or the boot fails loudly. Neither set → identical to
+/// [`app`] (dev mode: the in-memory fallback sink alone).
 pub async fn app_from_env() -> anyhow::Result<Router> {
-    let url = std::env::var("CONTROL_DB_URL")
+    let db_url = std::env::var("CONTROL_DB_URL")
         .ok()
         .filter(|u| !u.trim().is_empty());
-    let Some(url) = url else {
+    let audit_file = std::env::var("AUDIT_FILE")
+        .ok()
+        .filter(|p| !p.trim().is_empty());
+    if db_url.is_none() && audit_file.is_none() {
         return Ok(app());
-    };
+    }
+
     let mut platform = state::Platform::new(packs::builtin_packs());
-    let pg = store::PgStore::connect(&url).await?;
-    let (apps, ops, events) = pg.load(&mut platform).await?;
-    platform.store = Some(std::sync::Arc::new(pg));
+    let mut broker = audit::Broker::new();
+    if let Some(url) = db_url {
+        let pg = store::PgStore::connect(&url).await?;
+        let (apps, ops, events) = pg.load(&mut platform).await?;
+        let pg = std::sync::Arc::new(pg);
+        platform.store = Some(pg.clone());
+        broker
+            .register(std::sync::Arc::new(store::PgSink::new(pg)))
+            .await?;
+        tracing::info!(
+            "control DB attached — restored {apps} apps, {ops} operations, {events} audit events"
+        );
+    }
+    if let Some(path) = audit_file {
+        let sink = audit::FileSink::open(&path, platform.audit.head_seq())?;
+        broker.register(std::sync::Arc::new(sink)).await?;
+        tracing::info!("audit file sink attached — JSONL archive at {path}");
+    }
     tracing::info!(
-        "control DB attached — restored {apps} apps, {ops} operations, {events} audit events"
+        "audit broker sinks: {:?} — load-bearing operations require a durable confirmation",
+        broker.sink_names()
     );
+    platform.broker = std::sync::Arc::new(broker);
     Ok(api::router_with_state(std::sync::Arc::new(
         std::sync::RwLock::new(platform),
     )))

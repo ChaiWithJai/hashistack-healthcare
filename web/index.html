@@ -241,7 +241,10 @@ function auditRows(limit) {
   const evs = [...S.audit].reverse().slice(0, limit || 8);
   return evs.map(e => {
     const t = new Date(e.at * 1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
-    return `<div class="sk" style="padding:4px 9px;font-size:13px">${t} · ${esc(e.actor)} · ${esc(e.detail)}</div>`;
+    // App-scoped view: sensitive values arrive as the doctor's own
+    // plaintext (#8); the platform export keeps the hmac-sha256: form.
+    const extra = e.sensitive ? Object.entries(e.sensitive).map(([k, v]) => ` · ${k}: “${v}”`).join("") : "";
+    return `<div class="sk" style="padding:4px 9px;font-size:13px">${t} · ${esc(e.actor)} · ${esc(e.detail + extra)}</div>`;
   }).join("");
 }
 

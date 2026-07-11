@@ -21,6 +21,14 @@
 # allocation and audit history intact — the issue's kill -9 bar. The rest
 # of the flow then continues against the restarted process, which deepens
 # every later assertion.
+#
+# Audit broker (#8): a self-booted run always attaches a JSONL FileSink
+# (AUDIT_FILE), so every load-bearing operation in this test runs under the
+# broker invariant — no durable audit write, no operation — and the test
+# asserts the HMAC boundary: the doctor's app-scoped view shows their own
+# words, while the platform export and the durable archive carry only
+# hmac-sha256: forms. Targeting an already-running instance, the AUDIT_FILE
+# checks run whenever the env var points at a readable archive.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -29,8 +37,11 @@ SERVER_PID=""
 
 if [[ -z "$BASE" ]]; then
   BASE="http://127.0.0.1:39000"
+  AUDIT_FILE="${AUDIT_FILE:-$(mktemp -t pressure-audit-XXXXXX.jsonl)}"
+  export AUDIT_FILE
   cargo build --quiet
-  APP_BIND=127.0.0.1:39000 "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" &
+  APP_BIND=127.0.0.1:39000 AUDIT_FILE="$AUDIT_FILE" \
+    "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" &
   SERVER_PID=$!
   trap '[[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 50); do
@@ -128,6 +139,7 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
     cargo build --quiet
     mkdir -p .staging/logs
     env APP_BIND="$BIND" CONTROL_DB_URL="$CONTROL_DB_URL" \
+      ${AUDIT_FILE:+AUDIT_FILE="$AUDIT_FILE"} \
       ${NOMAD_ADDR:+NOMAD_ADDR="$NOMAD_ADDR"} \
       ${VAULT_ADDR:+VAULT_ADDR="$VAULT_ADDR"} \
       ${VAULT_TOKEN:+VAULT_TOKEN="$VAULT_TOKEN"} \
@@ -155,6 +167,24 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
     check "audit survives restart (promoted)"  "$SAUDIT" '"app.promoted"'
     SOPS=$(get "/api/apps/$ID/operations")
     check "operation rows survive restart"     "$SOPS" '"kind":"scaffold"'
+    # #8: the promote's audit row is really in postgres, and the prompt is
+    # stored in its non-disclosable hmac-sha256: form.
+    PSQL=""
+    [[ -x .staging/postgres/bin/psql ]] && PSQL=".staging/postgres/bin/psql"
+    [[ -z "$PSQL" ]] && command -v psql >/dev/null 2>&1 && PSQL="psql"
+    if [[ -n "$PSQL" ]]; then
+      NROWS=$($PSQL "$CONTROL_DB_URL" -tAc \
+        "SELECT count(*) FROM audit_events WHERE action='app.promoted'" 2>/dev/null || echo err)
+      check "postgres holds the promote audit row (#8)" \
+        "$([[ "$NROWS" =~ ^[1-9] ]] && echo present || echo "absent:$NROWS")" "present"
+      HROWS=$($PSQL "$CONTROL_DB_URL" -tAc \
+        "SELECT count(*) FROM audit_events WHERE action='app.created' \
+           AND sensitive->>'prompt' LIKE 'hmac-sha256:%'" 2>/dev/null || echo err)
+      check "postgres stores the prompt hmac'd (#8)" \
+        "$([[ "$HROWS" =~ ^[1-9] ]] && echo present || echo "absent:$HROWS")" "present"
+    else
+      echo "  skipped (no psql): promote audit row + hmac'd prompt in postgres"
+    fi
   fi
 else
   echo "  skipped (no CONTROL_DB_URL): app, allocation, audit, operations survive restart"
@@ -241,6 +271,26 @@ import json,sys
 seqs=[json.loads(l)["seq"] for l in sys.stdin if l.strip()]
 print("monotonic" if all(a<b for a,b in zip(seqs,seqs[1:])) and seqs else "broken")')
 check "sequence monotonic" "$SEQOK" "monotonic"
+
+echo "-- audit broker (#8): HMAC boundary + durable JSONL archive"
+WORDS="knee replacement patients"
+APPAUD=$(get "/api/apps/$ID/audit")
+check "app-scoped view shows the doctor's words" "$APPAUD" "$WORDS"
+EXPORT_STREAM=$(get /api/audit/export)
+check "platform export carries the hmac form"    "$EXPORT_STREAM" 'hmac-sha256:'
+check "platform export hides the words" \
+  "$(echo "$EXPORT_STREAM" | grep -c "$WORDS" || true)" "0"
+COMPLIANCE8=$(get "/api/apps/$ID/export" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
+check "ejected compliance keeps the doctor's words" "$COMPLIANCE8" "$WORDS"
+if [[ -n "${AUDIT_FILE:-}" && -r "$AUDIT_FILE" ]]; then
+  check "archive has the registration probe line" "$(cat "$AUDIT_FILE")" '"audit.sink_probe"'
+  check "archive holds app.promoted durably"      "$(cat "$AUDIT_FILE")" '"app.promoted"'
+  check "archive carries the hmac form"           "$(cat "$AUDIT_FILE")" 'hmac-sha256:'
+  check "archive hides the words" "$(grep -c "$WORDS" "$AUDIT_FILE" || true)" "0"
+else
+  echo "  skipped (no AUDIT_FILE): probe line, app.promoted, hmac form, no plaintext in archive"
+fi
 
 echo
 echo "== $PASS passed, $FAIL failed"

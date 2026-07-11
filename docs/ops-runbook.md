@@ -130,11 +130,11 @@ Semantics when attached:
 - **A stage transition the DB did not confirm did not happen**: if the
   write-through for promote/rollback fails, the in-memory record reverts
   and the API returns 503 (`app.promotion_reverted` /
-  `app.rollback_reverted` land in the audit stream). This is the precursor
-  of #8's broker invariant.
-- Other write failures (an iterate addendum, an audit append) degrade
-  durability, log a loud warning, and retry on the next write-through —
-  they never block the doctor.
+  `app.rollback_reverted` land in the audit stream). #8 generalizes this
+  into the audit broker invariant below.
+- Other write failures degrade durability, log a loud warning, and retry
+  on the next write-through; whether the *operation* stands is then the
+  audit broker's call (below).
 - Boot loads everything back: apps, operations, audit events, and the
   id-minting counter (`control_meta`), so restored ids never collide.
 
@@ -162,6 +162,56 @@ Honest edge: with only two stages, both cross-transitions are legal, so the
 stage trigger cannot fire on today's reachable states — it (plus the FK and
 the CHECK) is the enforcement that keeps the table authoritative the moment
 a third stage (`gate_pending`, per issue #7's target shape) lands.
+
+## Audit broker (#8): no durable audit write, no operation
+
+Vault's `audit/` broker pattern, applied (steering §2). Sinks register
+behind a broker; each runs a `LogTestMessage`-style probe at registration
+and a failing sink **fails the boot**:
+
+- **memory** — always present, the fallback sink: events (including the
+  record of any other sink's failure) are never lost. Counts as durable
+  only in dev mode (nothing else configured), where behavior is
+  byte-identical to the plain demo.
+- **file** — `AUDIT_FILE=/path/audit.jsonl`: one JSON event per line,
+  fsync on every append, probe line per boot stream. `staging-up.sh`
+  attaches it by default at `.staging/logs/audit.jsonl`.
+- **control-db** — attached with `CONTROL_DB_URL` (#7 `audit_events`).
+
+With any durable sink attached, **load-bearing operations** (create,
+applied iterate, gate fix, review, promote, rollback, export) fail with
+503 audit-unavailable — and their state change reverts — unless ≥1 durable
+sink confirms the audit events. Reads and `restore` stay best-effort. Full
+classification: `src/audit.rs` module doc; rationale: decision 0004.
+
+Sensitive values (the doctor's prompt and iterate instructions) are salted
+HMACs on every platform-wide surface (`/api/audit/export`, the `AUDIT_FILE`
+archive): `"prompt":"hmac-sha256:<hex>"` — searchable, correlatable, not
+disclosable. The doctor's own app-scoped view (`/api/apps/:id/audit`) and
+their ejected COMPLIANCE.md keep their plaintext. Set `AUDIT_HMAC_KEY` to
+correlate across restarts; unset, the salt is random per boot.
+
+Watch the invariant hold (control-db as the only durable sink; an open
+file handle is hard to break from outside, which is exactly why the
+contract test injects a killable sink):
+
+```bash
+CONTROL_DB_URL=postgres://staging@127.0.0.1:5433/control cargo run &
+# … create + fix an app, then kill the sink and try to promote:
+.staging/postgres/bin/pg_ctl -D .staging/pgdata stop -m immediate
+curl -s -X POST localhost:3000/api/apps/<id>/promote \
+  -H 'content-type: application/json' -d '{"cosigner":"Dr. A. Osei"}'
+# → 503 {"error":"promotion reverted — control DB refused or missed …"}
+# the app is still sandboxed; audit.sink_failed / app.promotion_reverted
+# are on the in-memory fallback record and replay once the sink returns
+```
+
+Verified automatically: `tests/audit_broker_contract.rs` (kill-the-sink →
+503 + sandboxed + `audit.sink_failed`; HMAC boundary end-to-end over a real
+file sink) and the pressure test's `audit broker (#8)` section, which runs
+with the file sink attached on every self-booted run and additionally
+asserts the promote audit row + HMAC'd prompt inside Postgres when
+`CONTROL_DB_URL` is set.
 
 ## Eject an app (#11): an owned, documented, extendable bundle
 

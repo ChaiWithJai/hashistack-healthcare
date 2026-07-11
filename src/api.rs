@@ -1,7 +1,7 @@
 //! Control-plane API. Everything above it — doctor UI, a future CLI, a
 //! hospital integration — is a client of these routes. No privileged UI.
 
-use axum::extract::{Path, State};
+use axum::extract::{FromRef, Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,7 +11,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
-use crate::agent::{AgentDriver, RuleBasedDriver, ScaffoldStep};
+use crate::agent::{Dispatcher, ScaffoldStep};
 use crate::deploy;
 use crate::gates;
 use crate::packs;
@@ -26,12 +26,38 @@ const DOCTOR_UI: &str = include_str!("../web/index.html");
 const DOCTOR: &str = "dr-osei";
 const DEFAULT_TENANT: &str = "meridian";
 
+/// Router state: the shared platform plus the routing dispatcher. Handlers
+/// extract whichever slice they need via [`FromRef`].
+#[derive(Clone)]
+pub struct ApiState {
+    platform: SharedPlatform,
+    dispatcher: Arc<Dispatcher>,
+}
+
+impl FromRef<ApiState> for SharedPlatform {
+    fn from_ref(state: &ApiState) -> Self {
+        state.platform.clone()
+    }
+}
+
+impl FromRef<ApiState> for Arc<Dispatcher> {
+    fn from_ref(state: &ApiState) -> Self {
+        state.dispatcher.clone()
+    }
+}
+
 pub fn router() -> Router {
     let platform: SharedPlatform = Arc::new(RwLock::new(Platform::new(packs::builtin_packs())));
     router_with_state(platform)
 }
 
 pub fn router_with_state(platform: SharedPlatform) -> Router {
+    // Model tiers come from the environment; with neither URL set every tier
+    // resolves to the deterministic rules driver (offline dev, CI).
+    router_with_dispatcher(platform, Arc::new(Dispatcher::from_env()))
+}
+
+pub fn router_with_dispatcher(platform: SharedPlatform, dispatcher: Arc<Dispatcher>) -> Router {
     Router::new()
         .route("/", get(doctor_ui))
         .route("/health", get(crate::health))
@@ -50,7 +76,10 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         .route("/api/apps/:id/audit", get(app_audit))
         .route("/api/apps/:id/export", get(export_app))
         .route("/api/audit/export", get(export_audit))
-        .with_state(platform)
+        .with_state(ApiState {
+            platform,
+            dispatcher,
+        })
 }
 
 async fn doctor_ui() -> Html<&'static str> {
@@ -100,6 +129,7 @@ struct CreatedApp {
 
 async fn create_app(
     State(platform): State<SharedPlatform>,
+    State(dispatcher): State<Arc<Dispatcher>>,
     Json(req): Json<CreateApp>,
 ) -> ApiResult<CreatedApp> {
     let mut plat = platform.write().unwrap();
@@ -125,7 +155,7 @@ async fn create_app(
         slug
     };
 
-    let scaffold = RuleBasedDriver.scaffold(&pack, &req.prompt);
+    let (scaffold, routed) = dispatcher.scaffold(&pack, &req.prompt);
     let controls: BTreeSet<String> = pack.prewired.iter().cloned().collect();
 
     let app = AppRecord {
@@ -160,6 +190,8 @@ async fn create_app(
         format!("described {:?} from pack {}", app.prompt, pack.id),
         Some(&id),
     );
+    plat.audit
+        .record("agent", routed.action, routed.detail, Some(&id));
     plat.audit.record(
         "agent",
         "agent.scaffolded",
@@ -203,19 +235,20 @@ struct Iterate {
 
 async fn iterate(
     State(platform): State<SharedPlatform>,
+    State(dispatcher): State<Arc<Dispatcher>>,
     Path(id): Path<String>,
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
     let mut plat = platform.write().unwrap();
-    let required = plat
+    let pack = plat
         .apps
         .get(&id)
         .and_then(|a| plat.pack(&a.pack))
-        .map(|p| p.gates.clone())
+        .cloned()
         .ok_or_else(|| not_found("app"))?;
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
-    let reply = RuleBasedDriver.iterate(app, &req.instruction, &required);
+    let (reply, decisions) = dispatcher.iterate(app, &req.instruction, &pack);
     app.current_version += 1;
     let version = app.current_version;
     app.addenda.push(Addendum {
@@ -228,6 +261,10 @@ async fn iterate(
     });
     let app = app.clone();
 
+    for decision in decisions {
+        plat.audit
+            .record("agent", decision.action, decision.detail, Some(&id));
+    }
     plat.audit.record(
         "agent",
         "app.iterated",
@@ -350,15 +387,18 @@ async fn fix_gate(
 /// the review control satisfied.
 async fn review(
     State(platform): State<SharedPlatform>,
+    State(dispatcher): State<Arc<Dispatcher>>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let mut plat = platform.write().unwrap();
-    let (required, tier) = plat
+    let pack = plat
         .apps
         .get(&id)
         .and_then(|a| plat.pack(&a.pack))
-        .map(|p| (p.gates.clone(), p.tier))
+        .cloned()
         .ok_or_else(|| not_found("app"))?;
+    let (required, tier) = (pack.gates.clone(), pack.tier);
+    let routed = dispatcher.route_review(&pack);
     let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
 
     let reviewable: Vec<String> = required
@@ -372,6 +412,8 @@ async fn review(
     if report.green {
         app.controls.insert("human-review".to_string());
     }
+    plat.audit
+        .record("agent", routed.action, routed.detail, Some(&id));
     plat.audit.record(
         "platform-reviewer",
         "review.completed",

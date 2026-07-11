@@ -37,5 +37,18 @@ pack "insurance-verification" {
     "human-review",
   ]
 
+  # Routing policy (treatment 4b): carried inside the signed manifest, so
+  # where each agent operation runs is reviewed and attested like the gate
+  # list. This staff-facing tier-3 pack routes the iterate loop to the
+  # in-VPC local model but demands frontier escalation the moment a local
+  # edit regresses a gate or comes back malformed. The other packs declare
+  # nothing and inherit the platform defaults.
+  routing = {
+    scaffold    = "frontier"
+    iterate     = "local"
+    review      = "frontier"
+    escalate_on = ["gate-regression", "invalid-edit"]
+  }
+
   synthetic_dataset = "test patients (20 pts, synthetic payers)"
 }

@@ -1,6 +1,6 @@
 # Platform eval scorecard — the portable baseline
 
-Generated 2026-07-11T20:47:19.186Z at commit `5310a04` by `scripts/evals.sh` (10s). Machine-readable twin: [scorecard.json](scorecard.json).
+Generated 2026-07-11T21:50:23.447Z at commit `c82bf44` by `scripts/evals.sh` (26s). Machine-readable twin: [scorecard.json](scorecard.json).
 
 ## What this measures
 
@@ -28,7 +28,8 @@ and edge scenarios):
 
 | | scenarios | layer 1 checks | layer 2 checks |
 |---|---|---|---|
-| **all** | 28 | 147/151 passed (97%; 4 expected-fail) | 18/18 passed (100%) |
+| **all** | 30 | 158/162 passed (98%; 4 expected-fail) | 18/18 passed (100%) |
+| identity/tenancy (#10) | 2 | 11/11 (100%) | n/a |
 | compliance-checklist | 4 | 24/24 (100%) | no-artifact (#5 pending) |
 | patient-intake | 5 | 32/32 (100%) | no-artifact (#5 pending) |
 | hypertension-tracker | 5 | 31/31 (100%) | no-artifact (#5 pending) |
@@ -40,6 +41,8 @@ and edge scenarios):
 
 | scenario | persona | pack | layer 1 | layer 2 | agent tier |
 |---|---|---|---|---|---|
+| auth-01-two-tenant | second-practice-clinician | hypertension-tracker | 6/6 | n/a | — |
+| auth-02-staff-denial | practice-staff | post-op-monitor | 5/5 | n/a | — |
 | checklist-01-precise-physician | precise-physician | compliance-checklist | 6/6 | no-artifact (#5) | rules |
 | checklist-02-colloquial-physician | colloquial-physician | compliance-checklist | 6/6 | no-artifact (#5) | rules |
 | checklist-03-chp-clinic | community-health-worker | compliance-checklist | 6/6 | no-artifact (#5) | rules |
@@ -96,4 +99,4 @@ set for every post-op scenario lands in `.evals/screenshots/`, gitignored):
 
 ## Methodology
 
-28 scenarios (22 pack workflows across 5 packs × 4+ personas, 4 refusals from RFC 0001's out-of-scope list, 2 edges: duplicate names, restore-then-promote), each against a freshly booted in-memory control plane on its own port — no shared state, no mocked HTTP. The agent ladder runs at its rules floor (no model endpoints configured), and the scorecard records that tier per operation: this baseline measures what the platform honestly does today, not what a frontier model might add. Layer 2 builds the ejected bundle with a worktree-local shared CARGO_TARGET_DIR (compiles once), boots each ejected app on its own port, and drives it with Playwright/Chromium; external font hosts are blocked so the check is hermetic. Expected-fail checks (refusals) exit zero; any failing check in a must_pass scenario exits nonzero. Add a scenario: drop a JSON file in evals/scenarios/ (schema in evals/README.md) and re-run `scripts/evals.sh`.
+30 scenarios (22 pack workflows across 5 packs × 4+ personas, 4 refusals from RFC 0001's out-of-scope list, 2 edges: duplicate names, restore-then-promote, 2 identity scenarios: two-tenant isolation, staff role denial), each against a freshly booted in-memory control plane on its own port — no shared state, no mocked HTTP. Every request authenticates with the Phase 0 dev bearer tokens from staging/identities.hcl (#10) — nothing rides the dev fallback. The agent ladder runs at its rules floor (no model endpoints configured), and the scorecard records that tier per operation: this baseline measures what the platform honestly does today, not what a frontier model might add. Layer 2 builds the ejected bundle with a worktree-local shared CARGO_TARGET_DIR (compiles once), boots each ejected app on its own port, and drives it with Playwright/Chromium; external font hosts are blocked so the check is hermetic. Expected-fail checks (refusals) exit zero; any failing check in a must_pass scenario exits nonzero. Add a scenario: drop a JSON file in evals/scenarios/ (schema in evals/README.md) and re-run `scripts/evals.sh`.

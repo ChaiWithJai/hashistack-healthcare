@@ -36,11 +36,24 @@ scenario marked `must_pass` — it is a regression baseline, not a trophy.
 
 ## The corpus (evals/scenarios/*.json)
 
-28 scenarios: for each of the 5 packs, 4+ describe-phrasing variants across
+30 scenarios: for each of the 5 packs, 4+ describe-phrasing variants across
 personas (precise physician, colloquial physician, community health worker
 in home-visit idiom, terse/typo'd — post-op-monitor, the flagship, carries
-two extra), plus 4 refusal scenarios and 2 edges (duplicate app names;
-restore-then-promote).
+two extra), plus 4 refusal scenarios, 2 edges (duplicate app names;
+restore-then-promote), and 2 identity scenarios (#10: two-tenant isolation;
+staff role denial).
+
+## Authentication (#10)
+
+The harness is an ordinary API client, so it authenticates like one: every
+request carries a bearer token from the Phase 0 dev registry
+(`staging/identities.hcl`, embedded at compile time) — `dr-osei`
+(clinician, meridian; the default persona), `dr-park` (clinician,
+lakeside), `ms-rivera` (staff, meridian). Nothing rides the headerless dev
+fallback anymore; the two auth scenarios additionally assert the tenancy
+wall (cross-tenant fetch → 404, denial audited on the owning tenant's
+stream), the staff promotion denial (403 + `auth.role_denied`), and that a
+present-but-wrong token is 401 even in dev mode.
 
 ## Scenario schema
 
@@ -88,6 +101,13 @@ One JSON file per scenario. Fields by category:
 The refusal check is marked `expected_fail` in the results until the
 refusal surface (#12) lands — when it does, flip `must_pass` to `true` and
 the baseline starts protecting it.
+
+### `category: "auth"`
+
+| field | type | meaning |
+|---|---|---|
+| `auth_flow` | `"two-tenant"` \| `"staff-denial"` | picks the identity flow (#10) |
+| `workflow.fix_gates`, `workflow.cosigner` | as for packs | staff-denial drives the gate green before asserting the 403/200 split |
 
 ## Adding a scenario
 

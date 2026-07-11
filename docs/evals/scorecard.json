@@ -1,11 +1,12 @@
 {
-  "generated_at": "2026-07-11T20:47:19.186Z",
-  "commit": "5310a04",
-  "runtime_seconds": 10,
+  "generated_at": "2026-07-11T21:50:23.447Z",
+  "commit": "c82bf44",
+  "runtime_seconds": 26,
   "counts": {
     "pack": 22,
     "refusal": 4,
-    "edge": 2
+    "edge": 2,
+    "auth": 2
   },
   "known_gaps": [
     "**No refusal surface (#12).** All 4 out-of-scope scenarios (RFC 0001 use cases 9, 10, 15, 21) were scaffolded instead of refused-with-a-reason — GOAL.md bar 7 is unmet and these checks fail by design until the refusal surface lands.",
@@ -13,10 +14,10 @@
     "**Agent tier floor: rules.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design)."
   ],
   "totals": {
-    "scenarios": 28,
+    "scenarios": 30,
     "layer1": {
-      "applicable": 151,
-      "passed": 147,
+      "applicable": 162,
+      "passed": 158,
       "failed": 4,
       "expected_fail": 4
     },
@@ -28,6 +29,18 @@
     }
   },
   "per_pack": {
+    "identity/tenancy (#10)": {
+      "scenarios": 2,
+      "layer1": {
+        "passed": 11,
+        "applicable": 11
+      },
+      "layer2": {
+        "passed": 0,
+        "applicable": 0,
+        "no_artifact": 0
+      }
+    },
     "compliance-checklist": {
       "scenarios": 4,
       "layer1": {
@@ -102,6 +115,103 @@
     }
   },
   "scenarios": [
+    {
+      "id": "auth-01-two-tenant",
+      "category": "auth",
+      "persona": "second-practice-clinician",
+      "pack": "hypertension-tracker",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "tenant_derived_from_principal",
+            "status": "pass",
+            "evidence": "dr-osei's app tenant=meridian, dr-park's app tenant=lakeside — both derived from the bearer token, no tenant field sent"
+          },
+          {
+            "name": "cross_tenant_fetch_404",
+            "status": "pass",
+            "evidence": "dr-park (lakeside) fetching meridian app meridian-bp-log → 404 (must be 404: existence undisclosed, exactly like a nonexistent id)"
+          },
+          {
+            "name": "list_tenant_scoped",
+            "status": "pass",
+            "evidence": "dr-park's list: 1 app(s), tenants [lakeside]"
+          },
+          {
+            "name": "denial_audited_on_owning_stream",
+            "status": "pass",
+            "evidence": "meridian's stream carries auth.cross_tenant_denied by dr-park: principal of tenant lakeside addressed an app outside it — answered 404 (existence not disclosed)"
+          },
+          {
+            "name": "wrong_token_401",
+            "status": "pass",
+            "evidence": "garbage bearer token → 401 (dev fallback applies only to a MISSING header, never a wrong token)"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "two tenants created → cross-tenant fetch denied as 404 → denial audited on meridian's stream → wrong token 401"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "identity scenario — the artifact is judged by the pack workflows, not re-judged here"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    },
+    {
+      "id": "auth-02-staff-denial",
+      "category": "auth",
+      "persona": "practice-staff",
+      "pack": "post-op-monitor",
+      "must_pass": true,
+      "layer1": {
+        "checks": [
+          {
+            "name": "staff_can_view_in_tenant",
+            "status": "pass",
+            "evidence": "ms-rivera (staff, same tenant) reading the app → 200"
+          },
+          {
+            "name": "staff_promote_403",
+            "status": "pass",
+            "evidence": "ms-rivera promoting a GREEN app → 403: role staff may not promote or co-sign a release"
+          },
+          {
+            "name": "denial_audited",
+            "status": "pass",
+            "evidence": "auth.role_denied by ms-rivera on the app stream: role staff may not promote or co-sign a release — 403"
+          },
+          {
+            "name": "clinician_cosign_binds_principal",
+            "status": "pass",
+            "evidence": "promoted by dr-osei: attestation principal=dr-osei, report digest sha256:1bada8585…"
+          },
+          {
+            "name": "workflow_completed",
+            "status": "pass",
+            "evidence": "created → gate green → staff promote 403 (audited) → clinician promote 200 with principal-bound attestation"
+          }
+        ]
+      },
+      "layer2": {
+        "checks": [
+          {
+            "name": "artifact",
+            "status": "n/a",
+            "evidence": "identity scenario — the artifact is judged by the pack workflows, not re-judged here"
+          }
+        ]
+      },
+      "agent_tiers": {}
+    },
     {
       "id": "checklist-01-precise-physician",
       "category": "pack",

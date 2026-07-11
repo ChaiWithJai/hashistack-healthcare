@@ -16,9 +16,11 @@
 // "no-artifact (#5 pending)" — visible in the scorecard, never skipped
 // silently.
 //
-// Honest baseline by design: the 4 refusal scenarios (RFC 0001 use cases
-// 9/10/15/21) run against a platform with NO refusal surface and are
-// EXPECTED to fail — they appear in the scorecard as known gaps (#12).
+// Identity (#10): the harness is an ordinary API client — every request
+// carries a Phase 0 dev bearer token from staging/identities.hcl, and two
+// auth scenarios assert the tenancy wall (dr-park vs dr-osei's tenant) and
+// the staff role denial (ms-rivera may not co-sign a release).
+//
 // Exit code is nonzero only on harness errors or a failing check in a
 // scenario marked must_pass.
 //
@@ -101,10 +103,29 @@ function stopServer(child) {
   children.delete(child);
 }
 
-async function api(base, method, route, body) {
+// Identity (#10): the harness is an ordinary API client, so it
+// authenticates like one — the Phase 0 dev bearer tokens declared in
+// staging/identities.hcl (embedded as the compile-time dev registry).
+// Every request carries a token; nothing rides the dev fallback anymore.
+const TOKENS = {
+  'dr-osei': 'dev-token-osei', // clinician, tenant meridian (the default persona)
+  'dr-park': 'dev-token-park', // clinician, tenant lakeside
+  'ms-rivera': 'dev-token-rivera', // staff, tenant meridian
+};
+const DEFAULT_PRINCIPAL = 'dr-osei';
+
+async function api(base, method, route, body, principal = DEFAULT_PRINCIPAL) {
+  const headers = {};
+  if (principal !== null) {
+    // `principal: null` sends no Authorization header (used to assert the
+    // strict/fallback boundary); an unknown name is sent verbatim as a bad
+    // token so 401 paths are testable.
+    headers.authorization = `Bearer ${TOKENS[principal] ?? principal}`;
+  }
+  if (body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(`${base}${route}`, {
     method,
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -331,6 +352,110 @@ async function runDuplicateNames(scenario, base, score) {
   return { appId: idB, bundle: exported.json, tiers };
 }
 
+// Identity (#10): tenancy is a wall, not a list filter. dr-park builds in
+// lakeside; a meridian app id must answer 404 (existence undisclosed), the
+// denial must land on the OWNING tenant's audit stream (review-log P12),
+// and a present-but-wrong token is 401 even in dev mode (P9).
+async function runTwoTenant(scenario, base, score) {
+  // dr-osei (meridian) creates first — the app whose existence must stay
+  // invisible across the tenant boundary.
+  const meridian = await api(base, 'POST', '/api/apps',
+    { prompt: 'home BP log for my clinic', pack: 'hypertension-tracker', name: 'meridian bp log' },
+    'dr-osei');
+  // dr-park (lakeside) creates their own; the tenant comes from the
+  // principal, never the request body.
+  const lakeside = await api(base, 'POST', '/api/apps',
+    { prompt: scenario.prompt, pack: scenario.pack, name: scenario.app_name }, 'dr-park');
+  const created = meridian.status === 200 && lakeside.status === 200;
+  score.add('tenant_derived_from_principal',
+    created && meridian.json?.app?.tenant === 'meridian' && lakeside.json?.app?.tenant === 'lakeside',
+    `dr-osei's app tenant=${meridian.json?.app?.tenant}, dr-park's app tenant=${lakeside.json?.app?.tenant} — both derived from the bearer token, no tenant field sent`);
+  if (!created) { score.add('workflow_completed', false, `creates returned ${meridian.status}/${lakeside.status}`); return null; }
+  const meridianId = meridian.json.app.id;
+
+  // cross-tenant fetch: 404 — never 403, existence is not disclosed
+  const cross = await api(base, 'GET', `/api/apps/${meridianId}`, undefined, 'dr-park');
+  score.add('cross_tenant_fetch_404', cross.status === 404,
+    `dr-park (lakeside) fetching meridian app ${meridianId} → ${cross.status} (must be 404: existence undisclosed, exactly like a nonexistent id)`);
+
+  // the list is the same boundary: dr-park sees lakeside and nothing else
+  const parkList = await api(base, 'GET', '/api/apps', undefined, 'dr-park');
+  const parkApps = parkList.json?.apps ?? [];
+  score.add('list_tenant_scoped',
+    parkApps.length === 1 && parkApps.every((a) => a.tenant === 'lakeside'),
+    `dr-park's list: ${parkApps.length} app(s), tenants [${[...new Set(parkApps.map((a) => a.tenant))].join(', ')}]`);
+
+  // P12: the denial lands on the owning tenant's stream, actor = the denied principal
+  const audit = await api(base, 'GET', `/api/apps/${meridianId}/audit`, undefined, 'dr-osei');
+  const denial = (audit.json?.events ?? []).find(
+    (e) => e.action === 'auth.cross_tenant_denied' && e.actor === 'dr-park');
+  score.add('denial_audited_on_owning_stream', !!denial,
+    denial ? `meridian's stream carries auth.cross_tenant_denied by dr-park: ${denial.detail.slice(0, 100)}`
+           : 'auth.cross_tenant_denied by dr-park missing from the owning tenant\'s stream');
+
+  // a present-but-wrong token is 401 even in dev mode (P9)
+  const badToken = await api(base, 'GET', '/api/apps', undefined, 'not-a-real-token');
+  score.add('wrong_token_401', badToken.status === 401,
+    `garbage bearer token → ${badToken.status} (dev fallback applies only to a MISSING header, never a wrong token)`);
+
+  score.add('workflow_completed', cross.status === 404 && !!denial,
+    `two tenants created → cross-tenant fetch denied as 404 → denial audited on meridian's stream → wrong token 401`);
+  return null;
+}
+
+// Identity (#10): releasing to real patients is a clinical act. Staff share
+// the tenant view, but promotion answers 403 + auth.role_denied — and the
+// same green gate then promotes for the clinician, proving the 403 was the
+// role, not the app.
+async function runStaffDenial(scenario, base, score) {
+  const wf = scenario.workflow;
+  const created = await api(base, 'POST', '/api/apps',
+    { prompt: scenario.prompt, pack: scenario.pack, name: scenario.app_name }, 'dr-osei');
+  if (created.status !== 200) { score.add('workflow_completed', false, `create returned ${created.status}`); return null; }
+  const appId = created.json.app.id;
+
+  // staff share the practice: in-tenant read is 200, not a 404 game
+  const staffView = await api(base, 'GET', `/api/apps/${appId}`, undefined, 'ms-rivera');
+  score.add('staff_can_view_in_tenant', staffView.status === 200,
+    `ms-rivera (staff, same tenant) reading the app → ${staffView.status}`);
+
+  // the clinician drives the gate green
+  for (const gateId of wf.fix_gates ?? []) {
+    await api(base, 'POST', `/api/apps/${appId}/gate/${gateId}/fix`, {}, 'dr-osei');
+  }
+  const gate = await api(base, 'GET', `/api/apps/${appId}/gate`, undefined, 'dr-osei');
+  if (!gate.json?.report?.green) { score.add('workflow_completed', false, 'gate never went green'); return null; }
+
+  // ...but staff cannot co-sign a release: 403, in-tenant so existence is known
+  const denied = await api(base, 'POST', `/api/apps/${appId}/promote`, {}, 'ms-rivera');
+  score.add('staff_promote_403',
+    denied.status === 403 && /may not/.test(denied.json?.error ?? ''),
+    `ms-rivera promoting a GREEN app → ${denied.status}: ${(denied.json?.error ?? denied.text).slice(0, 120)}`);
+
+  // the denial is audited with the denied principal as actor
+  const audit = await api(base, 'GET', `/api/apps/${appId}/audit`, undefined, 'dr-osei');
+  const denial = (audit.json?.events ?? []).find(
+    (e) => e.action === 'auth.role_denied' && e.actor === 'ms-rivera');
+  score.add('denial_audited', !!denial,
+    denial ? `auth.role_denied by ms-rivera on the app stream: ${denial.detail.slice(0, 100)}`
+           : 'auth.role_denied by ms-rivera missing from the app stream');
+
+  // the same green gate promotes for the clinician — and the attestation
+  // binds the authenticated principal id + the frozen report digest (#10)
+  const promoted = await api(base, 'POST', `/api/apps/${appId}/promote`,
+    { cosigner: wf.cosigner }, 'dr-osei');
+  const att = promoted.json?.app?.attestation;
+  score.add('clinician_cosign_binds_principal',
+    promoted.status === 200 && att?.principal === 'dr-osei' && !!att?.report_digest,
+    promoted.status === 200
+      ? `promoted by dr-osei: attestation principal=${att?.principal}, report digest ${String(att?.report_digest).slice(0, 16)}…`
+      : `clinician promote returned ${promoted.status}: ${(promoted.json?.error ?? promoted.text).slice(0, 120)}`);
+
+  score.add('workflow_completed', denied.status === 403 && promoted.status === 200,
+    'created → gate green → staff promote 403 (audited) → clinician promote 200 with principal-bound attestation');
+  return null;
+}
+
 // Refusal scenarios: the platform SHOULD refuse with a written reason
 // (GOAL.md bar 7, RFC 0001). There is no refusal surface yet (#12), so
 // these run, fail honestly, and land in the scorecard as known gaps.
@@ -476,9 +601,10 @@ function aggregate(results) {
   const layer2 = rate(results.flatMap((r) => r.layer2.checks));
   const perPack = {};
   for (const r of results) {
-    // Refusals aggregate under their own row: their expected failures are a
-    // platform gap, not a defect of the pack a doctor might have grabbed.
-    const key = r.category === 'refusal' ? 'refusals (RFC 9/10/15/21)' : r.pack;
+    // Refusals and identity scenarios aggregate under their own rows: they
+    // judge platform surfaces, not the pack a doctor might have grabbed.
+    const key = r.category === 'refusal' ? 'refusals (RFC 9/10/15/21)'
+      : r.category === 'auth' ? 'identity/tenancy (#10)' : r.pack;
     perPack[key] ??= { scenarios: 0, layer1: { passed: 0, applicable: 0 }, layer2: { passed: 0, applicable: 0, no_artifact: 0 } };
     const p = perPack[key];
     p.scenarios += 1;
@@ -594,8 +720,10 @@ function renderMarkdown(results, agg, meta) {
   lines.push('## Methodology');
   lines.push('');
   lines.push(`${results.length} scenarios (${meta.counts.pack} pack workflows across 5 packs × 4+ personas, ` +
-    `${meta.counts.refusal} refusals from RFC 0001's out-of-scope list, ${meta.counts.edge} edges: duplicate names, restore-then-promote), ` +
+    `${meta.counts.refusal} refusals from RFC 0001's out-of-scope list, ${meta.counts.edge} edges: duplicate names, restore-then-promote, ` +
+    `${meta.counts.auth} identity scenarios: two-tenant isolation, staff role denial), ` +
     'each against a freshly booted in-memory control plane on its own port — no shared state, no mocked HTTP. ' +
+    'Every request authenticates with the Phase 0 dev bearer tokens from staging/identities.hcl (#10) — nothing rides the dev fallback. ' +
     'The agent ladder runs at its rules floor (no model endpoints configured), and the scorecard records that tier per operation: ' +
     'this baseline measures what the platform honestly does today, not what a frontier model might add. ' +
     'Layer 2 builds the ejected bundle with a worktree-local shared CARGO_TARGET_DIR (compiles once), boots each ejected app on its own port, ' +
@@ -641,6 +769,8 @@ async function main() {
     try {
       await waitHealthy(base, cp, cpLog);
       if (scenario.category === 'refusal') outcome = await runRefusal(scenario, base, layer1);
+      else if (scenario.category === 'auth' && scenario.auth_flow === 'two-tenant') outcome = await runTwoTenant(scenario, base, layer1);
+      else if (scenario.category === 'auth' && scenario.auth_flow === 'staff-denial') outcome = await runStaffDenial(scenario, base, layer1);
       else if (scenario.edge === 'duplicate-names') outcome = await runDuplicateNames(scenario, base, layer1);
       else outcome = await runWorkflow(scenario, base, layer1);
     } finally {
@@ -650,6 +780,8 @@ async function main() {
     // layer 2 over the ejected artifact
     if (scenario.category === 'refusal') {
       layer2.note('artifact', 'n/a', 'refusal scenario — nothing may be scaffolded, so there is no artifact to judge');
+    } else if (scenario.category === 'auth') {
+      layer2.note('artifact', 'n/a', 'identity scenario — the artifact is judged by the pack workflows, not re-judged here');
     } else if (scenario.artifact?.expected === 'playwright') {
       if (outcome?.bundle) {
         await runArtifactChecks(scenario, outcome.bundle, i, browser, layer2);
@@ -681,8 +813,8 @@ async function main() {
   }
 
   const agg = aggregate(results);
-  const counts = { pack: 0, refusal: 0, edge: 0 };
-  for (const r of results) counts[r.category] += 1;
+  const counts = { pack: 0, refusal: 0, edge: 0, auth: 0 };
+  for (const r of results) counts[r.category] = (counts[r.category] ?? 0) + 1;
   const tiersSeen = new Set(results.flatMap((r) => Object.keys(r.agent_tiers).map((k) => k.split(':')[1])));
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim();
   const meta = {

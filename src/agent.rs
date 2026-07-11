@@ -42,6 +42,11 @@ pub trait AgentDriver: Send + Sync {
 
 /// Deterministic Phase 0 driver: keyword rules instead of a model, so the
 /// full describe→audit loop runs offline and in CI with stable assertions.
+///
+/// TODO(#4): the ClaudeDriver lands behind this same trait — scaffold()
+/// renders the pack template into a real workspace, iterate() produces
+/// checkpointed diffs, prompts versioned in packs/<id>/prompts/. This
+/// rule-based driver stays as the offline/CI driver to prove the swap.
 pub struct RuleBasedDriver;
 
 impl AgentDriver for RuleBasedDriver {

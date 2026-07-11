@@ -58,6 +58,14 @@ docker compose up --build
 | Doctor UI — wireframes 1a/1b/1c/1d, wired | `web/index.html` |
 | Infrastructure as code (Phase 1 substrate) | `terraform/prod/`, `packer/`, `vault/policies/` |
 | Plan + design + steering | `docs/rfc/`, `docs/design/`, `docs/hashicorp-steering.md` |
+| **The goal and the bar** | [`docs/GOAL.md`](docs/GOAL.md) |
+| Use-case enablement investigation | [`docs/investigations/0001-enable-all-use-cases.md`](docs/investigations/0001-enable-all-use-cases.md) (#12) |
+| Staging pressure test (`make staging`) | `scripts/pressure-test.sh` (#2) |
+
+**Honest label:** what runs today is a skinned UI over a simulated control
+plane — the workflow contract is real and tested; the platform underneath it
+is tracked in issues #2–#11, referenced as `TODO(#n)` at each simulation
+point in the source.
 
 ## The workflow, from curl
 

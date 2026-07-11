@@ -101,6 +101,9 @@ impl AppRecord {
     }
 }
 
+// TODO(#7): in-memory demo state. Real control plane: Postgres with a
+// database-enforced app_valid_state transition table + append-only state
+// history (Boundary pattern), and Waypoint-style upsert-first operation rows.
 pub struct Platform {
     pub packs: Vec<PackManifest>,
     pub apps: HashMap<String, AppRecord>,

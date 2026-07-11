@@ -59,6 +59,12 @@ pub trait Gate: Send + Sync {
 
 /// A gate satisfied by a wired control on the app record. Most HIPAA
 /// technical safeguards reduce to this shape.
+///
+/// TODO(#3): demo semantics — controls are self-reported by the scaffold and
+/// agent, so these verdicts are claims, not evidence. Real gates derive from
+/// artifacts: static analysis of generated source, observed sandbox egress,
+/// real dependency scans. The trait also grows Packer's validate/execute
+/// split so the full gate plan can dry-run during preview.
 struct ControlGate {
     id: &'static str,
     title: &'static str,

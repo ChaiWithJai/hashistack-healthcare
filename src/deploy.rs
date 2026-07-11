@@ -16,6 +16,12 @@ const JOB_TEMPLATE: &str = include_str!("../nomad/templates/service-web.nomad.hc
 
 /// Promote sandbox → prod. The only path by which an app may ever see real
 /// data, and it consumes the gate report it was handed as evidence.
+///
+/// TODO(#6): demo allocations are structs — nothing is submitted to Nomad and
+/// `healthy` is a literal. Real deploys submit the rendered job, mirror
+/// Nomad's desired/observed status axes, and split release from deploy.
+/// TODO(#9): the credentials string below becomes a real Vault database-
+/// engine lease; transit keys mount per tenant at onboarding.
 pub fn promote(
     app: &mut AppRecord,
     report: &GateReport,

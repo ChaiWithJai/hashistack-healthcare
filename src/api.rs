@@ -20,6 +20,9 @@ use crate::state::{now_unix, Addendum, AppRecord, DataSource, Platform, SharedPl
 const DOCTOR_UI: &str = include_str!("../web/index.html");
 
 /// The doctor's identity in Phase 0's single-practice demo tenancy.
+/// TODO(#10): every route is unauthenticated and actions attribute to this
+/// constant. Real identity: OIDC per request, tenant scoping on every record,
+/// co-sign as a cryptographic act binding identity + report digest.
 const DOCTOR: &str = "dr-osei";
 const DEFAULT_TENANT: &str = "meridian";
 
@@ -497,6 +500,9 @@ async fn export_app(
     let job = deploy::render_job(app).map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
     Ok(Json(json!({
         "nomad_job": job,
+        // TODO(#11): this string is a promise, not a payload. Ejection ships
+        // the generated source, the doctor's own docs (prompt + addenda +
+        // gate report + attestation), and deploy manifests per target.
         "portability": "exports as the monorepo shape: Dockerfile + render.yaml / fly.toml / kamal deploy.yml — no hostage code",
     })))
 }

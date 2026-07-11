@@ -22,6 +22,10 @@ pub struct PackManifest {
     pub tier: u8,
     pub wave: u8,
     pub signed_by: String,
+    /// TODO(#5): demo scaffolds are feature strings. The pack spec calls for
+    /// a scaffold/ directory holding a runnable hipaa-core app template, plus
+    /// prompts/, policies/, gates/, synthetic/ (Synthea), and docs/ — the
+    /// ejection payload for #11.
     pub scaffold: Vec<String>,
     pub prewired: Vec<String>,
     pub gates: Vec<String>,

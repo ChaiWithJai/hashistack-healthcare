@@ -17,6 +17,9 @@ pub struct AuditEvent {
     pub app_id: Option<String>,
 }
 
+// TODO(#8): in-memory demo sink. The real pipeline adopts Vault's broker
+// invariant — an operation fails unless ≥1 durable append-only sink confirms
+// the write — with salted-HMAC'd sensitive fields and a fallback sink.
 #[derive(Default)]
 pub struct AuditLog {
     events: Vec<AuditEvent>,

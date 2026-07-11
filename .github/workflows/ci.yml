@@ -13,3 +13,14 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  # Virtual staging pressure test: boots the control plane and drives the
+  # full describe→audit workflow over real HTTP, so verification never
+  # depends on manual smoke testing. TODO(#2): back this with a Nomad dev
+  # agent + Vault dev server and assert real allocations and leases.
+  pressure-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/pressure-test.sh

@@ -108,6 +108,18 @@ impl GateReport {
     }
 }
 
+/// `sha256:<hex>` over the report's canonical JSON serialization — what a
+/// co-signature binds (#10). Recomputable from the report frozen verbatim
+/// on the attestation (F3), so anyone holding the record can verify the
+/// digest names exactly the evidence that admitted the app.
+pub fn report_digest(report: &GateReport) -> String {
+    use sha2::Digest;
+    let json = serde_json::to_string(report).expect("gate report serializes");
+    let hash = sha2::Sha256::digest(json.as_bytes());
+    let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+    format!("sha256:{hex}")
+}
+
 /// One compliance check. `evaluate` must be pure and cheap over the app
 /// record: same app in, same verdict out, so a gate report is reproducible
 /// evidence — this is the side-effect-free *validate* phase of Packer's

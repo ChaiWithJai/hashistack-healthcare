@@ -44,9 +44,19 @@ jobs:
       - name: Boot vault + nomad + control plane (on the postgres service)
         run: ./scripts/staging-up.sh
       - name: Pressure test against real HashiStack + control DB
+        # IDENTITIES_FILE / SESSION_IDLE_SECS mirror what staging-up.sh gave
+        # the control plane (#10): the test knows the instance is strict
+        # (skips its dev-fallback checks) and the kill -9 reboot keeps auth.
+        # VAULT_TOKEN must ride along for the same reason — the reboot
+        # inherits this step's env, and without the token the restarted
+        # plane silently skips lease revocation (found by the #10 in-container
+        # staging run; the vault.lease_revoked assertion catches it now).
         run: |
           NOMAD_ADDR=http://127.0.0.1:4646 \
           VAULT_ADDR=http://127.0.0.1:8200 \
+          VAULT_TOKEN=staging-root \
+          IDENTITIES_FILE=staging/identities.hcl \
+          SESSION_IDLE_SECS=900 \
           ./scripts/pressure-test.sh http://127.0.0.1:39100
       - name: Dump staging logs
         if: failure()

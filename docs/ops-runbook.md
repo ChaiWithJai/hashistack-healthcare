@@ -17,6 +17,12 @@ curl -s http://127.0.0.1:3000/api/packs | head -c 200
 ```
 
 ## Drive the whole workflow from curl (the UI has no privileges you don't)
+
+These examples send no `Authorization` header, which works in dev because
+of the audited dr-osei fallback (see "Identity & tenancy" below). Add
+`-H 'authorization: Bearer dev-token-osei'` and they work against a strict
+(staging) instance too.
+
 ```bash
 # describe → generate (sandbox, synthetic data)
 curl -s -X POST localhost:3000/api/apps -H 'content-type: application/json' \
@@ -279,6 +285,95 @@ file sink) and the pressure test's `audit broker (#8)` section, which runs
 with the file sink attached on every self-booted run and additionally
 asserts the promote audit row + HMAC'd prompt inside Postgres when
 `CONTROL_DB_URL` is set.
+
+## Identity & tenancy (#10): principals, roles, sessions
+
+Every `/api` route resolves an authenticated principal; `/`, `/health`,
+`/proof`, and the static UI stay open. Principals are declared in
+`staging/identities.hcl` (parsed with hcl-rs like packs; an unknown role or
+attribute, a duplicate token, or a blank field fails the boot loudly):
+
+```hcl
+identity "dr-osei" {
+  name   = "Dr. A. Osei"
+  role   = "clinician"   # clinician | staff — a closed set
+  tenant = "meridian"
+  token  = "dev-token-osei"
+}
+```
+
+**Honest labeling — static tokens are the Phase 0 dev credential** (same
+spirit as `VAULT_TOKEN=staging-root`). OIDC replaces the token *source*
+(issuer-verified id_token → principal), **not the model**: principal id,
+name, role, tenant, and every enforcement below survive that upgrade
+unchanged. NPI-verified clinician identity (RFC open question 2) rides the
+same seam. Never put a production credential in an identities file.
+
+Two modes, both deliberate:
+
+- **Dev (no `IDENTITIES_FILE`)** — the embedded copy of
+  staging/identities.hcl applies. A request with NO Authorization header
+  falls back to `dr-osei`, so the zero-config doctor UI keeps working —
+  and the trail confesses it with one `auth.dev_fallback` event per boot.
+  A *present but unknown* token is still 401 even in dev.
+- **Strict (`IDENTITIES_FILE=staging/identities.hcl`)** — staging-up.sh
+  sets this: missing or invalid tokens answer 401, no fallback.
+
+What the resolved principal enforces:
+
+- **Tenancy on every app-scoped route**: a cross-tenant id answers **404**
+  exactly like a nonexistent one (existence is never disclosed), with an
+  `auth.cross_tenant_denied` audit event on the owning tenant's app stream
+  (the practice sees who knocked). Lists filter to the caller's tenant;
+  app creation takes its tenant from the principal (a request naming any
+  other tenant is 422). The #8 plaintext boundary is keyed to the
+  requesting principal's tenant: the app-scoped audit view and the ejected
+  COMPLIANCE.md render plaintext only inside the owning tenant.
+- **Roles as one capability check** (src/identity.rs): clinicians do
+  everything in their tenant; **staff cannot promote/co-sign or export the
+  platform-wide audit** — 403 with `auth.role_denied` (role denial may be
+  403: in-tenant existence is already known). Staff can build, iterate,
+  fix, review, operate, export the app bundle, and roll back (withdrawing
+  from use must never wait on the clinician).
+- **The co-sign is cryptographic**: promotion requires an authenticated
+  clinician of the app's tenant; the attestation records the principal id,
+  their registered display name, and `report_digest` — sha256 over the
+  frozen gate report's canonical JSON — plus the timestamp. The typed
+  `cosigner` field survives only as a display-name check (must match the
+  principal's registered name, or be omitted). Verify a record yourself:
+  recompute sha256 over the attestation's embedded `report` JSON and
+  compare (`gates::report_digest`; asserted in tests/identity_contract.rs).
+- **Session idle — the platform honors its own auto-logoff gate**:
+  `SESSION_IDLE_SECS` (staging default 900; off in dev) expires a token
+  idle past the limit → 401 + `auth.session_expired`. Implementation is
+  deliberately simple: in-memory last-seen per token; with static Phase 0
+  tokens the 401 is the logoff boundary and the next request starts a
+  fresh session (an OIDC credential makes the 401 terminal).
+
+```bash
+# strict staging instance:
+curl -s http://127.0.0.1:39100/api/apps                                   # 401
+curl -s -H 'authorization: Bearer dev-token-osei' \
+  http://127.0.0.1:39100/api/apps                                         # 200, meridian only
+curl -s -H 'authorization: Bearer dev-token-park' \
+  http://127.0.0.1:39100/api/apps                                         # 200, lakeside only
+curl -s -X POST -H 'authorization: Bearer dev-token-rivera' \
+  http://127.0.0.1:39100/api/apps/<id>/promote -d '{}' \
+  -H 'content-type: application/json'                                     # 403 (staff)
+```
+
+Honest edges (deliberate, documented):
+
+- The doctor UI ships with no token store, so against a strict instance it
+  answers 401 — the zero-config UI is the *dev* experience; the staging UI
+  story lands with the OIDC login. Drive staging with curl + tokens.
+- Operator access (staff debugging a tenant app) is **absent by design**,
+  not forgotten: decision 0005 records the Boundary Target/Session shape
+  (max duration, recording flag, `termination_reason`) it must take;
+  today staff have no cross-tenant read at all.
+- Audit actors that are platform services ("agent", "deploy",
+  "gate-engine", "platform-reviewer") stay service names; every
+  doctor-initiated action carries the real principal id.
 
 ## Eject an app (#11): an owned, documented, extendable bundle
 

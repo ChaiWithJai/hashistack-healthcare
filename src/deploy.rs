@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::gates::GateReport;
 use crate::hashi;
+use crate::identity::{Principal, Role};
 use crate::state::{
     now_unix, valid_transition, Allocation, AppRecord, Attestation, DataSource, Stage,
 };
@@ -26,6 +27,14 @@ pub const DB_CREDS_ROLE: &str = "tenant-app";
 /// Promote sandbox → prod. The only path by which an app may ever see real
 /// data, and it consumes the gate report it was handed as evidence.
 ///
+/// #10: the co-sign is the authenticated principal's own act. The caller
+/// (api layer) already enforced tenancy (404) and the role capability (403,
+/// audited); this function re-asserts both as defense in depth, then binds
+/// the attestation to the principal id, their registered display name, and
+/// a sha256 digest of the frozen gate report. `cosigner_claim` — the typed
+/// field the UI keeps — is only a display-name check: it must match the
+/// principal's registered name exactly, or be omitted.
+///
 /// Staging (#2): with `NOMAD_ADDR` set, [`staging_promote`] then submits the
 /// rendered job to a real Nomad dev agent and records the evaluation id; with
 /// `VAULT_ADDR`/`VAULT_TOKEN` set it proves the tenant transit key. With
@@ -39,7 +48,8 @@ pub const DB_CREDS_ROLE: &str = "tenant-app";
 pub fn promote(
     app: &mut AppRecord,
     report: &GateReport,
-    cosigner: &str,
+    principal: &Principal,
+    cosigner_claim: Option<&str>,
     alloc_id: String,
 ) -> Result<()> {
     if app.stage == Stage::Live {
@@ -70,9 +80,33 @@ pub fn promote(
             failing.join("; ")
         );
     }
-    if cosigner.trim().is_empty() {
-        bail!("promotion requires a co-signature from the responsible clinician");
+    // Defense in depth (#10): the api layer already answered 404/403 with
+    // audit events; a future caller that skips it still cannot cross these.
+    if principal.role != Role::Clinician {
+        bail!(
+            "promotion requires a co-signature from the responsible clinician — role {} may not co-sign",
+            principal.role.as_str()
+        );
     }
+    if principal.tenant != app.tenant {
+        bail!(
+            "principal tenant {} does not own app {}",
+            principal.tenant,
+            app.id
+        );
+    }
+    // The typed cosigner field survives only as a display-name check: the
+    // signature IS the authenticated principal; a claim naming anyone else
+    // is refused, and omitting the field signs as the principal directly.
+    let cosigner = match cosigner_claim.map(str::trim) {
+        None => principal.name.clone(),
+        Some(claim) if claim == principal.name => principal.name.clone(),
+        Some(claim) => bail!(
+            "co-signature {claim:?} does not match the authenticated clinician {:?} — \
+             the co-sign is the principal's own act; omit the field or match the registered name",
+            principal.name
+        ),
+    };
 
     let database = format!("tenant_{}_{}", app.tenant, app.id.replace('-', "_"));
     app.allocation = Some(Allocation {
@@ -94,12 +128,16 @@ pub fn promote(
         vault_transit_key: None,
     });
     app.attestation = Some(Attestation {
-        cosigner: cosigner.trim().to_string(),
+        cosigner,
+        // #10: the cryptographic act — authenticated principal id + sha256
+        // of the exact frozen report + timestamp, all on one record.
+        principal: Some(principal.id.clone()),
         gate_summary: report.summary(),
         reviewer_note: app.reviewer_note.clone(),
         // F3: freeze the admitting report on the attestation verbatim — the
         // released app's compliance record embeds this, never a re-run.
         report: Some(report.clone()),
+        report_digest: Some(crate::gates::report_digest(report)),
         at: now_unix(),
     });
     app.stage = Stage::Live;

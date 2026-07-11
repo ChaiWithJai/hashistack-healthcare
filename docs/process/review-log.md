@@ -159,3 +159,55 @@ back but is not yet the enforcing credential — enforcement-by-token rides
 Phase 1. Issue #9 stays open for that remainder plus per-tenant DB roles,
 consul-template resolution in a scheduled container, and TTL-expiry
 revocation observation (#6).
+
+## #10 link — 2026-07-11, identity/tenancy (recorded ambiently, no stop)
+
+Disposition: built per issue #10's bar with a Phase-0-honest shape:
+config-declared principals + static bearer tokens now (labeled as the dev
+credential in the file, the module doc, and the runbook), OIDC as the
+designed upgrade of the token *source*, never the model. Judgment calls
+made in the operator's stead (veto-able, all reversible):
+
+- **P9: dev fallback is kept AND confessed.** With no IDENTITIES_FILE, a
+  missing Authorization header resolves to dr-osei so the zero-config demo
+  UI keeps working — but the first such request per boot lands an
+  `auth.dev_fallback` audit event, and a *present but wrong* token is 401
+  even in dev. Alternative (401 everywhere) breaks the "describe a tool,
+  enjoy your day" demo loop; alternative (silent fallback) fails honest
+  labeling. Staging always sets IDENTITIES_FILE → strict 401s.
+- **P10: the request `tenant` field validates-equal instead of being
+  removed.** Creation takes tenant from the principal; a body naming any
+  other tenant is 422, matching is accepted for old clients. Removal was
+  the other candidate — validate-equal was chosen because silently
+  accepting-and-ignoring a field the client believes is load-bearing is a
+  false-pass shape.
+- **P11: the typed `cosigner` field survives only as a display-name
+  check** — omit it, or match the authenticated principal's registered
+  name exactly; the attestation always records the principal id + name +
+  sha256(frozen report JSON) + timestamp. The blank-cosign refusal
+  (pressure test) still holds: whitespace is a mismatch, not an omission.
+- **P12: cross-tenant denials are audited onto the *owning tenant's* app
+  stream** (actor = the denied principal, app_id = the target). The
+  practice sees who knocked on their tool; the denied caller sees only the
+  same 404 a nonexistent id gets.
+- **P13: expired sessions reset at the 401.** With static Phase 0 tokens
+  the denied request IS the logoff boundary; the next request starts a
+  fresh session. Terminal expiry is only honest once credentials can
+  actually expire (OIDC) — stated in the module doc rather than simulated.
+- **P14: `app.iterated` keeps the `agent` actor.** The iterate route is
+  tenant-guarded, so attribution is safe; threading the principal through
+  the ladder adds signature churn without new enforcement. An
+  "on-behalf-of principal" field on ladder events is a closeout item.
+- Rollback stays role-open (staff may withdraw an app from use): safety
+  beats ceremony, and the issue's role bar names promote/co-sign/export
+  only.
+
+Closeout item for the branch-convergence pass: the eval harness lives on a
+sibling branch — its scenarios drive the API headerless and will ride the
+dev fallback, but they need an explicit auth pass (tokens, a two-tenant
+scenario, and a staff-denial expectation) when the branches merge.
+
+Issue #10 stays open for its named remainder: OIDC token source,
+NPI-verified clinician identity, operator Target/Session (decision 0005 —
+design record only, absent by design until real placement exists), and a
+UI login for strict instances.

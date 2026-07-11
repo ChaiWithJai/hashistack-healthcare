@@ -81,6 +81,14 @@ APP_BIND="${APP_BIND:-127.0.0.1:39100}"
 # so the broker invariant (no durable audit write, no operation) is live on
 # every staging run alongside the control-DB sink.
 export AUDIT_FILE="${AUDIT_FILE:-$STAGING_DIR/logs/audit.jsonl}"
+# Identity (#10): staging always runs STRICT — the declared registry
+# (missing/invalid bearer tokens answer 401, no dev fallback) and the
+# platform's own idle auto-logoff (15 min, the platform honoring the same
+# auto-logoff gate it demands of generated apps). The tokens in
+# staging/identities.hcl are documented Phase 0 dev credentials, same
+# spirit as VAULT_TOKEN=staging-root; OIDC replaces the token source.
+export IDENTITIES_FILE="${IDENTITIES_FILE:-staging/identities.hcl}"
+export SESSION_IDLE_SECS="${SESSION_IDLE_SECS:-900}"
 
 # ---- down: stop everything we started ----
 if [[ "${1:-}" == "down" ]]; then
@@ -319,6 +327,7 @@ else
   nohup env APP_BIND="$APP_BIND" \
     NOMAD_ADDR="$NOMAD_ADDR" VAULT_ADDR="$VAULT_ADDR" VAULT_TOKEN="$VAULT_TOKEN" \
     CONTROL_DB_URL="$CONTROL_DB_URL" AUDIT_FILE="$AUDIT_FILE" \
+    IDENTITIES_FILE="$IDENTITIES_FILE" SESSION_IDLE_SECS="$SESSION_IDLE_SECS" \
     "$BINARY" >"$LOG_DIR/control-plane.log" 2>&1 &
   echo $! >"$RUN_DIR/control-plane.pid"
 fi
@@ -333,11 +342,14 @@ echo "   vault audit    $VAULT_AUDIT_LOG    (file device — HIPAA artifact, #9)
 echo "   db creds       database/creds/tenant-app (1h TTL, revoked on rollback)"
 echo "   control DB     $CONTROL_DB_URL"
 echo "   audit archive  $AUDIT_FILE    (broker: memory fallback + file + control-db)"
+echo "   identity       $IDENTITIES_FILE    (strict bearer auth — Phase 0 dev tokens; idle ${SESSION_IDLE_SECS}s)"
 echo "   logs           $LOG_DIR/"
 echo
 echo "pressure-test it (real job registration + transit round-trip + restart survival):"
-echo "   NOMAD_ADDR=$NOMAD_ADDR VAULT_ADDR=$VAULT_ADDR CONTROL_DB_URL=$CONTROL_DB_URL \\"
+echo "   NOMAD_ADDR=$NOMAD_ADDR VAULT_ADDR=$VAULT_ADDR VAULT_TOKEN=$VAULT_TOKEN \\"
+echo "   CONTROL_DB_URL=$CONTROL_DB_URL \\"
 echo "   AUDIT_FILE=$AUDIT_FILE \\"
+echo "   IDENTITIES_FILE=$IDENTITIES_FILE SESSION_IDLE_SECS=$SESSION_IDLE_SECS \\"
 echo "     scripts/pressure-test.sh http://$APP_BIND"
 echo "tear down:"
 echo "   scripts/staging-up.sh down"

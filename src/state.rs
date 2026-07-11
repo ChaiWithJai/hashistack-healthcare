@@ -112,9 +112,22 @@ pub struct Allocation {
 
 /// The attestation a promotion carries: who co-signed, what the gate report
 /// said, and the platform reviewer's note (storyboard 1c's co-sign).
+///
+/// #10 makes the co-sign cryptographic: `principal` is the authenticated
+/// clinician the control plane resolved (never a typed claim), `cosigner`
+/// is their display name, and `report_digest` is a sha256 over the frozen
+/// report's canonical JSON — the signature binds identity plus the exact
+/// evidence plus the timestamp. Both new fields are `Option` so records
+/// promoted before #10 deserialize unchanged (honestly absent, never
+/// backfilled).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Attestation {
+    /// Display name of the co-signing clinician — always the authenticated
+    /// principal's registered name (a mismatched typed claim is refused).
     pub cosigner: String,
+    /// The authenticated principal id whose act this attestation records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal: Option<String>,
     pub gate_summary: String,
     pub reviewer_note: Option<String>,
     /// The full gate report, frozen verbatim at promotion (F3, review-log
@@ -123,6 +136,10 @@ pub struct Attestation {
     /// that admitted the app IS the evidence, basis and stubs included.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<crate::gates::GateReport>,
+    /// `sha256:<hex>` over the frozen report's canonical JSON
+    /// ([`crate::gates::report_digest`]) — what the co-sign binds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_digest: Option<String>,
     pub at: u64,
 }
 
@@ -261,6 +278,10 @@ pub struct Platform {
     /// sinks registered (AUDIT_FILE, control DB), load-bearing operations
     /// require ≥1 durable confirmation — no audit write, no operation.
     pub broker: Arc<crate::audit::Broker>,
+    /// The identity registry (#10): who may call `/api` routes, as which
+    /// principal. Defaults to the embedded dev registry (dr-osei fallback);
+    /// `app_from_env` swaps in `IDENTITIES_FILE` / `SESSION_IDLE_SECS`.
+    pub identity: Arc<crate::identity::Registry>,
     /// Operation rows upserted since the last write-through — tracked only
     /// when a store is attached, drained by [`Platform::take_dirty_operations`].
     dirty_ops: BTreeSet<String>,
@@ -277,6 +298,7 @@ impl Platform {
             ladder: Arc::new(EscalationLadder::from_env()),
             store: None,
             broker: Arc::new(crate::audit::Broker::new()),
+            identity: Arc::new(crate::identity::Registry::dev_default()),
             dirty_ops: BTreeSet::new(),
             next_id: 1,
         }

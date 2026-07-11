@@ -301,10 +301,21 @@ fn compliance_md(
     md.push_str("\n## Attestation\n\n");
     match (&app.stage, &app.attestation) {
         (Stage::Live, Some(att)) => {
+            let principal = att
+                .principal
+                .as_deref()
+                .map(|p| format!(" (authenticated principal `{p}`)"))
+                .unwrap_or_default();
             md.push_str(&format!(
-                "- co-signed by: **{}**\n- gate summary at release: **{}**\n",
+                "- co-signed by: **{}**{principal}\n- gate summary at release: **{}**\n",
                 att.cosigner, att.gate_summary
             ));
+            if let Some(digest) = &att.report_digest {
+                md.push_str(&format!(
+                    "- gate report digest: `{digest}` — sha256 over the frozen report's \
+                     canonical JSON; the co-sign binds exactly this evidence (#10)\n"
+                ));
+            }
             if let Some(note) = &att.reviewer_note {
                 md.push_str(&format!("- platform reviewer note: {note}\n"));
             }
@@ -584,6 +595,14 @@ mod tests {
             .unwrap()
     }
 
+    /// The dev registry's meridian clinician — the co-signing principal.
+    fn dr_osei() -> crate::identity::Principal {
+        crate::identity::Registry::dev_default()
+            .by_token("dev-token-osei")
+            .unwrap()
+            .clone()
+    }
+
     fn sample_app(pack: &PackManifest) -> AppRecord {
         let mut features = pack.scaffold.clone();
         // A feature with characters that must survive HCL escaping.
@@ -707,8 +726,14 @@ mod tests {
         let mut app = sample_app(&pack);
         let report = gates::preflight(&app, &pack.gates);
         assert!(report.green, "sample app should pass its gates");
-        deploy::promote(&mut app, &report, "Dr. A. Osei", "a-0001".to_string())
-            .expect("promotion succeeds on a green report");
+        deploy::promote(
+            &mut app,
+            &report,
+            &dr_osei(),
+            Some("Dr. A. Osei"),
+            "a-0001".to_string(),
+        )
+        .expect("promotion succeeds on a green report");
 
         // F3: the attestation carries the admitting report verbatim.
         assert!(app.attestation.as_ref().unwrap().report.is_some());
@@ -717,6 +742,17 @@ mod tests {
         let compliance = &bundle.files["docs/COMPLIANCE.md"];
         assert!(compliance.contains("Status: **released**"));
         assert!(compliance.contains("**Dr. A. Osei**"));
+        // #10: the record renders the cryptographic act — principal id and
+        // the sha256 digest of the frozen report the co-sign binds.
+        assert!(compliance.contains("(authenticated principal `dr-osei`)"));
+        let att = app.attestation.as_ref().unwrap();
+        let digest = att.report_digest.as_deref().unwrap();
+        assert!(compliance.contains(digest), "{compliance}");
+        assert_eq!(
+            digest,
+            gates::report_digest(att.report.as_ref().unwrap()),
+            "digest verifies against the frozen report"
+        );
         assert!(compliance.contains("**5/6 (1 stubbed)**"));
         // The released record embeds the frozen attestation-time report —
         // never a re-run over the (legitimately tenant-backed) live view.
@@ -741,7 +777,14 @@ mod tests {
         let pack = post_op_pack();
         let mut app = sample_app(&pack);
         let report = gates::preflight(&app, &pack.gates);
-        deploy::promote(&mut app, &report, "Dr. A. Osei", "a-0001".to_string()).unwrap();
+        deploy::promote(
+            &mut app,
+            &report,
+            &dr_osei(),
+            Some("Dr. A. Osei"),
+            "a-0001".to_string(),
+        )
+        .unwrap();
         assert!(matches!(app.data_source, DataSource::Tenant(_)));
 
         let live_rerun = gates::preflight(&app, &pack.gates);

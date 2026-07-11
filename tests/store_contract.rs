@@ -10,10 +10,19 @@ use std::collections::BTreeSet;
 
 use rust_proof_service::deploy;
 use rust_proof_service::gates;
+use rust_proof_service::identity::{Principal, Registry};
 use rust_proof_service::state::{
     valid_transition, AppRecord, DataSource, Stage, OP_STATUSES, VALID_STAGE_TRANSITIONS,
 };
 use rust_proof_service::store::MIGRATION;
+
+/// The dev registry's meridian clinician — the co-signing principal (#10).
+fn dr_osei() -> Principal {
+    Registry::dev_default()
+        .by_token("dev-token-osei")
+        .unwrap()
+        .clone()
+}
 
 fn app_in(stage: Stage) -> AppRecord {
     AppRecord {
@@ -129,7 +138,7 @@ fn illegal_transitions_are_refused_and_leave_the_record_untouched() {
     let mut live = app_in(Stage::Live);
     let report = gates::preflight(&live, &[]);
     let before = live.clone();
-    let err = deploy::promote(&mut live, &report, "Dr. A. Osei", "a-1".to_string())
+    let err = deploy::promote(&mut live, &report, &dr_osei(), None, "a-1".to_string())
         .expect_err("promoting a live app must fail");
     assert!(err.to_string().contains("already live"), "{err}");
     assert_eq!(live.stage, before.stage);
@@ -152,7 +161,7 @@ fn legal_transition_passes_the_same_table() {
     let required = vec!["auto-logoff".to_string()];
     let report = gates::preflight(&app, &required);
     assert!(report.green, "one wired control-basis gate is green");
-    deploy::promote(&mut app, &report, "Dr. A. Osei", "a-2".to_string())
+    deploy::promote(&mut app, &report, &dr_osei(), None, "a-2".to_string())
         .expect("sandbox→live is legal");
     assert_eq!(app.stage, Stage::Live);
     deploy::rollback(&mut app, "synthea-postop-v1").expect("live→sandbox is legal");

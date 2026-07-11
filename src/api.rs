@@ -1,11 +1,26 @@
 //! Control-plane API. Everything above it — doctor UI, a future CLI, a
 //! hospital integration — is a client of these routes. No privileged UI.
+//!
+//! Identity (#10): every `/api` route resolves an authenticated
+//! [`Principal`] (src/identity.rs) through the bearer-token middleware
+//! below; `/`, `/health`, `/proof`, and the static UI stay open. All
+//! app-scoped routes are tenant-scoped (cross-tenant ids answer 404 — never
+//! disclosing existence — with an `auth.cross_tenant_denied` audit event),
+//! role capabilities gate promotion/co-sign and the platform audit export
+//! (403 + `auth.role_denied`), and the audit actor is the real principal id.
+//!
+//! TODO(#10): operator access — staff debugging a tenant's running app —
+//! follows Boundary's Target/Session shape per decision 0005 (time-boxed
+//! session against a policy object, recording flag, `termination_reason`;
+//! never standing access). Design record only in this link: today the staff
+//! role has no cross-tenant read of any kind.
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Request, State};
+use axum::http::{header, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -15,6 +30,7 @@ use crate::agent::ScaffoldStep;
 use crate::deploy;
 use crate::eject;
 use crate::gates;
+use crate::identity::{Capability, Principal};
 use crate::packs;
 use crate::state::{
     now_unix, Addendum, AppRecord, AttemptRecord, DataSource, OpKind, OpStatus, Operation,
@@ -24,23 +40,16 @@ use crate::store::{self, StageTransition};
 
 const DOCTOR_UI: &str = include_str!("../web/index.html");
 
-/// The doctor's identity in Phase 0's single-practice demo tenancy.
-/// TODO(#10): every route is unauthenticated and actions attribute to this
-/// constant. Real identity: OIDC per request, tenant scoping on every record,
-/// co-sign as a cryptographic act binding identity + report digest.
-const DOCTOR: &str = "dr-osei";
-const DEFAULT_TENANT: &str = "meridian";
-
 pub fn router() -> Router {
     let platform: SharedPlatform = Arc::new(RwLock::new(Platform::new(packs::builtin_packs())));
     router_with_state(platform)
 }
 
 pub fn router_with_state(platform: SharedPlatform) -> Router {
-    Router::new()
-        .route("/", get(doctor_ui))
-        .route("/health", get(crate::health))
-        .route("/proof/:workload", post(crate::proof))
+    // Every /api route lives behind the identity middleware — coverage by
+    // construction, so a new route cannot forget to authenticate. Health,
+    // the doctor UI shell, and the original proof contract stay open.
+    let api = Router::new()
         .route("/api/packs", get(list_packs))
         .route("/api/apps", get(list_apps).post(create_app))
         .route("/api/apps/:id", get(get_app))
@@ -56,6 +65,15 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         .route("/api/apps/:id/audit", get(app_audit))
         .route("/api/apps/:id/export", get(export_app))
         .route("/api/audit/export", get(export_audit))
+        .route_layer(middleware::from_fn_with_state(
+            platform.clone(),
+            authenticate,
+        ));
+    Router::new()
+        .route("/", get(doctor_ui))
+        .route("/health", get(crate::health))
+        .route("/proof/:workload", post(crate::proof))
+        .merge(api)
         .with_state(platform)
 }
 
@@ -77,7 +95,168 @@ fn not_found(what: &str) -> ApiError {
     ApiError(StatusCode::NOT_FOUND, format!("{what} not found"))
 }
 
+fn unauthorized(msg: impl Into<String>) -> ApiError {
+    ApiError(StatusCode::UNAUTHORIZED, msg.into())
+}
+
 type ApiResult<T> = Result<Json<T>, ApiError>;
+
+// ---------- identity (#10): authn middleware + tenancy/role guards ----------
+
+/// Resolve the caller of an `/api` route to a [`Principal`] and stash it in
+/// the request extensions. Behavior by mode (src/identity.rs module doc):
+/// a bearer token maps to its declared principal (unknown token → 401, in
+/// every mode); a MISSING header falls back to dr-osei only in dev (no
+/// `IDENTITIES_FILE`), audited as `auth.dev_fallback` on first use per
+/// boot; in strict mode it is 401. With `SESSION_IDLE_SECS` on, a session
+/// idle past the limit is 401 + `auth.session_expired` — the platform
+/// honoring its own auto-logoff gate.
+async fn authenticate(
+    State(platform): State<SharedPlatform>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let registry = platform.read().unwrap().identity.clone();
+    let header = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .map(|v| v.to_str().map(str::to_string))
+        .transpose()
+        .map_err(|_| unauthorized("unreadable Authorization header"))?;
+    let principal = match header.as_deref() {
+        Some(value) => {
+            let token = value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("bearer "))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| unauthorized("Authorization header must be `Bearer <token>`"))?;
+            let principal = registry
+                .by_token(token)
+                .ok_or_else(|| unauthorized("unrecognized bearer token"))?
+                .clone();
+            expire_idle_session(&platform, &registry, &principal)?;
+            principal
+        }
+        None => {
+            let Some(principal) = registry.fallback().cloned() else {
+                return Err(unauthorized(
+                    "missing Authorization: Bearer <token> (IDENTITIES_FILE is set — no dev fallback)",
+                ));
+            };
+            expire_idle_session(&platform, &registry, &principal)?;
+            if registry.announce_dev_fallback() {
+                let mut plat = platform.write().unwrap();
+                plat.audit.record(
+                    &principal.id,
+                    "auth.dev_fallback",
+                    "request carried no Authorization header and no IDENTITIES_FILE is \
+                     configured — the embedded dev registry attributed it to dr-osei. \
+                     Phase 0 dev convenience so the zero-config UI works; with \
+                     IDENTITIES_FILE set (staging), the same request answers 401",
+                    None,
+                );
+            }
+            principal
+        }
+    };
+    req.extensions_mut().insert(principal);
+    Ok(next.run(req).await)
+}
+
+/// Session-idle enforcement for one token use: past `SESSION_IDLE_SECS`
+/// the request is refused (401) and `auth.session_expired` lands in the
+/// audit stream with the denied principal as actor. The denial itself is
+/// the logoff boundary — the next request re-authenticates afresh.
+fn expire_idle_session(
+    platform: &SharedPlatform,
+    registry: &crate::identity::Registry,
+    principal: &Principal,
+) -> Result<(), ApiError> {
+    if let Err(idle) = registry.touch(&principal.token) {
+        let mut plat = platform.write().unwrap();
+        plat.audit.record(
+            &principal.id,
+            "auth.session_expired",
+            format!(
+                "session idle past {idle}s — automatic logoff (the platform honors its \
+                 own auto-logoff gate); the next authenticated request starts a new session"
+            ),
+            None,
+        );
+        return Err(unauthorized(format!(
+            "session expired after {idle}s idle — re-authenticate"
+        )));
+    }
+    Ok(())
+}
+
+/// Resolve an app id under the caller's tenant. An id owned by another
+/// tenant answers exactly like a nonexistent one — 404, existence never
+/// disclosed across the boundary — and the denial is audited on the app's
+/// (owning tenant's) stream with the denied principal as actor.
+fn ensure_tenant(
+    platform: &SharedPlatform,
+    id: &str,
+    principal: &Principal,
+) -> Result<(), ApiError> {
+    let mismatch = {
+        let plat = platform.read().unwrap();
+        match plat.apps.get(id) {
+            None => return Err(not_found("app")),
+            Some(app) => app.tenant != principal.tenant,
+        }
+    };
+    if mismatch {
+        let mut plat = platform.write().unwrap();
+        plat.audit.record(
+            &principal.id,
+            "auth.cross_tenant_denied",
+            format!(
+                "principal of tenant {} addressed an app outside it — answered 404 \
+                 (existence not disclosed)",
+                principal.tenant
+            ),
+            Some(id),
+        );
+        return Err(not_found("app"));
+    }
+    Ok(())
+}
+
+/// The role capability gate (one check, not scattered ifs). Unlike the
+/// tenancy guard this CAN be 403: in-tenant existence is already known to
+/// the caller, so the denial discloses nothing — and it is audited as
+/// `auth.role_denied` with the denied principal as actor.
+fn require_capability(
+    platform: &SharedPlatform,
+    principal: &Principal,
+    capability: Capability,
+    app_id: Option<&str>,
+) -> Result<(), ApiError> {
+    if principal.role.allows(capability) {
+        return Ok(());
+    }
+    let mut plat = platform.write().unwrap();
+    plat.audit.record(
+        &principal.id,
+        "auth.role_denied",
+        format!(
+            "role {} may not {} — 403",
+            principal.role.as_str(),
+            capability.describe()
+        ),
+        app_id,
+    );
+    Err(ApiError(
+        StatusCode::FORBIDDEN,
+        format!(
+            "role {} may not {}",
+            principal.role.as_str(),
+            capability.describe()
+        ),
+    ))
+}
 
 // ---------- the broker invariant (#8): no audit write, no operation ----------
 
@@ -172,6 +351,9 @@ struct CreateApp {
     pack: String,
     #[serde(default)]
     name: Option<String>,
+    /// #10: tenancy is derived from the authenticated principal, never the
+    /// request. The field survives for old clients as a validate-equal
+    /// check — naming any other tenant is 422 (review-log P10).
     #[serde(default)]
     tenant: Option<String>,
 }
@@ -184,8 +366,23 @@ struct CreatedApp {
 
 async fn create_app(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<CreateApp>,
 ) -> ApiResult<CreatedApp> {
+    // #10: the app's tenant IS the principal's tenant. A request naming a
+    // different one is refused loudly rather than silently overridden.
+    if let Some(requested) = req.tenant.as_deref() {
+        if requested != principal.tenant {
+            return Err(ApiError(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!(
+                    "tenant is derived from the authenticated principal ({}) — \
+                     omit the field or match it",
+                    principal.tenant
+                ),
+            ));
+        }
+    }
     // Short write lock: resolve the pack, mint the id, promise the work.
     // The ladder climb itself runs with no lock held (F4).
     let (pack, id, name, tenant, ladder) = {
@@ -196,10 +393,7 @@ async fn create_app(
             .clone();
 
         let name = req.name.clone().unwrap_or_else(|| pack.name.clone());
-        let tenant = req
-            .tenant
-            .clone()
-            .unwrap_or_else(|| DEFAULT_TENANT.to_string());
+        let tenant = principal.tenant.clone();
         let slug: String = name
             .to_lowercase()
             .chars()
@@ -219,7 +413,7 @@ async fn create_app(
         // envelope (#8) — HMAC on every platform-wide surface, plaintext in
         // the doctor's own app-scoped view.
         plat.audit.record_sensitive(
-            DOCTOR,
+            &principal.id,
             "app.created",
             format!("described from pack {}", pack.id),
             Some(&id),
@@ -309,17 +503,28 @@ async fn create_app(
     Ok(Json(CreatedApp { app, scaffold }))
 }
 
-async fn list_apps(State(platform): State<SharedPlatform>) -> ApiResult<serde_json::Value> {
+/// #10: the list is tenant-scoped — a clinician sees their practice's apps
+/// and nothing else. No 404 games needed here; filtering IS the boundary.
+async fn list_apps(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+) -> ApiResult<serde_json::Value> {
     let plat = platform.read().unwrap();
-    let mut apps: Vec<&AppRecord> = plat.apps.values().collect();
+    let mut apps: Vec<&AppRecord> = plat
+        .apps
+        .values()
+        .filter(|a| a.tenant == principal.tenant)
+        .collect();
     apps.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(Json(json!({ "apps": apps })))
 }
 
 async fn get_app(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<AppRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
     let plat = platform.read().unwrap();
     plat.apps
         .get(&id)
@@ -337,9 +542,11 @@ struct Iterate {
 
 async fn iterate(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let (pack, ladder, snapshot) = {
         let plat = platform.read().unwrap();
         let app = plat
@@ -404,9 +611,11 @@ struct Restore {
 /// derived state, the immutability principle applied to app history.
 async fn restore(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
     Json(req): Json<Restore>,
 ) -> ApiResult<AppRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
     let app = {
         let mut plat = platform.write().unwrap();
         let scaffold = plat
@@ -442,7 +651,7 @@ async fn restore(
         let app = app.clone();
 
         plat.audit.record(
-            DOCTOR,
+            &principal.id,
             "app.restored",
             format!("restored checkpoint v{}", req.version),
             Some(&id),
@@ -460,8 +669,10 @@ async fn restore(
 
 async fn gate_report(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let plat = platform.read().unwrap();
     let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
     let pack = plat.pack(&app.pack).ok_or_else(|| not_found("pack"))?;
@@ -476,8 +687,10 @@ async fn gate_report(
 /// "fix it for me": the agent wires a fixable control and logs an addendum.
 async fn fix_gate(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path((id, gate_id)): Path<(String, String)>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     if !gates::known_gate(&gate_id) {
         return Err(not_found("gate"));
     }
@@ -573,8 +786,10 @@ async fn fix_gate(
 /// the review control satisfied.
 async fn review(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let (note, report, snapshot) = {
         let mut plat = platform.write().unwrap();
         let pack = plat
@@ -634,14 +849,24 @@ async fn review(
 
 #[derive(Deserialize)]
 struct Promote {
-    cosigner: String,
+    /// #10: the co-sign is the authenticated principal's act; this typed
+    /// field survives only as a display-name check (must match the
+    /// principal's registered name, or be omitted — deploy::promote).
+    #[serde(default)]
+    cosigner: Option<String>,
 }
 
 async fn promote(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
     Json(req): Json<Promote>,
 ) -> ApiResult<serde_json::Value> {
+    // #10: tenancy first (a cross-tenant id is 404, existence undisclosed),
+    // then the role capability — releasing to real patients is a clinical
+    // act, so staff answer 403 `auth.role_denied`.
+    ensure_tenant(&platform, &id, &principal)?;
+    require_capability(&platform, &principal, Capability::CoSignRelease, Some(&id))?;
     let (app, report, snapshot) = {
         let mut plat = platform.write().unwrap();
         let required = plat
@@ -658,7 +883,7 @@ async fn promote(
         // promotion: the record must never claim "live" when real
         // infrastructure said no.
         let snapshot = app.clone();
-        deploy::promote(app, &report, &req.cosigner, alloc_id)
+        deploy::promote(app, &report, &principal, req.cosigner.as_deref(), alloc_id)
             .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
         // Staging (#2, #9): submit the rendered job to a real Nomad dev
         // agent, prove the tenant transit key, mount the tenant policy, and
@@ -688,14 +913,20 @@ async fn promote(
             ),
             Some(&id),
         );
+        // #10: the promote event names the authenticated principal and the
+        // digest the co-sign binds — the audit stream carries the whole
+        // cryptographic act, not just a typed name.
+        let attestation = app.attestation.as_ref().expect("promote set attestation");
         plat.audit.record(
             "deploy",
             "app.promoted",
             format!(
-                "deploy v{} approved (preflight {}) — co-signed {} — allocation {} in prod pool",
+                "deploy v{} approved (preflight {}) — co-signed {} ({}) binding report digest {} — allocation {} in prod pool",
                 app.current_version,
                 report.summary(),
-                req.cosigner.trim(),
+                attestation.cosigner,
+                principal.id,
+                attestation.report_digest.as_deref().unwrap_or("?"),
                 app.allocation
                     .as_ref()
                     .map(|a| a.id.as_str())
@@ -740,8 +971,12 @@ async fn promote(
 
 async fn rollback(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<AppRecord> {
+    // Tenant-scoped but role-open: withdrawing an app from use must never
+    // wait on the clinician (safety beats ceremony) — staff may roll back.
+    ensure_tenant(&platform, &id, &principal)?;
     let (app, snapshot) = {
         let mut plat = platform.write().unwrap();
         let synthetic = plat
@@ -810,8 +1045,10 @@ async fn rollback(
 
 async fn operate(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let plat = platform.read().unwrap();
     let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
     let live = app.stage == Stage::Live;
@@ -831,8 +1068,10 @@ async fn operate(
 /// an interrupted agent action (Waypoint upsert-first, steering §4).
 async fn app_operations(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let plat = platform.read().unwrap();
     if !plat.apps.contains_key(&id) {
         return Err(not_found("app"));
@@ -843,11 +1082,14 @@ async fn app_operations(
 /// The doctor's own app-scoped stream — the TENANT side of the HMAC
 /// boundary (#8, decision 0004): sensitive values render as the doctor's
 /// own plaintext here, and only here. The platform-wide export below keeps
-/// the `hmac-sha256:` form.
+/// the `hmac-sha256:` form. #10 keys this surface on the requesting
+/// principal's tenant: a cross-tenant caller gets 404, never the plaintext.
 async fn app_audit(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    ensure_tenant(&platform, &id, &principal)?;
     let plat = platform.read().unwrap();
     if !plat.apps.contains_key(&id) {
         return Err(not_found("app"));
@@ -862,8 +1104,12 @@ async fn app_audit(
 /// attestation, sandbox apps export too but marked draft — not released.
 async fn export_app(
     State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> ApiResult<eject::EjectionBundle> {
+    // Tenant-scoped, role-open: the bundle is the tenant's own record
+    // (plaintext side of the HMAC boundary), so 404 outside the tenant.
+    ensure_tenant(&platform, &id, &principal)?;
     let bundle = {
         let mut plat = platform.write().unwrap();
         let app = plat
@@ -877,7 +1123,7 @@ async fn export_app(
             .ok_or_else(|| not_found("pack"))?;
         let bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
         plat.audit.record(
-            DOCTOR,
+            &principal.id,
             "app.exported",
             format!(
                 "ejection bundle: {} files, docs from the record, pack {}-template derived — no hostage code",
@@ -900,10 +1146,17 @@ async fn export_app(
 /// Platform-wide export — the CROSS-TENANT side of the HMAC boundary (#8):
 /// doctor-authored free text appears only as `hmac-sha256:<hex>`, so the
 /// stream stays searchable and correlatable without being disclosable.
-async fn export_audit(State(platform): State<SharedPlatform>) -> impl IntoResponse {
+/// #10: role-gated — clinicians may pull the security-review export, staff
+/// answer 403 (`auth.role_denied`).
+async fn export_audit(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Response, ApiError> {
+    require_capability(&platform, &principal, Capability::ExportPlatformAudit, None)?;
     let plat = platform.read().unwrap();
-    (
+    Ok((
         [("content-type", "application/jsonl")],
         plat.audit.export_jsonl(),
     )
+        .into_response())
 }

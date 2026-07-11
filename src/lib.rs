@@ -21,6 +21,7 @@ pub mod deploy;
 pub mod eject;
 pub mod gates;
 pub mod hashi;
+pub mod identity;
 pub mod ladder;
 pub mod packs;
 pub mod state;
@@ -55,7 +56,29 @@ pub fn app() -> Router {
 /// JSONL file sink joins the audit broker. Each durable sink must pass its
 /// registration probe or the boot fails loudly. Neither set → identical to
 /// [`app`] (dev mode: the in-memory fallback sink alone).
+///
+/// Identity (#10): `IDENTITIES_FILE` set → the declared registry, strict
+/// bearer auth (missing/invalid tokens 401); unset → the embedded dev
+/// registry with the audited dr-osei fallback. `SESSION_IDLE_SECS` turns on
+/// idle auto-logoff for principal sessions in either mode. A registry that
+/// fails to load fails the boot loudly.
 pub async fn app_from_env() -> anyhow::Result<Router> {
+    let registry = identity::Registry::from_env()?;
+    tracing::info!(
+        "identity registry: {} principals from {} — dev fallback {}, session idle {}",
+        registry.principal_count(),
+        registry.source(),
+        if registry.fallback().is_some() {
+            "ON (audited)"
+        } else {
+            "off (strict 401s)"
+        },
+        registry
+            .idle_secs()
+            .map(|n| format!("{n}s"))
+            .unwrap_or_else(|| "off".to_string()),
+    );
+
     let db_url = std::env::var("CONTROL_DB_URL")
         .ok()
         .filter(|u| !u.trim().is_empty());
@@ -63,10 +86,15 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
         .ok()
         .filter(|p| !p.trim().is_empty());
     if db_url.is_none() && audit_file.is_none() {
-        return Ok(app());
+        let mut platform = state::Platform::new(packs::builtin_packs());
+        platform.identity = std::sync::Arc::new(registry);
+        return Ok(api::router_with_state(std::sync::Arc::new(
+            std::sync::RwLock::new(platform),
+        )));
     }
 
     let mut platform = state::Platform::new(packs::builtin_packs());
+    platform.identity = std::sync::Arc::new(registry);
     let mut broker = audit::Broker::new();
     if let Some(url) = db_url {
         let pg = store::PgStore::connect(&url).await?;

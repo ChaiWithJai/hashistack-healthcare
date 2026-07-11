@@ -39,11 +39,22 @@
 # ciphertext still decryptable, Vault's file audit device carries the
 # transit request path, and no password ever appears in the platform audit
 # export. Without VAULT_ADDR those checks print "skipped" and never fail.
+#
+# Identity (#10): every request rides `Authorization: Bearer dev-token-osei`
+# (the dev registry's meridian clinician), so this same script also passes
+# against a strict staging instance (IDENTITIES_FILE set — export it for the
+# run so the kill -9 reboot keeps it and the dev-fallback checks skip). The
+# identity section drives a second tenant (dr-park) and a staff principal
+# with explicit tokens against the SAME instance — cross-tenant 404s, role
+# 403s, the attestation digest — and, on self-booted runs, additionally
+# proves the dev fallback (headerless request works + is confessed in the
+# audit stream) and a strict instance's 401s + 1s session idle expiry.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASE="${1:-}"
 SERVER_PID=""
+STRICT_PID=""
 
 if [[ -z "$BASE" ]]; then
   BASE="http://127.0.0.1:39000"
@@ -53,7 +64,7 @@ if [[ -z "$BASE" ]]; then
   APP_BIND=127.0.0.1:39000 AUDIT_FILE="$AUDIT_FILE" \
     "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" &
   SERVER_PID=$!
-  trap '[[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true' EXIT
+  trap '{ [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null; [[ -n "$STRICT_PID" ]] && kill "$STRICT_PID" 2>/dev/null; } || true' EXIT
   for _ in $(seq 1 50); do
     curl -sf "$BASE/health" >/dev/null 2>&1 && break
     sleep 0.1
@@ -69,8 +80,17 @@ check() { # check <description> <actual> <expected-substring>
     FAIL=$((FAIL+1)); echo "  FAIL: $desc"; echo "    wanted substring: $want"; echo "    got: ${actual:0:300}"
   fi
 }
-post() { curl -s -X POST "$BASE$1" -H 'content-type: application/json' -d "${2:-{}}"; }
-get()  { curl -s "$BASE$1"; }
+# #10: the doctor identity every main-flow request authenticates as — the
+# same principal the dev fallback resolves, so assertions are mode-invariant.
+TOKEN="dev-token-osei"
+post() { curl -s -X POST "$BASE$1" -H 'content-type: application/json' \
+  -H "authorization: Bearer ${3:-$TOKEN}" -d "${2:-{}}"; }
+get()  { curl -s -H "authorization: Bearer ${2:-$TOKEN}" "$BASE$1"; }
+code() { # code <method> <path> <token-or-"-"> [json-body] → HTTP status only
+  local auth=(); [[ "$3" != "-" ]] && auth=(-H "authorization: Bearer $3")
+  curl -s -o /dev/null -w '%{http_code}' -X "$1" "${auth[@]}" \
+    ${4:+-H content-type:application/json -d "$4"} "$BASE$2"
+}
 vault_api() { # vault_api <method> <path> [json-body]
   curl -s -H "x-vault-token: ${VAULT_TOKEN:-staging-root}" -X "$1" \
     ${3:+-d "$3"} "$VAULT_ADDR/v1$2"
@@ -121,10 +141,18 @@ echo "-- fix it for me, refuse blank co-sign, then promote"
 post "/api/apps/$ID/gate/auto-logoff/fix" >/dev/null
 NOSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"  "}')
 check "blank co-sign refused" "$NOSIGN" 'co-signature'
+# #10: the typed field is only a display-name check against the
+# authenticated principal — naming anyone else is refused.
+WRONGSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. Somebody Else"}')
+check "mismatched co-sign name refused" "$WRONGSIGN" 'co-signature'
 LIVE=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei"}')
 check "live"              "$LIVE" '"stage":"live"'
 check "prod pool"         "$LIVE" '"pool":"prod"'
 check "attestation discloses the stub" "$LIVE" '"gate_summary":"5/6 (1 stubbed)"'
+# #10: the co-sign is cryptographic — the attestation binds the
+# authenticated principal and a sha256 digest of the frozen gate report.
+check "attestation binds the principal"     "$LIVE" '"principal":"dr-osei"'
+check "attestation carries the report digest" "$LIVE" '"report_digest":"sha256:'
 
 echo "-- staging: promote reaches real infrastructure (#2)"
 NS="tenant-meridian"
@@ -234,6 +262,8 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
       ${NOMAD_ADDR:+NOMAD_ADDR="$NOMAD_ADDR"} \
       ${VAULT_ADDR:+VAULT_ADDR="$VAULT_ADDR"} \
       ${VAULT_TOKEN:+VAULT_TOKEN="$VAULT_TOKEN"} \
+      ${IDENTITIES_FILE:+IDENTITIES_FILE="$IDENTITIES_FILE"} \
+      ${SESSION_IDLE_SECS:+SESSION_IDLE_SECS="$SESSION_IDLE_SECS"} \
       "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" \
       >>.staging/logs/control-plane.log 2>/dev/null &
     NEW_PID=$!
@@ -416,6 +446,74 @@ if [[ -n "${AUDIT_FILE:-}" && -r "$AUDIT_FILE" ]]; then
   fi
 else
   echo "  skipped (no AUDIT_FILE): probe line, app.promoted, hmac form, no plaintext in archive"
+fi
+
+echo "-- identity & tenancy (#10): second tenant, roles, and honest auth modes"
+# The SAME instance serves both tenants: dr-park (lakeside clinician) works
+# with an explicit token — tenancy comes from the principal, never the body.
+PARK_TOKEN="dev-token-park"; STAFF_TOKEN="dev-token-rivera"
+PARK=$(post /api/apps '{"prompt":"a referral tracker for cardiology consults","pack":"hypertension-tracker","name":"lakeside referrals"}' "$PARK_TOKEN")
+PARK_ID=$(echo "$PARK" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["id"])')
+check "second tenant app lands in lakeside (from the principal)" "$PARK" '"tenant":"lakeside"'
+# Cross-tenant reads/promotes answer 404 — existence is never disclosed.
+check "cross-tenant GET is 404"     "$(code GET "/api/apps/$PARK_ID" "$TOKEN")" "404"
+check "cross-tenant promote is 404" "$(code POST "/api/apps/$PARK_ID/promote" "$TOKEN" '{}')" "404"
+check "cross-tenant audit view is 404 (plaintext boundary keyed to the principal)" \
+  "$(code GET "/api/apps/$PARK_ID/audit" "$TOKEN")" "404"
+check "lists are tenant-scoped" \
+  "$(get /api/apps | grep -c "\"$PARK_ID\"" || true)" "0"
+check "the owning tenant still sees its app" "$(get /api/apps "$PARK_TOKEN")" "\"$PARK_ID\""
+# Roles: staff build in-tenant but cannot promote/co-sign (403, role known
+# in-tenant so disclosure is fine) or export the platform audit.
+check "staff promote is 403"              "$(code POST "/api/apps/$ID/promote" "$STAFF_TOKEN" '{}')" "403"
+check "staff platform audit export is 403" "$(code GET /api/audit/export "$STAFF_TOKEN")" "403"
+# Every denial is on the record with the REAL principal ids as actors.
+IDEXPORT=$(get /api/audit/export)
+check "cross-tenant denial audited"  "$IDEXPORT" '"auth.cross_tenant_denied"'
+check "role denial audited"          "$IDEXPORT" '"auth.role_denied"'
+check "denied clinician is the actor" "$IDEXPORT" '"actor":"dr-osei"'
+check "second tenant actor is real"   "$IDEXPORT" '"actor":"dr-park"'
+check "staff actor is real"           "$IDEXPORT" '"actor":"ms-rivera"'
+
+if [[ -n "$SERVER_PID" && -z "${IDENTITIES_FILE:-}" ]]; then
+  # Dev fallback (this self-booted instance has no IDENTITIES_FILE): a
+  # request with NO header still works — the zero-config UI stays alive —
+  # and the audit trail confesses it.
+  NOAUTH=$(curl -s "$BASE/api/apps")
+  check "headerless request works in dev (fallback keeps the UI alive)" "$NOAUTH" '"apps"'
+  check "dev fallback confessed in the audit stream" "$(get /api/audit/export)" '"auth.dev_fallback"'
+  check "unknown token is 401 even in dev" "$(code GET /api/apps wrong-token)" "401"
+else
+  echo "  skipped (IDENTITIES_FILE set or remote instance): dev fallback + confession"
+fi
+
+if [[ -n "$SERVER_PID" ]]; then
+  # Strict mode + session idle, proven on a second instance booted the way
+  # staging boots (IDENTITIES_FILE set; 1s idle so expiry is observable).
+  SBASE="http://127.0.0.1:39001"
+  # Isolated in-memory instance: empty AUDIT_FILE/CONTROL_DB_URL/NOMAD/VAULT
+  # so only the identity behavior differs from stock dev.
+  APP_BIND=127.0.0.1:39001 IDENTITIES_FILE=staging/identities.hcl SESSION_IDLE_SECS=1 \
+    AUDIT_FILE= CONTROL_DB_URL= NOMAD_ADDR= VAULT_ADDR= VAULT_TOKEN= \
+    "${CARGO_TARGET_DIR:-target}/debug/rust-proof-service" >/dev/null 2>&1 &
+  STRICT_PID=$!
+  for _ in $(seq 1 50); do
+    curl -sf "$SBASE/health" >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+  scode() { curl -s -o /dev/null -w '%{http_code}' ${2:+-H "authorization: Bearer $2"} "$SBASE$1"; }
+  check "strict: missing token is 401"  "$(scode /api/apps)" "401"
+  check "strict: invalid token is 401"  "$(scode /api/apps wrong-token)" "401"
+  check "strict: declared token is 200" "$(scode /api/apps "$TOKEN")" "200"
+  check "strict: health stays open"     "$(scode /health)" "200"
+  sleep 2
+  check "session idle past SESSION_IDLE_SECS is 401 (platform auto-logoff)" \
+    "$(scode /api/apps "$TOKEN")" "401"
+  check "expiry audited with the principal as actor" \
+    "$(curl -s -H "authorization: Bearer $TOKEN" "$SBASE/api/audit/export")" '"auth.session_expired"'
+  kill "$STRICT_PID" 2>/dev/null || true; STRICT_PID=""
+else
+  echo "  skipped (remote instance): strict 401s + session idle expiry"
 fi
 
 echo

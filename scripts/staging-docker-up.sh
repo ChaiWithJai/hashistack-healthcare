@@ -47,14 +47,24 @@ docker run -d --name hashistack-nomad --network "$network" -p 4646:4646 \
   -data-dir="$shared/data" -alloc-dir="$shared/alloc" \
   -config=/etc/nomad.d/client.hcl -log-level=INFO >/dev/null
 
+ready=0
 for _ in $(seq 1 60); do
-  if curl -sf http://127.0.0.1:8200/v1/sys/health >/dev/null &&
+  # The Postgres image briefly accepts connections during initdb and then
+  # restarts. Require its post-init marker before accepting pg_isready so a
+  # control plane cannot attach to that transient server and lose its socket.
+  if docker logs hashistack-postgres 2>&1 | grep -q 'PostgreSQL init process complete' &&
+     curl -sf http://127.0.0.1:8200/v1/sys/health >/dev/null &&
      curl -sf http://127.0.0.1:4646/v1/agent/health >/dev/null &&
-     PGPASSWORD=staging-pg pg_isready -h 127.0.0.1 -p 5433 -U staging >/dev/null; then
+     PGPASSWORD=staging-pg pg_isready -h 127.0.0.1 -p 5433 -U staging -d control >/dev/null; then
+    ready=1
     break
   fi
   sleep 1
 done
+if [[ "$ready" != "1" ]]; then
+  echo "Docker staging services did not become ready" >&2
+  exit 1
+fi
 
 vault() {
   docker exec -e VAULT_ADDR=http://127.0.0.1:8200 \

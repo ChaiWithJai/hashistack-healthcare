@@ -15,14 +15,14 @@ test "$code" = 401
 
 if [ "$auth_mode" = clerk ]; then
   token="${STUDIO_CLERK_TOKEN:-}"
-  if [ -z "$token" ]; then
-    echo "remote Clerk boundary proof passed at $base: health is public, app APIs reject anonymous requests, and browser sign-in remains a required review step"
-    exit 0
-  fi
+  cookie=$(mktemp)
+  trap 'rm -f "$cookie"' EXIT
+  curl -fsS -c "$cookie" -H "origin: $base" "${json[@]}" -d '{}' "$base/api/public/session" >/dev/null
+  auth=(-b "$cookie" -H "origin: $base")
 else
   token="${STUDIO_BEARER_TOKEN:-dev-token-osei}"
+  auth=(-H "authorization: Bearer $token")
 fi
-auth=(-H "authorization: Bearer $token")
 
 app=$(curl -fsS "${auth[@]}" "${json[@]}" \
   -d "{\"prompt\":\"a post-op recovery tracker for synthetic practice patients\",\"pack\":\"post-op-monitor\",\"name\":\"$name\"}" \
@@ -31,14 +31,23 @@ id=$(printf '%s' "$app" | python3 -c 'import json,sys; print(json.load(sys.stdin
 curl -fsS "${auth[@]}" "${json[@]}" -d '{}' \
   "$base/api/apps/$id/gate/auto-logoff/fix" >/dev/null
 
-code=$(curl -sS -o /tmp/hashistack-real-denial.json -w '%{http_code}' \
-  "${auth[@]}" "${json[@]}" -d '{"cosigner":"Dr. A. Osei"}' \
-  "$base/api/apps/$id/promote")
-test "$code" = 409
-grep -q 'STUBBED' /tmp/hashistack-real-denial.json
+if [ "$auth_mode" = clerk ]; then
+  code=$(curl -sS -o /tmp/hashistack-real-denial.json -w '%{http_code}' \
+    "${auth[@]}" "${json[@]}" -d '{}' "$base/api/apps/$id/promote")
+  test "$code" = 403
+  grep -q 'sign in' /tmp/hashistack-real-denial.json
+  release='{"synthetic_demo":true}'
+else
+  code=$(curl -sS -o /tmp/hashistack-real-denial.json -w '%{http_code}' \
+    "${auth[@]}" "${json[@]}" -d '{"cosigner":"Dr. A. Osei"}' \
+    "$base/api/apps/$id/promote")
+  test "$code" = 409
+  grep -q 'STUBBED' /tmp/hashistack-real-denial.json
+  release='{"cosigner":"Dr. A. Osei","synthetic_demo":true}'
+fi
 
 live=$(curl -fsS "${auth[@]}" "${json[@]}" \
-  -d '{"cosigner":"Dr. A. Osei","synthetic_demo":true}' \
+  -d "$release" \
   "$base/api/apps/$id/promote")
 printf '%s' "$live" | grep -q '"pool":"synthetic-demo"'
 printf '%s' "$live" | grep -q '"kind":"synthetic"'
@@ -47,7 +56,20 @@ operate=$(curl -fsS "${auth[@]}" "$base/api/apps/$id/operate")
 printf '%s' "$operate" | grep -q '"available":false'
 printf '%s' "$operate" | grep -q '"healthy":false'
 
-bundle=$(curl -fsS "${auth[@]}" "$base/api/apps/$id/export")
+if [ "$auth_mode" = clerk ]; then
+  code=$(curl -sS -o /tmp/hashistack-guest-export.json -w '%{http_code}' \
+    "${auth[@]}" "$base/api/apps/$id/export")
+  test "$code" = 401
+  if [ -z "$token" ]; then
+    echo "remote public flow passed at $base: $id was built, repaired, and published to the synthetic pool; export correctly requires Clerk"
+    exit 0
+  fi
+  owner=(-H "authorization: Bearer $token" -b "$cookie")
+  curl -fsS "${owner[@]}" "${json[@]}" -d '{}' "$base/api/apps/$id/claim" >/dev/null
+  bundle=$(curl -fsS "${owner[@]}" "$base/api/apps/$id/export")
+else
+  bundle=$(curl -fsS "${auth[@]}" "$base/api/apps/$id/export")
+fi
 printf '%s' "$bundle" | grep -q 'synthetic demo'
 printf '%s' "$bundle" | grep -q 'app/src/main.rs'
 

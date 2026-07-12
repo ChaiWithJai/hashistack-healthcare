@@ -62,13 +62,14 @@ jobs:
           COMMIT_SHA: ${{ steps.pr.outputs.sha }}
           STAGING_HOST: ${{ secrets.DO_STAGING_HOST }}
           STUDIO_BEARER_TOKEN: ${{ secrets.DO_STAGING_BEARER_TOKEN }}
+          STAGING_BASE_URL: ${{ vars.DO_STAGING_URL }}
         run: scripts/single-host-release.sh "root@$STAGING_HOST" "$COMMIT_SHA"
 
       - name: Comment preview URL
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pull_request }}
-          STAGING_HOST: ${{ secrets.DO_STAGING_HOST }}
+          STAGING_URL: ${{ vars.DO_STAGING_URL }}
           COMMIT_SHA: ${{ steps.pr.outputs.sha }}
         run: |
-          gh pr comment "$PR" --body "DigitalOcean staging preview: http://$STAGING_HOST:3000 — deployed exact SHA \`$COMMIT_SHA\`. The synthetic create → gate → fix → publish → export proof passed. Synthetic data only; access is restricted by the DigitalOcean firewall."
+          gh pr comment "$PR" --body "DigitalOcean staging preview: $STAGING_URL. Deployed exact SHA \`$COMMIT_SHA\`. The synthetic create, gate, fix, publish, and export proof passed. Synthetic data only."

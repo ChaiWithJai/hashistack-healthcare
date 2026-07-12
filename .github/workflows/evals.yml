@@ -5,6 +5,7 @@
 name: evals
 
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "45 5 * * *" # nightly, offset from staging-hashistack
@@ -24,6 +25,7 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/evals.sh
+      - run: ./scripts/journey.sh
       # The regenerated scorecard + full screenshot evidence, reviewable per
       # run without committing from CI.
       - uses: actions/upload-artifact@v4
@@ -33,5 +35,6 @@ jobs:
           path: |
             docs/evals/scorecard.md
             docs/evals/scorecard.json
+            docs/evals/journey/
             .evals/screenshots/
           if-no-files-found: warn

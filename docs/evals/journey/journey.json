@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-12T04:24:41.539Z",
-  "commit": "a49fe83",
+  "generated_at": "2026-07-12T15:34:46.180Z",
+  "commit": "b2f4975",
   "prompt": "a post-op recovery tracker for my knee replacement patients",
   "pack": "post-op-monitor",
   "app_id": "post-op-recovery-tracker",
@@ -23,7 +23,7 @@
   "iterations": [
     {
       "instruction": "make pain a 0-10 scale and flag anything over 7 to me",
-      "ms": 5,
+      "ms": 12,
       "wired": [
         "escalation-path"
       ],
@@ -31,7 +31,7 @@
     },
     {
       "instruction": "remind patients to log wound photos daily",
-      "ms": 5,
+      "ms": 13,
       "wired": [],
       "reply": "✓ done — remind patients to log wound photos daily. Nothing leaves the sandbox yet."
     }
@@ -77,7 +77,7 @@
     "app_version": 4,
     "credentials": "none: explicitly synthetic demo; tenant credentials are not issued",
     "database": "synthetic-demo-only",
-    "deployed_at": 1783830272,
+    "deployed_at": 1783870478,
     "healthy": true,
     "id": "a-d458",
     "image": "registry.internal/clinician-client@sha256:8f32c9b98d31f5ad0e0be9f92efc47942c74ec352af89c3254ddf967db2d19f7",
@@ -89,7 +89,7 @@
   "stages": [
     {
       "stage": "describe",
-      "ms": 4,
+      "ms": 3,
       "what": "POST /api/apps → app post-op-recovery-tracker in sandbox on synthetic data; 5 scaffold steps; controls pre-wired: [ai-allowlist, audit-log, dependency-scan, phi-encryption, synthetic-only]",
       "audit_seqs": [
         1,
@@ -100,13 +100,13 @@
     },
     {
       "stage": "ui-sandbox",
-      "ms": 106,
+      "ms": 149,
       "what": "Playwright on the doctor UI (1a builder): the app open in sandbox, chat + preview → 01-sandbox.png",
       "audit_seqs": []
     },
     {
       "stage": "iterate-1",
-      "ms": 5,
+      "ms": 12,
       "what": "\"make pain a 0-10 scale and flag anything over 7 to me\" → wired [escalation-path]",
       "audit_seqs": [
         5,
@@ -116,7 +116,7 @@
     },
     {
       "stage": "iterate-2",
-      "ms": 5,
+      "ms": 13,
       "what": "\"remind patients to log wound photos daily\" → wired [nothing — feature only, honest off-vocabulary edit]",
       "audit_seqs": [
         8,
@@ -126,19 +126,19 @@
     },
     {
       "stage": "gate-failing",
-      "ms": 3,
+      "ms": 6,
       "what": "GET gate → 5/6 satisfied (4 passed + 1 labeled stub), failing: auto-logoff (one-click fixable: true)",
       "audit_seqs": []
     },
     {
       "stage": "ui-gate-failing",
-      "ms": 256,
+      "ms": 105,
       "what": "the 1a preflight modal: the named failure with its fix-it-for-me button → 02-gate-failing.png",
       "audit_seqs": []
     },
     {
       "stage": "promote-locked",
-      "ms": 3,
+      "ms": 6,
       "what": "POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial",
       "audit_seqs": [
         11
@@ -146,7 +146,7 @@
     },
     {
       "stage": "fix-auto-logoff",
-      "ms": 3,
+      "ms": 6,
       "what": "POST gate/auto-logoff/fix → gate 6/6 satisfied, green (5 passed + 1 labeled stub)",
       "audit_seqs": [
         12,
@@ -155,7 +155,7 @@
     },
     {
       "stage": "cosign-release",
-      "ms": 6,
+      "ms": 11,
       "what": "POST promote (cosigner \"Dr. A. Osei\", synthetic_demo=true) → isolated synthetic demo; attestation by dr-osei, digest sha256:161df34d8…; allocation a-d458 (synthetic-demo pool, post-op-recovery-tracker.synthetic-demo.local)",
       "audit_seqs": [
         14,
@@ -164,51 +164,52 @@
     },
     {
       "stage": "ui-live",
-      "ms": 80,
+      "ms": 90,
       "what": "the 1a operate view: SYNTHETIC DEMO badge, allocation, who-touched-what → 03-live.png",
       "audit_seqs": []
     },
     {
       "stage": "eject",
       "ms": 3,
-      "what": "GET export → 13 files, 63143 bytes; README opens with the prompt; COMPLIANCE.md carries the frozen report + digest",
+      "what": "GET export → 14 files, 65771 bytes; README opens with the prompt; COMPLIANCE.md carries the frozen report + digest",
       "audit_seqs": [
         16
       ]
     },
     {
       "stage": "artifact-build",
-      "ms": 7926,
+      "ms": 6466,
       "what": "cargo build of the ejected app/ crate — cold, worktree-local target (what a stranger gets)",
       "audit_seqs": []
     },
     {
       "stage": "artifact-boot",
-      "ms": 264,
+      "ms": 314,
       "what": "the ejected binary healthy on :39450 against its bundled synthetic seed",
       "audit_seqs": []
     },
     {
       "stage": "artifact-drive",
-      "ms": 376,
+      "ms": 366,
       "what": "pain-9 check-in for pt-001 → flag routed to the practice inbox; the app's own audit JSONL recorded 4 events → 04/05/06 screenshots",
       "audit_seqs": []
     }
   ],
   "bundle": {
-    "file_count": 13,
-    "total_bytes": 63143,
+    "file_count": 14,
+    "total_bytes": 65771,
     "files": {
       "Dockerfile": 540,
-      "README.md": 2076,
+      "README.md": 2188,
       "app/Cargo.toml": 1089,
       "app/src/main.rs": 39788,
       "artifact-quality.json": 1693,
       "config/deploy.yml": 420,
       "docs/COMPLIANCE.md": 5336,
-      "docs/RUNBOOK.md": 2065,
+      "docs/CUSTOMIZE.md": 2435,
+      "docs/RUNBOOK.md": 1959,
       "fly.toml": 347,
-      "nomad/job.nomad.hcl": 2560,
+      "nomad/job.nomad.hcl": 2747,
       "pack.hcl": 1310,
       "render.yaml": 321,
       "synthetic/post-op-demo.json": 5598
@@ -219,19 +220,19 @@
     "unpack": "mkdir -p post-op-recovery-tracker && cd post-op-recovery-tracker && curl -s $PLATFORM/api/apps/post-op-recovery-tracker/export | python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,exist_ok=True), q.write_text(c)))(pathlib.Path(p)) for p,c in json.load(sys.stdin)[\"files\"].items()]'"
   },
   "artifact": {
-    "build_ms": 7926,
-    "boot_ms": 264,
+    "build_ms": 6466,
+    "boot_ms": 314,
     "audit_jsonl": [
-      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783830281,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":200}",
-      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783830281,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":303}",
-      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783830281,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/\",\"status\":200}",
-      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783830281,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/checkin\",\"status\":200}"
+      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783870485,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":200}",
+      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783870485,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":303}",
+      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783870485,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/\",\"status\":200}",
+      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783870485,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/checkin\",\"status\":200}"
     ]
   },
   "audit_timeline": [
     {
       "seq": 1,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.created",
@@ -239,7 +240,7 @@
     },
     {
       "seq": 2,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -247,7 +248,7 @@
     },
     {
       "seq": 3,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -255,7 +256,7 @@
     },
     {
       "seq": 4,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.scaffolded",
@@ -263,7 +264,7 @@
     },
     {
       "seq": 5,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -271,7 +272,7 @@
     },
     {
       "seq": 6,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -279,7 +280,7 @@
     },
     {
       "seq": 7,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.iterated",
@@ -287,7 +288,7 @@
     },
     {
       "seq": 8,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -295,7 +296,7 @@
     },
     {
       "seq": 9,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -303,7 +304,7 @@
     },
     {
       "seq": 10,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.iterated",
@@ -311,7 +312,7 @@
     },
     {
       "seq": 11,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "gate.promotion_denied",
@@ -319,7 +320,7 @@
     },
     {
       "seq": 12,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -327,7 +328,7 @@
     },
     {
       "seq": 13,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "agent",
       "action": "gate.fixed",
@@ -335,7 +336,7 @@
     },
     {
       "seq": 14,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "gate-engine",
       "action": "gate.passed",
@@ -343,7 +344,7 @@
     },
     {
       "seq": 15,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "deploy",
       "action": "app.promoted",
@@ -351,33 +352,33 @@
     },
     {
       "seq": 16,
-      "at": 1783830272,
+      "at": 1783870478,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.exported",
-      "detail": "ejection bundle: 13 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code"
+      "detail": "ejection bundle: 14 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code"
     }
   ],
   "totals": {
-    "prompt_to_live_ms": 439,
-    "prompt_to_ejected_running_ms": 8722,
-    "api_calls_only_ms": 29,
-    "artifact_build_ms": 7926,
-    "artifact_boot_ms": 264,
-    "control_plane_boot_ms": 486
+    "prompt_to_live_ms": 385,
+    "prompt_to_ejected_running_ms": 7264,
+    "api_calls_only_ms": 57,
+    "artifact_build_ms": 6466,
+    "artifact_boot_ms": 314,
+    "control_plane_boot_ms": 530
   },
   "screenshots": [
     {
       "file": "01-sandbox.png",
-      "bytes": 64642
+      "bytes": 63481
     },
     {
       "file": "02-gate-failing.png",
-      "bytes": 155928
+      "bytes": 154723
     },
     {
       "file": "03-live.png",
-      "bytes": 189109
+      "bytes": 181034
     },
     {
       "file": "04-artifact-home.png",

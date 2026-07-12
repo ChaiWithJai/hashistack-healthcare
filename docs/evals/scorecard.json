@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-12T12:53:19.507Z",
-  "commit": "a49fe83",
-  "runtime_seconds": 53,
+  "generated_at": "2026-07-12T15:34:34.001Z",
+  "commit": "b2f4975",
+  "runtime_seconds": 579,
   "counts": {
     "pack": 70,
     "refusal": 4,

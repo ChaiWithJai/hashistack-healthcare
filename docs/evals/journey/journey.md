@@ -1,4 +1,4 @@
-# One journey, profiled — 2026-07-12 at `a49fe83`
+# One journey, profiled — 2026-07-12 at `b2f4975`
 
 One real clinician journey on the flagship pack (post-op-monitor, the
 fully-real one), run end to end by `scripts/journey.sh` against a freshly
@@ -18,21 +18,21 @@ whole spec. Everything below happened to it.
 
 | # | stage | wall time | what happened | audit seqs |
 |---|---|---|---|---|
-| 1 | describe | 4ms | POST /api/apps → app post-op-recovery-tracker in sandbox on synthetic data; 5 scaffold steps; controls pre-wired: [ai-allowlist, audit-log, dependency-scan, phi-encryption, synthetic-only] | 1–4 |
-| 2 | ui-sandbox | 106ms | Playwright on the doctor UI (1a builder): the app open in sandbox, chat + preview → 01-sandbox.png | — |
-| 3 | iterate-1 | 5ms | "make pain a 0-10 scale and flag anything over 7 to me" → wired [escalation-path] | 5–7 |
-| 4 | iterate-2 | 5ms | "remind patients to log wound photos daily" → wired [nothing — feature only, honest off-vocabulary edit] | 8–10 |
-| 5 | gate-failing | 3ms | GET gate → 5/6 satisfied (4 passed + 1 labeled stub), failing: auto-logoff (one-click fixable: true) | — |
-| 6 | ui-gate-failing | 256ms | the 1a preflight modal: the named failure with its fix-it-for-me button → 02-gate-failing.png | — |
-| 7 | promote-locked | 3ms | POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial | 11 |
-| 8 | fix-auto-logoff | 3ms | POST gate/auto-logoff/fix → gate 6/6 satisfied, green (5 passed + 1 labeled stub) | 12–13 |
-| 9 | cosign-release | 6ms | POST promote (cosigner "Dr. A. Osei", synthetic_demo=true) → isolated synthetic demo; attestation by dr-osei, digest sha256:161df34d8…; allocation a-d458 (synthetic-demo pool, post-op-recovery-tracker.synthetic-demo.local) | 14–15 |
-| 10 | ui-live | 80ms | the 1a operate view: SYNTHETIC DEMO badge, allocation, who-touched-what → 03-live.png | — |
-| 11 | eject | 3ms | GET export → 13 files, 63143 bytes; README opens with the prompt; COMPLIANCE.md carries the frozen report + digest | 16 |
-| 12 | artifact-build | 7926ms | cargo build of the ejected app/ crate — cold, worktree-local target (what a stranger gets) | — |
-| 13 | artifact-boot | 264ms | the ejected binary healthy on :39450 against its bundled synthetic seed | — |
-| 14 | artifact-drive | 376ms | pain-9 check-in for pt-001 → flag routed to the practice inbox; the app's own audit JSONL recorded 4 events → 04/05/06 screenshots | — |
-| | **totals** | | **prompt → isolated synthetic demo: 439ms** (API calls alone: 29ms) · **prompt → ejected app running: 8722ms** (incl. 7926ms compile) | |
+| 1 | describe | 3ms | POST /api/apps → app post-op-recovery-tracker in sandbox on synthetic data; 5 scaffold steps; controls pre-wired: [ai-allowlist, audit-log, dependency-scan, phi-encryption, synthetic-only] | 1–4 |
+| 2 | ui-sandbox | 149ms | Playwright on the doctor UI (1a builder): the app open in sandbox, chat + preview → 01-sandbox.png | — |
+| 3 | iterate-1 | 12ms | "make pain a 0-10 scale and flag anything over 7 to me" → wired [escalation-path] | 5–7 |
+| 4 | iterate-2 | 13ms | "remind patients to log wound photos daily" → wired [nothing — feature only, honest off-vocabulary edit] | 8–10 |
+| 5 | gate-failing | 6ms | GET gate → 5/6 satisfied (4 passed + 1 labeled stub), failing: auto-logoff (one-click fixable: true) | — |
+| 6 | ui-gate-failing | 105ms | the 1a preflight modal: the named failure with its fix-it-for-me button → 02-gate-failing.png | — |
+| 7 | promote-locked | 6ms | POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial | 11 |
+| 8 | fix-auto-logoff | 6ms | POST gate/auto-logoff/fix → gate 6/6 satisfied, green (5 passed + 1 labeled stub) | 12–13 |
+| 9 | cosign-release | 11ms | POST promote (cosigner "Dr. A. Osei", synthetic_demo=true) → isolated synthetic demo; attestation by dr-osei, digest sha256:161df34d8…; allocation a-d458 (synthetic-demo pool, post-op-recovery-tracker.synthetic-demo.local) | 14–15 |
+| 10 | ui-live | 90ms | the 1a operate view: SYNTHETIC DEMO badge, allocation, who-touched-what → 03-live.png | — |
+| 11 | eject | 3ms | GET export → 14 files, 65771 bytes; README opens with the prompt; COMPLIANCE.md carries the frozen report + digest | 16 |
+| 12 | artifact-build | 6466ms | cargo build of the ejected app/ crate — cold, worktree-local target (what a stranger gets) | — |
+| 13 | artifact-boot | 314ms | the ejected binary healthy on :39450 against its bundled synthetic seed | — |
+| 14 | artifact-drive | 366ms | pain-9 check-in for pt-001 → flag routed to the practice inbox; the app's own audit JSONL recorded 4 events → 04/05/06 screenshots | — |
+| | **totals** | | **prompt → isolated synthetic demo: 385ms** (API calls alone: 57ms) · **prompt → ejected app running: 7264ms** (incl. 6466ms compile) | |
 
 Wall times are measured around each HTTP call / build / boot at ms
 precision; the ui-* rows are the profiler driving the real doctor UI with
@@ -40,15 +40,15 @@ Playwright, so the prompt→live wall clock includes them.
 
 ## The sandbox, as the doctor sees it
 
-Scaffolded in 4ms from the pack: *scaffolding from pack…* → *pain + wound check-in form* → *photo upload (encrypted)* → *audit log wired to every route* → *daily reminder schedule*.
+Scaffolded in 3ms from the pack: *scaffolding from pack…* → *pain + wound check-in form* → *photo upload (encrypted)* → *audit log wired to every route* → *daily reminder schedule*.
 Controls pre-wired on day one: `ai-allowlist`, `audit-log`, `dependency-scan`, `phi-encryption`, `synthetic-only`.
 
 ![the app in sandbox — chat and preview, 1a builder skin](01-sandbox.png)
 
 Two conversational edits followed:
 
-- "make pain a 0-10 scale and flag anything over 7 to me" — 5ms, wired `escalation-path`
-- "remind patients to log wound photos daily" — 5ms, wired nothing (an off-vocabulary edit: the feature lands, no control is claimed)
+- "make pain a 0-10 scale and flag anything over 7 to me" — 12ms, wired `escalation-path`
+- "remind patients to log wound photos daily" — 13ms, wired nothing (an off-vocabulary edit: the feature lands, no control is claimed)
 
 Agent tier for every operation: **rules** (scaffold:rules×1, iterate:rules×2) — the deterministic rules floor, recorded honestly.
 
@@ -80,25 +80,26 @@ authenticated principal `dr-osei` to the frozen gate report:
 
 ## What they own now
 
-One GET later, the whole app left the platform as a 13-file,
-62KB bundle — source, docs generated from Dr. Osei's own record, and
+One GET later, the whole app left the platform as a 14-file,
+64KB bundle — source, docs generated from Dr. Osei's own record, and
 deploy manifests for four targets. No hostage code, no hostage docs.
 
 ```
     540  Dockerfile
-   2076  README.md
+   2188  README.md
    1089  app/Cargo.toml
   39788  app/src/main.rs
    1693  artifact-quality.json
     420  config/deploy.yml
    5336  docs/COMPLIANCE.md
-   2065  docs/RUNBOOK.md
+   2435  docs/CUSTOMIZE.md
+   1959  docs/RUNBOOK.md
     347  fly.toml
-   2560  nomad/job.nomad.hcl
+   2747  nomad/job.nomad.hcl
    1310  pack.hcl
     321  render.yaml
    5598  synthetic/post-op-demo.json
-  63143  total
+  65771  total
 ```
 
 The README opens with their own sentence:
@@ -120,8 +121,8 @@ And COMPLIANCE.md carries the release evidence frozen at promotion —
 ```
 
 The profiler then did what a stranger would: unpacked the bundle, ran
-`cargo build` (7926ms), booted the binary against its bundled synthetic
-seed (264ms), and used it:
+`cargo build` (6466ms), booted the binary against its bundled synthetic
+seed (314ms), and used it:
 
 | the ejected app, SYNTHETIC banner up | a pain-9 check-in filled | the flag, routed |
 |---|---|---|
@@ -131,10 +132,10 @@ The ejected app kept its own books — its stdout audit JSONL during the
 interaction, verbatim:
 
 ```json
-{"action":"http.request","actor":"anonymous","at":1783830281,"control":"audit-log","method":"GET","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/login","status":200}
-{"action":"http.request","actor":"anonymous","at":1783830281,"control":"audit-log","method":"POST","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/login","status":303}
-{"action":"http.request","actor":"demo-patient","at":1783830281,"control":"audit-log","method":"GET","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/","status":200}
-{"action":"http.request","actor":"demo-patient","at":1783830281,"control":"audit-log","method":"POST","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/checkin","status":200}
+{"action":"http.request","actor":"anonymous","at":1783870485,"control":"audit-log","method":"GET","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/login","status":200}
+{"action":"http.request","actor":"anonymous","at":1783870485,"control":"audit-log","method":"POST","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/login","status":303}
+{"action":"http.request","actor":"demo-patient","at":1783870485,"control":"audit-log","method":"GET","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/","status":200}
+{"action":"http.request","actor":"demo-patient","at":1783870485,"control":"audit-log","method":"POST","note":"hipaa-core placeholder — stdout JSONL until the shared audit library lands","path":"/checkin","status":200}
 ```
 
 ## The audit spine
@@ -159,7 +160,7 @@ moment the prompt was sent; the stream's clock is 1-second granular):
 | 13 | +0 | agent | `gate.fixed` | wired control auto-logoff |
 | 14 | +0 | gate-engine | `gate.passed` | preflight 5/6 (1 stubbed) green at v4 |
 | 15 | +0 | deploy | `app.promoted` | deploy v4 approved (preflight 5/6 (1 stubbed)) — co-signed Dr. A. Osei (dr-osei) binding report digest sha256:161df34d8b12055b47316ea0da38d921f385aa8d6833c5125d97ca626c7917c0 — allocation a-d458 in prod pool |
-| 16 | +0 | dr-osei | `app.exported` | ejection bundle: 13 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code |
+| 16 | +0 | dr-osei | `app.exported` | ejection bundle: 14 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code |
 
 ## Honesty footnotes
 

@@ -431,8 +431,8 @@ function viewBuilder() {
 
   const operatePane = live() ? `
     <div class="row">
-      <div class="sk" style="flex:1;padding:6px 10px">uptime <b>${S.operate.metrics.uptime_pct}%</b></div>
-      <div class="sk" style="flex:1;padding:6px 10px">p95 <b>${S.operate.metrics.p95_ms}ms</b></div>
+      <div class="sk" style="flex:1;padding:6px 10px">uptime <b>${S.operate.metrics.available ? `${S.operate.metrics.uptime_pct}%` : "unavailable"}</b></div>
+      <div class="sk" style="flex:1;padding:6px 10px">p95 <b>${S.operate.metrics.available ? `${S.operate.metrics.p95_ms}ms` : "unavailable"}</b></div>
       <div class="sk" style="flex:1;padding:6px 10px">allocation <b>${esc(S.app.allocation.id)}</b></div>
     </div>
     <b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Who touched what</b>
@@ -518,14 +518,14 @@ function viewPipeline() {
         image ${esc(S.app.allocation.image)} (immutable) · profile: <b>${esc(S.app.allocation.profile)}</b><br>
         db: managed pg / ${esc(S.app.allocation.database)} · creds: ${esc(S.app.allocation.credentials)}
       </div>
-      <div class="row"><span class="tag tg">healthy</span><span class="tag tb">v${S.app.allocation.app_version} · gate ${esc(S.app.attestation.gate_summary)} attached</span></div>
+      <div class="row"><span class="tag ${S.operate.metrics.healthy ? "tg" : "ty"}">${S.operate.metrics.healthy ? "healthy" : "health unconfirmed"}</span><span class="tag tb">v${S.app.allocation.app_version} · gate ${esc(S.app.attestation.gate_summary)} attached</span></div>
       <div class="row"><button class="b" onclick="rollback()">rollback</button><a class="b" href="/api/apps/${S.appId}/export">export (Render / Kamal)</a></div>
     </div>` : `<div class="col" style="flex:1;padding:16px 20px"><div class="muted">nothing deployed yet — clear the gate first</div></div>`;
   } else { // operate + audit split
     body = `<div style="display:flex;flex:1;min-height:0">
       <div class="col" style="flex:1;padding:12px"><b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Operate</b>
-        <div class="sk" style="padding:4px 9px">uptime ${S.operate.metrics.uptime_pct}% · p95 ${S.operate.metrics.p95_ms}ms</div>
-        <div class="sk" style="padding:4px 9px">${live() ? `allocation ${esc(S.app.allocation.id)} healthy` : "no live allocation"}</div>
+        <div class="sk" style="padding:4px 9px">${S.operate.metrics.available ? `uptime ${S.operate.metrics.uptime_pct}% · p95 ${S.operate.metrics.p95_ms}ms` : "runtime telemetry unavailable"}</div>
+        <div class="sk" style="padding:4px 9px">${live() ? `allocation ${esc(S.app.allocation.id)} ${S.operate.metrics.healthy ? "healthy" : "health unconfirmed"}` : "no live allocation"}</div>
       </div>
       <div class="col" style="flex:1.2;border-left:1.4px solid #2b2b2b;padding:12px"><b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Audit</b>
         ${auditRows(7)}

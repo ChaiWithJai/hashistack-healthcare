@@ -630,5 +630,11 @@ async fn operate_reports_dual_status_axes_labeled_simulated() {
     assert_eq!(operate["desired_state"], "running");
     assert_eq!(operate["observed_state"], "running");
     assert_eq!(operate["status_source"], "simulated");
-    assert_eq!(operate["metrics"]["healthy"], true);
+    assert_eq!(operate["metrics"]["available"], false);
+    assert!(operate["metrics"]["uptime_pct"].is_null());
+    assert!(operate["metrics"]["p95_ms"].is_null());
+    assert_eq!(
+        operate["metrics"]["healthy"], false,
+        "simulated status must never be promoted into an observed health claim"
+    );
 }

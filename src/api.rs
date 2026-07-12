@@ -1188,6 +1188,11 @@ async fn operate(
     } else {
         (desired.to_string(), "simulated")
     };
+    // Nomad job status is not an uptime or latency telemetry source. Until a
+    // metrics backend is configured, return explicit unavailability instead
+    // of polished constants. Allocation health is true only when the
+    // orchestrator actually reports a running job.
+    let observed_running = source == "nomad" && observed == "running";
     Ok(Json(json!({
         "stage": stage,
         "allocation": allocation,
@@ -1195,9 +1200,12 @@ async fn operate(
         "observed_state": observed,
         "status_source": source,
         "metrics": {
-            "uptime_pct": if live { 100.0 } else { 0.0 },
-            "p95_ms": if live { 120 } else { 0 },
-            "healthy": allocation.as_ref().map(|a| a.healthy).unwrap_or(false),
+            "source": null,
+            "available": false,
+            "uptime_pct": null,
+            "p95_ms": null,
+            "healthy": observed_running
+                && allocation.as_ref().map(|a| a.healthy).unwrap_or(false),
         },
     })))
 }

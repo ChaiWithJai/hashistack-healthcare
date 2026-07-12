@@ -71,6 +71,7 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         ));
     Router::new()
         .route("/", get(doctor_ui))
+        .route("/auth/config", get(auth_config))
         .route("/health", get(crate::health))
         .route("/proof/:workload", post(crate::proof))
         .merge(api)
@@ -79,6 +80,26 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
 
 async fn doctor_ui() -> Html<&'static str> {
     Html(DOCTOR_UI)
+}
+
+#[derive(Serialize)]
+struct AuthConfig {
+    mode: &'static str,
+    publishable_key: Option<String>,
+}
+
+async fn auth_config() -> Json<AuthConfig> {
+    let publishable_key = std::env::var("CLERK_PUBLISHABLE_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    Json(AuthConfig {
+        mode: if publishable_key.is_some() {
+            "clerk"
+        } else {
+            "static"
+        },
+        publishable_key,
+    })
 }
 
 // ---------- errors ----------
@@ -116,7 +137,10 @@ async fn authenticate(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let registry = platform.read().unwrap().identity.clone();
+    let (registry, clerk) = {
+        let platform = platform.read().unwrap();
+        (platform.identity.clone(), platform.clerk.clone())
+    };
     let header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -131,20 +155,37 @@ async fn authenticate(
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .ok_or_else(|| unauthorized("Authorization header must be `Bearer <token>`"))?;
-            let principal = registry
-                .by_token(token)
-                .ok_or_else(|| unauthorized("unrecognized bearer token"))?
-                .clone();
-            expire_idle_session(&platform, &registry, &principal)?;
+            let (principal, session_key) = if let Some(clerk) = clerk.as_ref() {
+                let session = clerk
+                    .verify(token)
+                    .await
+                    .map_err(|_| unauthorized("invalid or expired session"))?;
+                let principal = registry
+                    .by_id(&session.principal_id)
+                    .ok_or_else(|| unauthorized("user is not provisioned"))?
+                    .clone();
+                (principal, session.session_id)
+            } else {
+                let principal = registry
+                    .by_token(token)
+                    .ok_or_else(|| unauthorized("unrecognized bearer token"))?
+                    .clone();
+                (principal, token.to_string())
+            };
+            expire_idle_session(&platform, &registry, &principal, &session_key)?;
             principal
         }
         None => {
+            if clerk.is_some() {
+                return Err(unauthorized("authentication required"));
+            }
             let Some(principal) = registry.fallback().cloned() else {
                 return Err(unauthorized(
                     "missing Authorization: Bearer <token> (IDENTITIES_FILE is set — no dev fallback)",
                 ));
             };
-            expire_idle_session(&platform, &registry, &principal)?;
+            let session_key = principal.token.clone();
+            expire_idle_session(&platform, &registry, &principal, &session_key)?;
             if registry.announce_dev_fallback() {
                 let mut plat = platform.write().unwrap();
                 plat.audit.record(
@@ -172,8 +213,9 @@ fn expire_idle_session(
     platform: &SharedPlatform,
     registry: &crate::identity::Registry,
     principal: &Principal,
+    session_key: &str,
 ) -> Result<(), ApiError> {
-    if let Err(idle) = registry.touch(&principal.token) {
+    if let Err(idle) = registry.touch(session_key) {
         let mut plat = platform.write().unwrap();
         plat.audit.record(
             &principal.id,

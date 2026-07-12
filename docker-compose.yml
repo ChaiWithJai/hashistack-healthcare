@@ -31,8 +31,14 @@ services:
       AUDIT_FILE: /var/lib/studio/audit.jsonl
       IDENTITIES_FILE: /run/config/identities.hcl
       SESSION_IDLE_SECS: "900"
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-}
+      CLERK_SUBJECT_MAP: ${CLERK_SUBJECT_MAP:-}
+      CLERK_DEVELOPMENT_DEFAULT_PRINCIPAL: ${CLERK_DEVELOPMENT_DEFAULT_PRINCIPAL:-}
     ports:
-      - "${STUDIO_PORT:-3000}:3000"
+      - "127.0.0.1:${STUDIO_PORT:-3000}:3000"
     volumes:
       - studio-audit:/var/lib/studio
       - ./staging/identities.hcl:/run/config/identities.hcl:ro

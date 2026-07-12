@@ -17,6 +17,7 @@
 pub mod agent;
 pub mod api;
 pub mod audit;
+pub mod clerk;
 pub mod deploy;
 pub mod eject;
 pub mod gates;
@@ -65,6 +66,7 @@ pub fn app() -> Router {
 /// fails to load fails the boot loudly.
 pub async fn app_from_env() -> anyhow::Result<Router> {
     let registry = identity::Registry::from_env()?;
+    let clerk = clerk::ClerkVerifier::from_env()?.map(std::sync::Arc::new);
     tracing::info!(
         "identity registry: {} principals from {} — dev fallback {}, session idle {}",
         registry.principal_count(),
@@ -89,6 +91,7 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
     if db_url.is_none() && audit_file.is_none() {
         let mut platform = state::Platform::new(packs::builtin_packs());
         platform.identity = std::sync::Arc::new(registry);
+        platform.clerk = clerk;
         return Ok(api::router_with_state(std::sync::Arc::new(
             std::sync::RwLock::new(platform),
         )));
@@ -96,6 +99,7 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
 
     let mut platform = state::Platform::new(packs::builtin_packs());
     platform.identity = std::sync::Arc::new(registry);
+    platform.clerk = clerk;
     let mut broker = audit::Broker::new();
     if let Some(url) = db_url {
         let pg = store::PgStore::connect(&url).await?;

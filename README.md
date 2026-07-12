@@ -1,4 +1,4 @@
-# Clinician Platform
+# Practice Studio
 
 Doctors describe small practice tools in ordinary language. The platform
 builds a synthetic sandbox, explains what blocks release, and exports a Rust
@@ -23,6 +23,22 @@ It is also still the proof repo it started as: the product decision note in
 (Lovable/Supabase glue — right for Tier 1–2 tools) and the Rust boundary (the
 gate engine and append-only audit pipeline, where a wrong answer is a
 reportable incident).
+
+## Documentation
+
+Start with the [documentation map](docs/README.md). It separates the first
+local run from hosted operations, extension points, and dated proof records.
+
+The short path is:
+
+1. Run `scripts/single-host-smoke.sh`.
+2. Open `http://localhost:3000`.
+3. Build and change a tool with synthetic data.
+4. Run its release checks.
+5. Sign in only when you want to claim and export it.
+
+Hosted delivery uses DigitalOcean for the service and Cloudflare for owned DNS,
+TLS, and tunnels. See [the deployment guide](docs/deployment.md).
 
 ## What is proved
 

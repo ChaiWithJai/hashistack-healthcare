@@ -36,3 +36,14 @@ GCP uses the sibling `gcp/` module with `project`, `ssh_user`,
 commit for a durable deployment. A public `studio_cidrs=["0.0.0.0/0"]` is an
 explicit disposable-demo choice; never combine it with patient data or the
 tracked development bearer tokens.
+
+After `terraform apply`, prove the returned URL through the same API contract
+regardless of provider:
+
+```sh
+scripts/single-host-remote-proof.sh "$(terraform output -raw studio_url)"
+```
+
+Then restart the VM's studio container and run the command again. A new app
+must succeed while the earlier app and audit history remain visible; this is
+the live-provider persistence gate.

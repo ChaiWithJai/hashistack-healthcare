@@ -18,7 +18,7 @@ The current local tree passed these checks:
 |---|---:|
 | Rust platform tests | 90 passed |
 | Simulated pressure test | 89 passed |
-| Nomad, Vault, and Postgres pressure test | 124 passed |
+| Nomad, Vault, and Postgres pressure test | 130 passed |
 | Workflow evaluation | 458 of 458 passed |
 | Built artifact evaluation | 432 of 432 passed |
 | Runnable app packs | 17 |
@@ -115,7 +115,7 @@ Create these branches from `main`:
 1. Platform contracts. Include state, operation ordering, audit compensation,
    tenancy, and their focused tests.
 2. Live infrastructure. Include Docker staging, Nomad job corrections, Vault
-   compensation, the local image, and the 124 check proof.
+   compensation, the local image, and the 130 check proof.
 3. Owned packs. Include all 17 runnable packs, synthetic datasets, and artifact
    contracts.
 4. Export and evaluations. Include the export bundle, 78 scenario harness,

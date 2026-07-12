@@ -589,6 +589,19 @@ async fn doctor_ui_is_served_but_holds_no_privileges() {
         html.contains("/api/apps"),
         "the UI is a client of the same API"
     );
+    assert!(html.contains("/* Project-owned warm clinician theme."));
+    assert!(
+        html.contains("min-height:44px"),
+        "touch targets stay at least 44px"
+    );
+    assert!(
+        html.contains("prefers-reduced-motion:reduce"),
+        "motion-sensitive clinicians can disable nonessential movement"
+    );
+    assert!(
+        !html.contains("_ds_bundle") && !html.contains("catalyst-ui-kit"),
+        "the restricted vendor kit never ships in the studio"
+    );
 }
 
 /// #6 (honest slice): operate reports Nomad's dual status axes. In

@@ -430,6 +430,33 @@ record changes while a tier thinks, the verified edit is not applied; the
 operation settles `concurrent-edit` and the API returns 409 — retry the
 instruction. Setting `LOCAL_MODEL_URL` in a shared environment is safe now.
 
+## Recover a pending rollback
+
+`allocation.cleanup_pending=true` means the platform durably accepted a
+withdrawal but has not yet proved every external cleanup step. Do not edit,
+review, restore, or promote that app. Those endpoints return 409 until the
+withdrawal settles.
+
+1. Read `GET /api/apps/:id/operate`. Desired state is `stopped`.
+   `cleanup_workload_stopped=true` and `status_source=rollback-cleanup` mean
+   Nomad's stop was already confirmed; otherwise the observed state is polled
+   from Nomad.
+2. Confirm `NOMAD_ADDR` is available when `nomad_eval_id` exists. Confirm
+   `VAULT_ADDR`, `VAULT_TOKEN`, and the staging/control database URL are
+   available when a Vault lease is recorded. Missing proof clients fail
+   closed; never delete the handles by hand.
+3. Retry `POST /api/apps/:id/rollback`. A confirmed stop is not repeated.
+   Vault revocation and Postgres role absence are verified before the app can
+   become `sandbox` and return to synthetic data.
+4. A 502 means external cleanup remains retryable. A 503 means the control DB
+   or durable audit sink did not confirm progress; restore that dependency
+   before retrying. Inspect the app-scoped audit stream for
+   `app.rollback_requested` and `app.rollback_cleanup_pending`.
+
+Only bounded error codes are returned in the allocation record. Full backend
+causes stay in protected service logs so tokens, URLs, or response bodies do
+not become tenant-facing state.
+
 ## Troubleshooting
 - If Rust is missing, install stable Rust and rerun CI commands, or `docker compose up --build`.
 - If `nomad agent -dev` dies with `failed to detect memset: open

@@ -94,6 +94,12 @@ impl PgStore {
             let record: serde_json::Value = row.get(0);
             let app: AppRecord =
                 serde_json::from_value(record).context("apps.record does not parse")?;
+            if let Some(allocation) = app.allocation.as_ref() {
+                allocation
+                    .validate_cleanup_state()
+                    .map_err(anyhow::Error::msg)
+                    .context("apps.record has contradictory cleanup state")?;
+            }
             plat.apps.insert(app.id.clone(), app);
         }
 
@@ -372,6 +378,14 @@ pub async fn write_through(
             .iter()
             .filter_map(|id| plat.apps.get(*id).cloned())
             .collect();
+        for app in &apps {
+            if let Some(allocation) = app.allocation.as_ref() {
+                allocation
+                    .validate_cleanup_state()
+                    .map_err(anyhow::Error::msg)
+                    .with_context(|| format!("app {} has contradictory cleanup state", app.id))?;
+            }
+        }
         let operations = plat.take_dirty_operations();
         let since = store.persisted_seq.load(Ordering::SeqCst);
         let audit: Vec<AuditEvent> = plat

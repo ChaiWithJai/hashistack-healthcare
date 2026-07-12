@@ -191,34 +191,42 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
+    use std::sync::OnceLock;
 
     /// Every committed eval scenario, keyed by category — the screen's
     /// tuning corpus. Reading the real files keeps these tests honest: a
     /// new scenario is screened the moment it is committed.
     fn corpus() -> BTreeMap<String, Vec<(String, String, Option<u64>)>> {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/scenarios");
-        let mut by_category: BTreeMap<String, Vec<(String, String, Option<u64>)>> = BTreeMap::new();
-        let mut entries: Vec<_> = fs::read_dir(&dir)
-            .expect("evals/scenarios exists")
-            .map(|e| e.expect("readable dir entry").path())
-            .filter(|p| p.extension().is_some_and(|e| e == "json"))
-            .collect();
-        entries.sort();
-        assert!(!entries.is_empty(), "the eval corpus must not be empty");
-        for path in entries {
-            let scenario: serde_json::Value =
-                serde_json::from_str(&fs::read_to_string(&path).expect("readable scenario"))
+        static CORPUS: OnceLock<BTreeMap<String, Vec<(String, String, Option<u64>)>>> =
+            OnceLock::new();
+        CORPUS
+            .get_or_init(|| {
+                let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/scenarios");
+                let mut by_category = BTreeMap::new();
+                let mut entries: Vec<_> = fs::read_dir(&dir)
+                    .expect("evals/scenarios exists")
+                    .map(|e| e.expect("readable dir entry").path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "json"))
+                    .collect();
+                entries.sort();
+                assert!(!entries.is_empty(), "the eval corpus must not be empty");
+                for path in entries {
+                    let scenario: serde_json::Value = serde_json::from_str(
+                        &fs::read_to_string(&path).expect("readable scenario"),
+                    )
                     .expect("valid scenario JSON");
-            by_category
-                .entry(scenario["category"].as_str().expect("category").to_string())
-                .or_default()
-                .push((
-                    scenario["id"].as_str().expect("id").to_string(),
-                    scenario["prompt"].as_str().expect("prompt").to_string(),
-                    scenario["rfc_use_case"].as_u64(),
-                ));
-        }
-        by_category
+                    by_category
+                        .entry(scenario["category"].as_str().expect("category").to_string())
+                        .or_insert_with(Vec::new)
+                        .push((
+                            scenario["id"].as_str().expect("id").to_string(),
+                            scenario["prompt"].as_str().expect("prompt").to_string(),
+                            scenario["rfc_use_case"].as_u64(),
+                        ));
+                }
+                by_category
+            })
+            .clone()
     }
 
     #[test]

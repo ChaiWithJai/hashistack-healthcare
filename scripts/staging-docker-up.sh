@@ -15,7 +15,7 @@ fi
 for name in "${containers[@]}"; do docker rm -f "$name" 2>/dev/null || true; done
 docker network rm "$network" 2>/dev/null || true
 docker network create "$network" >/dev/null
-mkdir -p .staging/logs .staging/nomad-docker/data .staging/nomad-docker/alloc
+mkdir -p .staging/logs
 
 docker build -q -t hashistack-healthcare-client:local \
   -f staging/client-image/Dockerfile . >/dev/null
@@ -30,13 +30,19 @@ docker run -d --name hashistack-vault --network "$network" -p 8200:8200 \
   -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 \
   hashicorp/vault:1.17.6 server -dev >/dev/null
 
-shared="$PWD/.staging/nomad-docker"
+shared="${TMPDIR:-/tmp}/hashistack-nomad-docker"
+rm -rf "$shared"
+mkdir -p "$shared/data" "$shared/alloc"
+nomad_config=$(mktemp "${TMPDIR:-/tmp}/hashistack-nomad-client.XXXXXX.hcl")
+cp "$PWD/staging/nomad-docker-client.hcl" "$nomad_config"
+trap 'rm -f "$nomad_config"' EXIT
 docker run -d --name hashistack-nomad --network "$network" -p 4646:4646 \
   --privileged --cgroupns=host --cgroup-parent=nomad-proof \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$shared:$shared" \
-  -v "$PWD/staging/nomad-docker-client.hcl:/etc/nomad.d/client.hcl:ro" \
+  -v "$nomad_config:/etc/nomad.d/client.hcl:ro" \
   -e VAULT_ADDR=http://hashistack-vault:8200 -e VAULT_TOKEN=staging-root \
+  -e NOMAD_SKIP_DOCKER_IMAGE_WARN=1 \
   hashicorp/nomad:1.8.4 agent -dev -bind=0.0.0.0 \
   -data-dir="$shared/data" -alloc-dir="$shared/alloc" \
   -config=/etc/nomad.d/client.hcl -log-level=INFO >/dev/null

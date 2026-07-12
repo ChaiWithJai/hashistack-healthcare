@@ -86,6 +86,14 @@ pub struct Allocation {
     pub app_version: u32,
     pub url: String,
     pub healthy: bool,
+    /// A durable rollback intent exists. `cleanup_workload_stopped` records
+    /// the separately confirmed irreversible Nomad step.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cleanup_pending: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cleanup_workload_stopped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_error: Option<String>,
     pub deployed_at: u64,
     /// Staging (#2): the evaluation id Nomad returned when the rendered job
     /// was really submitted. `None` in simulated mode, so the simulated JSON
@@ -108,6 +116,26 @@ pub struct Allocation {
     /// Staging (#9): the lease TTL in seconds (1h per the tenant-app role).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_lease_ttl_secs: Option<u64>,
+}
+
+impl Allocation {
+    pub fn validate_cleanup_state(&self) -> Result<(), String> {
+        if self.cleanup_workload_stopped && !self.cleanup_pending {
+            return Err("cleanup_workload_stopped requires cleanup_pending".to_string());
+        }
+        if self.cleanup_error.is_some() && !self.cleanup_pending {
+            return Err("cleanup_error requires cleanup_pending".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn has_external_cleanup_handles(&self) -> bool {
+        self.nomad_eval_id.is_some() || self.vault_lease_id.is_some()
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// The attestation a promotion carries: who co-signed, what the gate report
@@ -299,6 +327,10 @@ pub struct Platform {
     /// sinks registered (AUDIT_FILE, control DB), load-bearing operations
     /// require ≥1 durable confirmation — no audit write, no operation.
     pub broker: Arc<crate::audit::Broker>,
+    /// Injectable cleanup boundary: production delegates to HashiStack;
+    /// contract tests inject stop/revoke failures without mutating process
+    /// environment or pretending a backend call happened.
+    pub cleanup_driver: Arc<dyn crate::deploy::CleanupDriver>,
     /// The identity registry (#10): who may call `/api` routes, as which
     /// principal. Defaults to the embedded dev registry (dr-osei fallback);
     /// `app_from_env` swaps in `IDENTITIES_FILE` / `SESSION_IDLE_SECS`.
@@ -306,6 +338,12 @@ pub struct Platform {
     /// Operation rows upserted since the last write-through — tracked only
     /// when a store is attached, drained by [`Platform::take_dirty_operations`].
     dirty_ops: BTreeSet<String>,
+    /// Mutations for one app are serialized through durable settlement. The
+    /// global platform lock remains short-lived; this per-app async lock
+    /// prevents a later successful edit from depending on an earlier edit
+    /// whose audit confirmation is still pending.
+    app_locks: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    pending_app_ids: BTreeSet<String>,
     next_id: u64,
 }
 
@@ -319,8 +357,11 @@ impl Platform {
             ladder: Arc::new(EscalationLadder::from_env()),
             store: None,
             broker: Arc::new(crate::audit::Broker::new()),
+            cleanup_driver: Arc::new(crate::deploy::HashiCleanupDriver),
             identity: Arc::new(crate::identity::Registry::dev_default()),
             dirty_ops: BTreeSet::new(),
+            app_locks: HashMap::new(),
+            pending_app_ids: BTreeSet::new(),
             next_id: 1,
         }
     }
@@ -366,6 +407,29 @@ impl Platform {
             .iter()
             .filter(|o| o.app_id == app_id)
             .collect()
+    }
+
+    pub fn app_lock(&mut self, app_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.app_locks
+            .entry(app_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    pub fn reserve_app_id(&mut self, preferred: &str) -> String {
+        let mut candidate = preferred.to_string();
+        while self.apps.contains_key(&candidate)
+            || self.pending_app_ids.contains(&candidate)
+            || self.operations.iter().any(|op| op.app_id == candidate)
+        {
+            candidate = self.mint_id(preferred);
+        }
+        self.pending_app_ids.insert(candidate.clone());
+        candidate
+    }
+
+    pub fn release_app_id(&mut self, id: &str) {
+        self.pending_app_ids.remove(id);
     }
 
     pub fn pack(&self, id: &str) -> Option<&PackManifest> {
@@ -429,5 +493,51 @@ mod operation_recovery_tests {
         assert_eq!(op.status, OpStatus::Success);
         assert!(op.finished_at.is_none());
         assert!(op.attempts.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod allocation_cleanup_tests {
+    use super::Allocation;
+
+    fn allocation() -> Allocation {
+        Allocation {
+            id: "a".into(),
+            pool: "prod".into(),
+            region: "nyc3".into(),
+            image: "image@sha256:test".into(),
+            profile: "small".into(),
+            database: "dynamic".into(),
+            credentials: "lease".into(),
+            app_version: 1,
+            url: "https://example.invalid".into(),
+            healthy: false,
+            cleanup_pending: false,
+            cleanup_workload_stopped: false,
+            cleanup_error: None,
+            deployed_at: 1,
+            nomad_eval_id: None,
+            vault_transit_key: None,
+            vault_lease_id: None,
+            vault_db_username: None,
+            vault_lease_ttl_secs: None,
+        }
+    }
+
+    #[test]
+    fn contradictory_cleanup_states_are_rejected() {
+        let mut stopped_without_intent = allocation();
+        stopped_without_intent.cleanup_workload_stopped = true;
+        assert!(stopped_without_intent.validate_cleanup_state().is_err());
+
+        let mut error_without_intent = allocation();
+        error_without_intent.cleanup_error = Some("failure".into());
+        assert!(error_without_intent.validate_cleanup_state().is_err());
+
+        let mut valid = allocation();
+        valid.cleanup_pending = true;
+        valid.cleanup_workload_stopped = true;
+        valid.cleanup_error = Some("credential-cleanup-failed".into());
+        assert!(valid.validate_cleanup_state().is_ok());
     }
 }

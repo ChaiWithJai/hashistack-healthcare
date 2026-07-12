@@ -6,8 +6,9 @@
 //! the salted-HMAC boundary (tenant view plaintext, platform export and
 //! durable archive `hmac-sha256:` only).
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::Notify;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -16,8 +17,9 @@ use tower::ServiceExt;
 
 use rust_proof_service::api;
 use rust_proof_service::audit::{AuditEvent, AuditSink, Broker, FileSink, SinkFuture};
+use rust_proof_service::deploy::{CleanupDriver, CleanupFailure};
 use rust_proof_service::packs;
-use rust_proof_service::state::{Platform, SharedPlatform};
+use rust_proof_service::state::{Allocation, Platform, SharedPlatform, Stage};
 
 const PROMPT: &str = "a post-op recovery tracker for my knee replacement patients";
 
@@ -81,6 +83,137 @@ impl AuditSink for KillableSink {
                 max = max.max(e.seq);
             }
             self.confirmed.fetch_max(max, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+}
+
+struct BarrierSink {
+    armed: AtomicBool,
+    confirmed: AtomicU64,
+    started: Notify,
+    release: Notify,
+}
+
+struct FailThenSucceedCleanup {
+    calls: AtomicUsize,
+    retry_saw_confirmed_stop: AtomicBool,
+}
+
+struct BlockingCleanup {
+    started: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+struct FailOnAppendSink {
+    calls: AtomicUsize,
+    confirmed: AtomicU64,
+    fail_on: usize,
+}
+
+impl AuditSink for FailOnAppendSink {
+    fn name(&self) -> &'static str {
+        "fail-on-append"
+    }
+    fn durable(&self) -> bool {
+        true
+    }
+    fn confirmed_seq(&self) -> u64 {
+        self.confirmed.load(Ordering::SeqCst)
+    }
+    fn probe(&self) -> SinkFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+    fn append<'a>(&'a self, events: &'a [AuditEvent]) -> SinkFuture<'a> {
+        Box::pin(async move {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call == self.fail_on {
+                anyhow::bail!("injected checkpoint audit failure");
+            }
+            if let Some(last) = events.last() {
+                self.confirmed.fetch_max(last.seq, Ordering::SeqCst);
+            }
+            Ok(())
+        })
+    }
+}
+
+impl CleanupDriver for BlockingCleanup {
+    fn rollback(
+        &self,
+        _snapshot: &rust_proof_service::state::AppRecord,
+    ) -> Result<Vec<(String, String)>, CleanupFailure> {
+        if let Some(started) = self.started.lock().unwrap().take() {
+            let _ = started.send(());
+        }
+        self.release.lock().unwrap().recv().unwrap();
+        Ok(Vec::new())
+    }
+}
+
+impl CleanupDriver for FailThenSucceedCleanup {
+    fn rollback(
+        &self,
+        snapshot: &rust_proof_service::state::AppRecord,
+    ) -> Result<Vec<(String, String)>, CleanupFailure> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            return Err(CleanupFailure::injected(
+                true,
+                "vault-token-secret must never reach the app record",
+            ));
+        }
+        self.retry_saw_confirmed_stop.store(
+            snapshot
+                .allocation
+                .as_ref()
+                .is_some_and(|allocation| allocation.cleanup_workload_stopped),
+            Ordering::SeqCst,
+        );
+        Ok(vec![(
+            "vault.lease_revoked".into(),
+            "injected cleanup verification succeeded".into(),
+        )])
+    }
+}
+
+impl BarrierSink {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            armed: AtomicBool::new(false),
+            confirmed: AtomicU64::new(0),
+            started: Notify::new(),
+            release: Notify::new(),
+        })
+    }
+    fn arm_failure(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+}
+
+impl AuditSink for BarrierSink {
+    fn name(&self) -> &'static str {
+        "barrier"
+    }
+    fn durable(&self) -> bool {
+        true
+    }
+    fn confirmed_seq(&self) -> u64 {
+        self.confirmed.load(Ordering::SeqCst)
+    }
+    fn probe(&self) -> SinkFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+    fn append<'a>(&'a self, events: &'a [AuditEvent]) -> SinkFuture<'a> {
+        Box::pin(async move {
+            if self.armed.swap(false, Ordering::SeqCst) {
+                self.started.notify_one();
+                self.release.notified().await;
+                anyhow::bail!("injected delayed sink failure");
+            }
+            if let Some(last) = events.last() {
+                self.confirmed.fetch_max(last.seq, Ordering::SeqCst);
+            }
             Ok(())
         })
     }
@@ -150,6 +283,30 @@ async fn create_app(router: &axum::Router) -> String {
     body["app"]["id"].as_str().unwrap().to_string()
 }
 
+fn cleanup_allocation(stopped: bool) -> Allocation {
+    Allocation {
+        id: "alloc-cleanup".into(),
+        pool: "prod".into(),
+        region: "nyc3".into(),
+        image: "example.invalid/app@sha256:test".into(),
+        profile: "shared-small".into(),
+        database: "vault-dynamic".into(),
+        credentials: "vault-lease".into(),
+        app_version: 1,
+        url: "https://example.invalid".into(),
+        healthy: false,
+        cleanup_pending: true,
+        cleanup_workload_stopped: stopped,
+        cleanup_error: Some("credential-cleanup-failed".into()),
+        deployed_at: 1,
+        nomad_eval_id: None,
+        vault_transit_key: None,
+        vault_lease_id: None,
+        vault_db_username: None,
+        vault_lease_ttl_secs: None,
+    }
+}
+
 fn actions(audit: &Value) -> Vec<&str> {
     audit["events"]
         .as_array()
@@ -157,6 +314,298 @@ fn actions(audit: &Value) -> Vec<&str> {
         .iter()
         .map(|e| e["action"].as_str().unwrap())
         .collect()
+}
+
+#[tokio::test]
+async fn same_app_mutations_serialize_through_durable_confirmation() {
+    let sink = BarrierSink::new();
+    let (_platform, router) = platform_with_sink(sink.clone()).await;
+    let id = create_app(&router).await;
+    sink.arm_failure();
+
+    let first_router = router.clone();
+    let first_id = id.clone();
+    let first = tokio::spawn(async move {
+        call(
+            &first_router,
+            "POST",
+            &format!("/api/apps/{first_id}/gate/auto-logoff/fix"),
+            Some(json!({})),
+        )
+        .await
+    });
+    sink.started.notified().await;
+
+    let second_router = router.clone();
+    let second_id = id.clone();
+    let second = tokio::spawn(async move {
+        call(
+            &second_router,
+            "POST",
+            &format!("/api/apps/{second_id}/iterate"),
+            Some(json!({"instruction": "add caregiver SMS reminders"})),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        !second.is_finished(),
+        "later mutation must wait for the earlier durable verdict"
+    );
+
+    sink.release.notify_one();
+    let (first_status, _) = first.await.unwrap();
+    assert_eq!(first_status, StatusCode::SERVICE_UNAVAILABLE);
+    let (second_status, second_body) = second.await.unwrap();
+    assert_eq!(second_status, StatusCode::OK, "{second_body}");
+
+    let (_, app) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    let controls = app["controls"].as_array().unwrap();
+    assert!(
+        !controls.iter().any(|control| control == "auto-logoff"),
+        "failed first mutation must not survive inside the later success: {app}"
+    );
+    assert!(
+        app["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|feature| feature == "add caregiver SMS reminders"),
+        "later mutation should apply after the failed mutation is reverted: {app}"
+    );
+}
+
+#[tokio::test]
+async fn cleanup_pending_refuses_edits_and_reports_withdrawal_honestly() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        app.allocation = Some(cleanup_allocation(false));
+    }
+
+    for (method, path, body) in [
+        (
+            "POST",
+            format!("/api/apps/{id}/iterate"),
+            Some(json!({"instruction":"change medication workflow"})),
+        ),
+        (
+            "POST",
+            format!("/api/apps/{id}/gate/auto-logoff/fix"),
+            Some(json!({})),
+        ),
+        ("POST", format!("/api/apps/{id}/review"), Some(json!({}))),
+        (
+            "POST",
+            format!("/api/apps/{id}/promote"),
+            Some(json!({"synthetic_demo":true})),
+        ),
+        ("GET", format!("/api/apps/{id}/export"), None),
+    ] {
+        let (status, response) = call(&router, method, &path, body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{path}: {response}");
+    }
+
+    let (status, operating) = call(&router, "GET", &format!("/api/apps/{id}/operate"), None).await;
+    assert_eq!(status, StatusCode::OK, "{operating}");
+    assert_eq!(operating["desired_state"], "stopped");
+    assert_eq!(operating["status_source"], "simulated");
+
+    platform
+        .write()
+        .unwrap()
+        .apps
+        .get_mut(&id)
+        .unwrap()
+        .allocation
+        .as_mut()
+        .unwrap()
+        .cleanup_workload_stopped = true;
+    let (_, operating) = call(&router, "GET", &format!("/api/apps/{id}/operate"), None).await;
+    assert_eq!(operating["desired_state"], "stopped");
+    assert_eq!(operating["observed_state"], "stopped");
+    assert_eq!(operating["status_source"], "rollback-cleanup");
+}
+
+#[tokio::test]
+async fn rollback_persists_stopped_cleanup_and_retry_completes_without_secret_leakage() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let driver = Arc::new(FailThenSucceedCleanup {
+        calls: AtomicUsize::new(0),
+        retry_saw_confirmed_stop: AtomicBool::new(false),
+    });
+    platform.write().unwrap().cleanup_driver = driver.clone();
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        app.allocation = Some(allocation);
+    }
+
+    let (status, response) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/rollback"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{response}");
+    let (_, pending) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    assert_eq!(pending["stage"], "live");
+    assert_eq!(pending["allocation"]["cleanup_pending"], true);
+    assert_eq!(pending["allocation"]["cleanup_workload_stopped"], true);
+    assert_eq!(
+        pending["allocation"]["cleanup_error"],
+        "credential-cleanup-failed"
+    );
+    assert!(
+        !pending.to_string().contains("vault-token-secret"),
+        "backend details must not cross the API boundary: {pending}"
+    );
+    let restarted: rust_proof_service::state::AppRecord =
+        serde_json::from_value(pending.clone()).unwrap();
+    let restarted_allocation = restarted.allocation.unwrap();
+    assert!(restarted_allocation.cleanup_pending);
+    assert!(restarted_allocation.cleanup_workload_stopped);
+
+    let (status, response) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/rollback"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["stage"], "sandbox");
+    assert!(response["allocation"].is_null());
+    assert!(driver.retry_saw_confirmed_stop.load(Ordering::SeqCst));
+    assert_eq!(driver.calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn blocked_cleanup_does_not_stop_a_different_app_from_progressing() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let first_id = create_app(&router).await;
+    let second_id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&first_id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        app.allocation = Some(allocation);
+    }
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    platform.write().unwrap().cleanup_driver = Arc::new(BlockingCleanup {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(release_rx),
+    });
+
+    let rollback_router = router.clone();
+    let rollback_id = first_id.clone();
+    let rollback = tokio::spawn(async move {
+        call(
+            &rollback_router,
+            "POST",
+            &format!("/api/apps/{rollback_id}/rollback"),
+            None,
+        )
+        .await
+    });
+    tokio::task::spawn_blocking(move || started_rx.recv().unwrap())
+        .await
+        .unwrap();
+
+    let independent = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        call(
+            &router,
+            "POST",
+            &format!("/api/apps/{second_id}/iterate"),
+            Some(json!({"instruction":"add caregiver status summaries"})),
+        ),
+    )
+    .await
+    .expect("a different app must not wait on external cleanup");
+    assert_eq!(independent.0, StatusCode::OK, "{}", independent.1);
+
+    release_tx.send(()).unwrap();
+    let (status, response) = rollback.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{response}");
+}
+
+#[tokio::test]
+async fn final_transition_waits_for_a_durable_verified_cleanup_checkpoint() {
+    let sink = Arc::new(FailOnAppendSink {
+        calls: AtomicUsize::new(0),
+        confirmed: AtomicU64::new(0),
+        fail_on: 3,
+    });
+    let (platform, router) = platform_with_sink(sink).await;
+    let driver = Arc::new(FailThenSucceedCleanup {
+        calls: AtomicUsize::new(1),
+        retry_saw_confirmed_stop: AtomicBool::new(false),
+    });
+    platform.write().unwrap().cleanup_driver = driver.clone();
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        app.allocation = Some(allocation);
+    }
+
+    let (status, response) = call(&router, "POST", &format!("/api/apps/{id}/rollback"), None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{response}");
+    let (_, pending) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    assert_eq!(pending["stage"], "live");
+    assert_eq!(pending["allocation"]["cleanup_pending"], true);
+    assert_eq!(pending["allocation"]["cleanup_workload_stopped"], true);
+    assert!(pending["allocation"]["cleanup_error"].is_null());
+
+    let (status, response) = call(&router, "POST", &format!("/api/apps/{id}/rollback"), None).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert!(driver.retry_saw_confirmed_stop.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn real_cleanup_never_runs_without_a_control_store() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let driver = Arc::new(FailThenSucceedCleanup {
+        calls: AtomicUsize::new(0),
+        retry_saw_confirmed_stop: AtomicBool::new(false),
+    });
+    platform.write().unwrap().cleanup_driver = driver.clone();
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        allocation.nomad_eval_id = Some("eval-real".into());
+        app.allocation = Some(allocation);
+    }
+    let (status, response) = call(&router, "POST", &format!("/api/apps/{id}/rollback"), None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{response}");
+    assert_eq!(driver.calls.load(Ordering::SeqCst), 0);
 }
 
 // ---------- the issue's bar ----------

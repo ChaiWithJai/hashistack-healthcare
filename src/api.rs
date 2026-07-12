@@ -330,6 +330,32 @@ async fn settle_durable(
     Ok(())
 }
 
+async fn serialize_app_mutation(
+    platform: &SharedPlatform,
+    app_id: &str,
+) -> tokio::sync::OwnedMutexGuard<()> {
+    let lock = platform.write().unwrap().app_lock(app_id);
+    lock.lock_owned().await
+}
+
+fn refuse_during_cleanup(platform: &SharedPlatform, app_id: &str) -> Result<(), ApiError> {
+    let cleanup_pending = platform
+        .read()
+        .unwrap()
+        .apps
+        .get(app_id)
+        .and_then(|app| app.allocation.as_ref())
+        .is_some_and(|allocation| allocation.cleanup_pending);
+    if cleanup_pending {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "rollback cleanup is pending; only rollback retry, operate, and audit are available"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// The 503 a load-bearing operation answers when durability failed and its
 /// state change was reverted.
 fn audit_unavailable(what: &str, cause: String) -> ApiError {
@@ -442,11 +468,7 @@ async fn create_app(
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join("-");
-        let id = if plat.apps.contains_key(&slug) {
-            plat.mint_id(&slug)
-        } else {
-            slug
-        };
+        let id = plat.reserve_app_id(&slug);
 
         // The prompt is doctor-authored free text: it rides the sensitive
         // envelope (#8) — HMAC on every platform-wide surface, plaintext in
@@ -468,6 +490,7 @@ async fn create_app(
         .run_scaffold(&platform, &id, &pack, &req.prompt)
         .await
         .map_err(|f| {
+            platform.write().unwrap().release_app_id(&id);
             ApiError(
                 StatusCode::BAD_GATEWAY,
                 format!(
@@ -517,6 +540,7 @@ async fn create_app(
             Some(&id),
         );
         plat.apps.insert(id.clone(), app.clone());
+        plat.release_app_id(&id);
     }
 
     // #7 write-through (the creation history row, prior NULL → sandbox) +
@@ -586,6 +610,8 @@ async fn iterate(
     Json(req): Json<Iterate>,
 ) -> ApiResult<serde_json::Value> {
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     let (pack, ladder, snapshot) = {
         let plat = platform.read().unwrap();
         let app = plat
@@ -652,6 +678,8 @@ async fn restore(
     Json(req): Json<Restore>,
 ) -> ApiResult<AppRecord> {
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     let app = {
         let mut plat = platform.write().unwrap();
         let scaffold = plat
@@ -727,6 +755,8 @@ async fn fix_gate(
     Path((id, gate_id)): Path<(String, String)>,
 ) -> ApiResult<serde_json::Value> {
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     if !gates::known_gate(&gate_id) {
         return Err(not_found("gate"));
     }
@@ -823,6 +853,8 @@ async fn review(
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     let (note, report, reviewed_app, snapshot) = {
         let mut plat = platform.write().unwrap();
         let pack = plat
@@ -902,6 +934,8 @@ async fn promote(
     // then the role capability — releasing to real patients is a clinical
     // act, so staff answer 403 `auth.role_denied`.
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     require_capability(&platform, &principal, Capability::CoSignRelease, Some(&id))?;
 
     // Refused release attempts are security events, not transient HTTP
@@ -1073,7 +1107,29 @@ async fn rollback(
     // Tenant-scoped but role-open: withdrawing an app from use must never
     // wait on the clinician (safety beats ceremony) — staff may roll back.
     ensure_tenant(&platform, &id, &principal)?;
-    let (app, snapshot) = {
+    let _serial = serialize_app_mutation(&platform, &id).await;
+
+    let real_cleanup = {
+        let state = platform.read().unwrap();
+        let app = state.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        let real_cleanup = app
+            .allocation
+            .as_ref()
+            .is_some_and(|allocation| allocation.has_external_cleanup_handles());
+        if real_cleanup && state.store.is_none() {
+            return Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "real rollback requires CONTROL_DB_URL so cleanup intent survives restart"
+                    .to_string(),
+            ));
+        }
+        real_cleanup
+    };
+
+    // Persist the cleanup intent before the first irreversible external
+    // action. A crash can therefore resume from the control DB instead of
+    // reloading a stale apparently-running allocation.
+    let (snapshot, intent, newly_requested, synthetic) = {
         let mut plat = platform.write().unwrap();
         let synthetic = plat
             .apps
@@ -1083,22 +1139,163 @@ async fn rollback(
             .ok_or_else(|| not_found("app"))?;
         let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
         let snapshot = app.clone();
-        deploy::rollback(app, &synthetic)
+        let mut validation = snapshot.clone();
+        deploy::rollback(&mut validation, &synthetic)
             .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
-        // Staging (#2, #9): the real allocation must actually die. If Nomad
-        // refuses the stop, the rollback is refused too — the record never
-        // claims the sandbox while a real job still runs — and the database
-        // lease is only revoked (and revocation proven) after the stop.
-        let staging_events = match deploy::staging_rollback(&snapshot) {
+        let newly_requested = !app
+            .allocation
+            .as_ref()
+            .is_some_and(|allocation| allocation.cleanup_pending);
+        if newly_requested {
+            if let Some(allocation) = app.allocation.as_mut() {
+                allocation.healthy = false;
+                allocation.cleanup_pending = true;
+                allocation.cleanup_workload_stopped = false;
+                allocation.cleanup_error = None;
+            }
+        }
+        let intent = app.clone();
+        if newly_requested {
+            plat.audit.record(
+                "deploy",
+                "app.rollback_requested",
+                "durable cleanup intent recorded before workload stop",
+                Some(&id),
+            );
+        }
+        (snapshot, intent, newly_requested, synthetic)
+    };
+
+    if newly_requested {
+        if real_cleanup {
+            if let Err(cause) = store::write_through(&platform, &[&id], None).await {
+                restore_if_unchanged(&platform, &id, &intent, snapshot);
+                return Err(audit_unavailable(
+                    "rollback intent was not persisted to the control DB",
+                    format!("{cause:#}"),
+                ));
+            }
+        }
+        if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+            // A real cleanup intent already reached the control DB. Keep the
+            // same truthful in-memory intent when only audit confirmation
+            // failed; synthetic rollback has no irreversible work and may
+            // safely revert its candidate.
+            if !real_cleanup {
+                restore_if_unchanged(&platform, &id, &intent, snapshot);
+            }
+            return Err(audit_unavailable("rollback intent not confirmed", cause));
+        }
+    }
+
+    let current = platform
+        .read()
+        .unwrap()
+        .apps
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| not_found("app"))?;
+    let cleanup_driver = platform.read().unwrap().cleanup_driver.clone();
+    let staging_events =
+        match tokio::task::spawn_blocking(move || cleanup_driver.rollback(&current))
+            .await
+            .map_err(|error| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("cleanup worker panicked: {error}"),
+                )
+            })? {
             Ok(events) => events,
-            Err(e) => {
-                *app = snapshot;
+            Err(failure) => {
+                let stopped = failure.workload_stopped;
+                {
+                    let mut plat = platform.write().unwrap();
+                    let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+                    if let Some(allocation) = app.allocation.as_mut() {
+                        allocation.healthy = false;
+                        allocation.cleanup_pending = true;
+                        allocation.cleanup_workload_stopped = stopped;
+                        // Persist a bounded public code, never backend response text.
+                        allocation.cleanup_error = Some(
+                            if stopped {
+                                "credential-cleanup-failed"
+                            } else {
+                                "workload-stop-failed"
+                            }
+                            .to_string(),
+                        );
+                    }
+                    plat.audit.record(
+                        "deploy",
+                        "app.rollback_cleanup_pending",
+                        if stopped {
+                            "workload stopped; credential cleanup must be retried"
+                        } else {
+                            "workload stop was not confirmed; rollback must be retried"
+                        },
+                        Some(&id),
+                    );
+                }
+                if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+                    return Err(audit_unavailable(
+                        "rollback cleanup progress could not be durably recorded",
+                        cause,
+                    ));
+                }
+                tracing::error!(app_id = %id, error = %failure, "rollback cleanup failed");
                 return Err(ApiError(
                     StatusCode::BAD_GATEWAY,
-                    format!("staging rollback failed — allocation kept: {e}"),
+                    if stopped {
+                        "workload stopped; credential cleanup pending and rollback may be retried"
+                    } else {
+                        "workload stop was not confirmed; rollback may be retried"
+                    }
+                    .to_string(),
                 ));
             }
         };
+
+    // Checkpoint externally verified cleanup before publishing Sandbox. If
+    // the later stage transition fails, retry retains the confirmed stop.
+    let verified_cleanup = {
+        let mut plat = platform.write().unwrap();
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        if let Some(allocation) = app.allocation.as_mut() {
+            allocation.healthy = false;
+            allocation.cleanup_pending = true;
+            allocation.cleanup_workload_stopped = true;
+            allocation.cleanup_error = None;
+        }
+        let verified = app.clone();
+        plat.audit.record(
+            "deploy",
+            "app.rollback_cleanup_verified",
+            "workload stop and credential cleanup verified; sandbox transition pending",
+            Some(&id),
+        );
+        verified
+    };
+    if real_cleanup {
+        if let Err(cause) = store::write_through(&platform, &[&id], None).await {
+            return Err(audit_unavailable(
+                "verified rollback cleanup was not persisted to the control DB",
+                format!("{cause:#}"),
+            ));
+        }
+    }
+    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+        return Err(audit_unavailable(
+            "verified rollback cleanup was not durably confirmed",
+            cause,
+        ));
+    }
+
+    let (app, cleanup_snapshot) = {
+        let mut plat = platform.write().unwrap();
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        let cleanup_snapshot = verified_cleanup;
+        deploy::rollback(app, &synthetic)
+            .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
         let app = app.clone();
         plat.audit.record(
             "deploy",
@@ -1109,7 +1306,7 @@ async fn rollback(
         for (action, detail) in staging_events {
             plat.audit.record("deploy", &action, detail, Some(&id));
         }
-        (app, snapshot)
+        (app, cleanup_snapshot)
     };
 
     // #7 + #8: same rule as promote — the live→sandbox transition AND its
@@ -1126,7 +1323,7 @@ async fn rollback(
     )
     .await
     {
-        restore_if_unchanged(&platform, &id, &app, snapshot);
+        restore_if_unchanged(&platform, &id, &app, cleanup_snapshot);
         let mut plat = platform.write().unwrap();
         plat.audit
             .record("deploy", "app.rollback_reverted", cause.clone(), Some(&id));
@@ -1162,8 +1359,23 @@ async fn operate(
         (app.stage, app.allocation.clone(), app.tenant.clone())
     };
     let live = stage == Stage::Live;
-    let desired = if live { "running" } else { "stopped" };
-    let (observed, source) = if live && crate::hashi::Nomad::from_env().is_some() {
+    let cleanup_pending = allocation
+        .as_ref()
+        .is_some_and(|allocation| allocation.cleanup_pending);
+    let cleanup_stopped = allocation
+        .as_ref()
+        .is_some_and(|allocation| allocation.cleanup_workload_stopped);
+    let desired = if live && !cleanup_pending {
+        "running"
+    } else {
+        "stopped"
+    };
+    let (observed, source) = if cleanup_pending && cleanup_stopped {
+        // This is not a guess: cleanup_pending is written only after Nomad
+        // confirmed the stop. Vault cleanup may remain, but the workload is
+        // already known stopped.
+        ("stopped".to_string(), "rollback-cleanup")
+    } else if live && crate::hashi::Nomad::from_env().is_some() {
         let job_id = id.clone();
         let namespace = format!("tenant-{tenant}");
         let polled = tokio::task::spawn_blocking(move || {
@@ -1257,6 +1469,8 @@ async fn export_app(
     // Tenant-scoped, role-open: the bundle is the tenant's own record
     // (plaintext side of the HMAC boundary), so 404 outside the tenant.
     ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    refuse_during_cleanup(&platform, &id)?;
     let bundle = {
         let mut plat = platform.write().unwrap();
         let app = plat

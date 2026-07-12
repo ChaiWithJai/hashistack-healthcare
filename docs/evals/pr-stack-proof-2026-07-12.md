@@ -16,7 +16,7 @@ head, and what a reviewer must decide.
 |---|---:|
 | Rust platform tests | 90 passed |
 | Simulated pressure checks | 89 passed |
-| Nomad, Vault, and Postgres checks | 124 passed |
+| Nomad, Vault, and Postgres checks | 130 passed |
 | User workflow checks | 458 of 458 passed |
 | Built artifact checks | 432 of 432 passed |
 | Scenarios | 78 |
@@ -52,12 +52,12 @@ for all 17 packs are under `docs/evals/screenshots/`.
 | PR | Before | After in the integrated tree | Proof | Human review |
 |---:|---|---|---|---|
 | 1 | Static wireframes and simulated state. | The same clinician flow now reaches tested services and owned exports. | UI screenshot, health contract, and workflow tests. | Confirm that the product language does not imply production readiness. |
-| 13 | No local HashiStack lifecycle and an export promise. | Docker staging runs Nomad, Vault, Postgres, and the control plane. Every export contains source and ownership docs. | 124 infrastructure checks and export contract tests. | Review the staging trust boundary and export ownership claims. |
+| 13 | No local HashiStack lifecycle and an export promise. | Docker staging runs Nomad, Vault, Postgres, and the control plane. Every export contains source and ownership docs. | 130 infrastructure checks and export contract tests. | Review the staging trust boundary and export ownership claims. |
 | 14 | A pack was a manifest with feature strings. | The post operation pack builds and runs as an exported Rust app. | Standalone Cargo tests and the exported app screenshots. | Review whether the clinical workflow is useful and safely limited. |
 | 15 | Gates trusted controls reported by the app. | Broken source fails evidence checks. A stub cannot authorize patient data. | Evidence contract tests and the failing gate screenshot. | Review which controls are strong enough for patient data. |
-| 16 | A restart lost app state and operations. | Postgres restores apps, operations, allocation handles, attestations, and audit events. RUNNING is stored before driver work. | Signal 9 restart section of the 124 check run. | Review which writes must fail when Postgres is unavailable. |
+| 16 | A restart lost app state and operations. | Postgres restores apps, operations, allocation handles, attestations, and audit events. RUNNING is stored before driver work. | Signal 9 restart section of the 130 check run. | Review which writes must fail when Postgres is unavailable. |
 | 17 | Audit lived in memory and a sink failure could not block work. | File and Postgres sinks confirm writes. Sensitive values use HMAC. Audit compensation cannot erase a newer app change. | Audit broker tests, sink failure test, and restart proof. | Review retention, archive integrity, and access to plaintext views. |
-| 19 | Vault existed only in labels and rendered text. | Transit rotation, template rendering, database login, and revocation execute locally. Promotion compensates a lease when Nomad submission fails. | Vault sections of the 124 check run. | Review the remaining root token and shared database role. |
+| 19 | Vault existed only in labels and rendered text. | Transit rotation, template rendering, database login, and revocation execute locally. Promotion compensates a lease when Nomad submission fails. | Vault sections of the 130 check run. | Review the remaining root token and shared database role. |
 | 20 | API actions used one hardcoded doctor and tenant. | Two tenants, role checks, strict token mode, and idle expiry pass. The report digest binds to the authenticated principal. | Ten identity contract tests and pressure test tenant checks. | Decide the OIDC provider, signature service, and operator access policy. |
 | 21 | Each feature had separate evidence and status language. | One harness profiles the workflow, refusals, identity, and observed deployment status. | 458 workflow checks and 432 artifact checks. | Decide whether this large mixed change should be split before squash. |
 | 22 | The stack had many test results but no single audience journey. | The journey records sandbox, gate, release, export, task completion, and audit events. | Six journey screenshots plus the profile JSON. | Review whether the journey represents the intended design partner. |

@@ -2,7 +2,7 @@
 
 ## Result
 
-The control plane passed 124 of 124 pressure checks against local Nomad,
+The control plane passed 130 of 130 pressure checks against local Nomad,
 Vault, and Postgres services.
 
 The test used these versions:
@@ -121,4 +121,4 @@ scripts/pressure-test.sh http://127.0.0.1:39100
 
 Set `NOMAD_STAGING_IMAGE=hashistack-healthcare-client:local` and
 `NOMAD_REQUIRE_ALLOCATION=1` to require container execution and health traffic.
-The final line was `124 passed, 0 failed`.
+The final line was `130 passed, 0 failed`.

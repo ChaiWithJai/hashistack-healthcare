@@ -17,6 +17,9 @@ set -euo pipefail
 
 BASE="${1:-http://127.0.0.1:39100}"
 LABEL="${2:-unlabeled}"
+AUTH=()
+if [[ -n "${STUDIO_TOKEN:-}" ]]; then AUTH=(-H "Authorization: Bearer $STUDIO_TOKEN"); fi
+now_ms() { python3 -c 'import time; print(time.time_ns() // 1_000_000)'; }
 
 INSTRUCTIONS=(
   "add automatic logoff after 15 minutes idle"
@@ -29,17 +32,17 @@ INSTRUCTIONS=(
   "let patients export their own recovery data as a PDF"
 )
 
-APP=$(curl -s -X POST "$BASE/api/apps" -H 'content-type: application/json' \
+APP=$(curl -s -X POST "$BASE/api/apps" "${AUTH[@]}" -H 'content-type: application/json' \
   -d '{"prompt":"ladder exercise: post-op recovery tracker","pack":"post-op-monitor","name":"ladder exercise '"$LABEL"'"}')
 ID=$(echo "$APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["id"])')
 echo "app: $ID (label: $LABEL, base: $BASE)"
 echo
 
 for instr in "${INSTRUCTIONS[@]}"; do
-  t0=$(date +%s%3N)
-  curl -s -X POST "$BASE/api/apps/$ID/iterate" -H 'content-type: application/json' \
+  t0=$(now_ms)
+  curl -s -X POST "$BASE/api/apps/$ID/iterate" "${AUTH[@]}" -H 'content-type: application/json' \
     -d "$(python3 -c 'import json,sys; print(json.dumps({"instruction": sys.argv[1]}))' "$instr")" >/dev/null
-  t1=$(date +%s%3N)
+  t1=$(now_ms)
   echo "ran ($((t1-t0)) ms): $instr"
 done
 
@@ -47,7 +50,7 @@ echo
 echo "== operations record (the ladder's own evidence)"
 OPS_JSON=$(mktemp)
 trap 'rm -f "$OPS_JSON"' EXIT
-curl -s "$BASE/api/apps/$ID/operations" >"$OPS_JSON"
+curl -s "${AUTH[@]}" "$BASE/api/apps/$ID/operations" >"$OPS_JSON"
 python3 - "$LABEL" "$OPS_JSON" <<'EOF'
 import json, sys
 
@@ -81,7 +84,7 @@ EOF
 
 echo
 echo "== escalation evidence in the audit stream (last 12 agent events)"
-curl -s "$BASE/api/apps/$ID/audit" | python3 -c '
+curl -s "${AUTH[@]}" "$BASE/api/apps/$ID/audit" | python3 -c '
 import json, sys
 events = json.load(sys.stdin).get("events", [])
 agent = [e for e in events if e.get("action","").startswith("agent.")]

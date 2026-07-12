@@ -32,7 +32,7 @@ The integrated local tree has passed:
 |---|---:|
 | Rust platform tests | 90 passed |
 | Simulated pressure test | 89 passed |
-| Nomad, Vault, and Postgres pressure test | 124 passed |
+| Nomad, Vault, and Postgres pressure test | 130 passed |
 | User workflow checks | 458 of 458 passed |
 | Built artifact checks | 432 of 432 passed |
 | Runnable app packs | 17 |

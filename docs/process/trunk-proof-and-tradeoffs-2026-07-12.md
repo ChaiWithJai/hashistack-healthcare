@@ -35,7 +35,7 @@ The results were:
 | Evaluation scenarios | 78 |
 
 The first staging run did not configure Nomad, Vault, or Postgres. A second run
-used all three services and passed 124 of 124 pressure checks. It proved job
+used all three services and passed 130 of 130 pressure checks. It proved job
 submission, allocation execution, HTTP health traffic, dynamic database
 credentials, key rotation, durable restart, and rollback.
 

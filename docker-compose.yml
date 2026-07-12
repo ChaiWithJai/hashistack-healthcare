@@ -31,6 +31,7 @@ services:
       AUDIT_FILE: /var/lib/studio/audit.jsonl
       IDENTITIES_FILE: /run/config/identities.hcl
       SESSION_IDLE_SECS: "900"
+      ANON_SESSION_HMAC_KEY: ${ANON_SESSION_HMAC_KEY:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}

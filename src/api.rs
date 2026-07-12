@@ -16,7 +16,7 @@
 //! role has no cross-tenant read of any kind.
 
 use axum::extract::{Path, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -46,11 +46,7 @@ pub fn router() -> Router {
 }
 
 pub fn router_with_state(platform: SharedPlatform) -> Router {
-    // Every /api route lives behind the identity middleware — coverage by
-    // construction, so a new route cannot forget to authenticate. Health,
-    // the doctor UI shell, and the original proof contract stay open.
-    let api = Router::new()
-        .route("/api/packs", get(list_packs))
+    let workspace = Router::new()
         .route("/api/apps", get(list_apps).post(create_app))
         .route("/api/apps/:id", get(get_app))
         .route("/api/apps/:id/iterate", post(iterate))
@@ -61,8 +57,14 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         .route("/api/apps/:id/promote", post(promote))
         .route("/api/apps/:id/rollback", post(rollback))
         .route("/api/apps/:id/operate", get(operate))
-        .route("/api/apps/:id/operations", get(app_operations))
         .route("/api/apps/:id/audit", get(app_audit))
+        .route_layer(middleware::from_fn_with_state(
+            platform.clone(),
+            resolve_workspace,
+        ));
+    let owned = Router::new()
+        .route("/api/apps/:id/claim", post(claim_app))
+        .route("/api/apps/:id/operations", get(app_operations))
         .route("/api/apps/:id/export", get(export_app))
         .route("/api/audit/export", get(export_audit))
         .route_layer(middleware::from_fn_with_state(
@@ -72,9 +74,12 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
     Router::new()
         .route("/", get(doctor_ui))
         .route("/auth/config", get(auth_config))
+        .route("/api/packs", get(list_packs))
+        .route("/api/public/session", post(start_anonymous_session))
         .route("/health", get(crate::health))
         .route("/proof/:workload", post(crate::proof))
-        .merge(api)
+        .merge(workspace)
+        .merge(owned)
         .with_state(platform)
 }
 
@@ -122,6 +127,43 @@ fn unauthorized(msg: impl Into<String>) -> ApiError {
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
+async fn start_anonymous_session(
+    State(platform): State<SharedPlatform>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let anonymous = platform.read().unwrap().anonymous.clone();
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let fetch_site = headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok());
+    if !anonymous.origin_allowed(origin, fetch_site) {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "request origin is not allowed".into(),
+        ));
+    }
+    if headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|cookie| anonymous.tenant_from_cookie(cookie).is_ok())
+    {
+        return Ok(Json(json!({"workspace":"ready","expires_in":86400})).into_response());
+    }
+    let (cookie, _) = anonymous.issue().map_err(|_| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not start a workspace".into(),
+        )
+    })?;
+    Ok((
+        [(header::SET_COOKIE, cookie)],
+        Json(json!({"workspace":"ready","expires_in":86400})),
+    )
+        .into_response())
+}
+
 // ---------- identity (#10): authn middleware + tenancy/role guards ----------
 
 /// Resolve the caller of an `/api` route to a [`Principal`] and stash it in
@@ -137,17 +179,84 @@ async fn authenticate(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    let principal = authenticated_principal(&platform, req.headers()).await?;
+    req.extensions_mut().insert(principal);
+    Ok(next.run(req).await)
+}
+
+async fn resolve_workspace(
+    State(platform): State<SharedPlatform>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let use_authenticated = req.headers().contains_key(header::AUTHORIZATION)
+        || (!req.headers().contains_key(header::COOKIE)
+            && platform.read().unwrap().clerk.is_none());
+    let principal = if use_authenticated {
+        authenticated_principal(&platform, req.headers()).await?
+    } else {
+        if req.method() != Method::GET {
+            let content_type = req
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            if !content_type.starts_with("application/json") {
+                return Err(ApiError(
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "workspace changes require JSON".into(),
+                ));
+            }
+        }
+        let anonymous = platform.read().unwrap().anonymous.clone();
+        let origin = req
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok());
+        let fetch_site = req
+            .headers()
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok());
+        if req.method() != Method::GET && !anonymous.origin_allowed(origin, fetch_site) {
+            return Err(ApiError(
+                StatusCode::FORBIDDEN,
+                "request origin is not allowed".into(),
+            ));
+        }
+        let cookie = req
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| unauthorized("start an anonymous workspace first"))?;
+        let tenant = anonymous
+            .tenant_from_cookie(cookie)
+            .map_err(|_| unauthorized("anonymous workspace is missing or expired"))?;
+        Principal {
+            id: tenant.replacen("anon-", "guest-", 1),
+            name: "Studio guest".into(),
+            role: crate::identity::Role::Guest,
+            tenant,
+            token: String::new(),
+        }
+    };
+    req.extensions_mut().insert(principal);
+    Ok(next.run(req).await)
+}
+
+async fn authenticated_principal(
+    platform: &SharedPlatform,
+    headers: &HeaderMap,
+) -> Result<Principal, ApiError> {
     let (registry, clerk) = {
         let platform = platform.read().unwrap();
         (platform.identity.clone(), platform.clerk.clone())
     };
-    let header = req
-        .headers()
+    let auth_header = headers
         .get(header::AUTHORIZATION)
         .map(|v| v.to_str().map(str::to_string))
         .transpose()
         .map_err(|_| unauthorized("unreadable Authorization header"))?;
-    let principal = match header.as_deref() {
+    let principal = match auth_header.as_deref() {
         Some(value) => {
             let token = value
                 .strip_prefix("Bearer ")
@@ -172,7 +281,7 @@ async fn authenticate(
                     .clone();
                 (principal, token.to_string())
             };
-            expire_idle_session(&platform, &registry, &principal, &session_key)?;
+            expire_idle_session(platform, &registry, &principal, &session_key)?;
             principal
         }
         None => {
@@ -185,7 +294,7 @@ async fn authenticate(
                 ));
             };
             let session_key = principal.token.clone();
-            expire_idle_session(&platform, &registry, &principal, &session_key)?;
+            expire_idle_session(platform, &registry, &principal, &session_key)?;
             if registry.announce_dev_fallback() {
                 let mut plat = platform.write().unwrap();
                 plat.audit.record(
@@ -201,8 +310,7 @@ async fn authenticate(
             principal
         }
     };
-    req.extensions_mut().insert(principal);
-    Ok(next.run(req).await)
+    Ok(principal)
 }
 
 /// Session-idle enforcement for one token use: past `SESSION_IDLE_SECS`
@@ -638,6 +746,62 @@ async fn get_app(
         .ok_or_else(|| not_found("app"))
 }
 
+async fn claim_app(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<AppRecord> {
+    let cookie = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| unauthorized("the original anonymous workspace is required"))?;
+    let anonymous = platform.read().unwrap().anonymous.clone();
+    let guest_tenant = anonymous
+        .tenant_from_cookie(cookie)
+        .map_err(|_| unauthorized("the original anonymous workspace is missing or expired"))?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let snapshot = {
+        let mut plat = platform.write().unwrap();
+        let app = plat.apps.get_mut(&id).ok_or_else(|| not_found("app"))?;
+        if app.tenant != guest_tenant {
+            return Err(not_found("app"));
+        }
+        let claimable_stage = app.stage == Stage::Sandbox
+            || (app.stage == Stage::Live
+                && app
+                    .allocation
+                    .as_ref()
+                    .is_some_and(|allocation| allocation.pool == "synthetic-demo"));
+        if !claimable_stage || !matches!(app.data_source, DataSource::Synthetic(_)) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "only a synthetic sandbox or isolated synthetic demo can be claimed".into(),
+            ));
+        }
+        let snapshot = app.clone();
+        app.tenant = principal.tenant.clone();
+        let claimed = app.clone();
+        plat.audit.record(
+            &principal.id,
+            "app.claimed",
+            "verified owner claimed an anonymous synthetic workspace app",
+            Some(&id),
+        );
+        (snapshot, claimed)
+    };
+    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+        let mut plat = platform.write().unwrap();
+        if let Some(app) = plat.apps.get_mut(&id) {
+            if app.tenant == principal.tenant {
+                *app = snapshot.0;
+            }
+        }
+        return Err(audit_unavailable("claim reverted", cause));
+    }
+    Ok(Json(snapshot.1))
+}
+
 // ---------- iterate ----------
 
 #[derive(Deserialize)]
@@ -978,7 +1142,22 @@ async fn promote(
     ensure_tenant(&platform, &id, &principal)?;
     let _serial = serialize_app_mutation(&platform, &id).await;
     refuse_during_cleanup(&platform, &id)?;
-    require_capability(&platform, &principal, Capability::CoSignRelease, Some(&id))?;
+    if principal.role == crate::identity::Role::Guest {
+        if !req.synthetic_demo {
+            return Err(ApiError(
+                StatusCode::FORBIDDEN,
+                "sign in before releasing beyond the synthetic demo pool".into(),
+            ));
+        }
+        if req.cosigner.is_some() {
+            return Err(ApiError(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "anonymous synthetic previews do not carry a clinical co-signature".into(),
+            ));
+        }
+    } else {
+        require_capability(&platform, &principal, Capability::CoSignRelease, Some(&id))?;
+    }
 
     // Refused release attempts are security events, not transient HTTP
     // errors. Record the principal, exact report, and blockers before

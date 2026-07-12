@@ -186,7 +186,7 @@ async function main() {
     `POST /api/apps → app ${appId} in sandbox on synthetic data; ` +
     `${scaffoldSteps.length} scaffold steps; controls pre-wired: [${initialControls.join(', ')}]`);
 
-  // ---- 2. PLATFORM UI moment 1: the sandbox (1a builder skin) ----
+  // ---- 2. PLATFORM UI moment 1: the studio ----
   const ui = await browser.newContext({
     viewport: { width: 1100, height: 800 },
     extraHTTPHeaders: { authorization: `Bearer ${TOKEN}` },
@@ -196,15 +196,15 @@ async function main() {
   const openApp = async () => {
     await page.goto(`${CP_BASE}/`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: new RegExp(APP_NAME) }).click();
-    await page.waitForSelector('.split, .col', { timeout: 10000 });
+    await page.getByTestId('studio').waitFor();
   };
   t = performance.now();
   await openApp();
   await page.waitForSelector('#reply'); // the chat pane is live
-  await page.getByText('SANDBOX · synthetic data').waitFor();
+  await page.getByTestId('environment-badge').getByText('SANDBOX · SYNTHETIC').waitFor();
   await page.screenshot({ path: shotPath('01-sandbox.png') });
   await record('ui-sandbox', Math.round(performance.now() - t),
-    'Playwright on the doctor UI (1a builder): the app open in sandbox, chat + preview → 01-sandbox.png');
+    'Playwright on the studio: the app open in a synthetic sandbox with conversation and preview → 01-sandbox.png');
 
   // ---- 3. ITERATE: two conversational edits ----
   const iterations = [
@@ -251,12 +251,12 @@ async function main() {
 
   t = performance.now();
   await openApp();
-  await page.getByRole('button', { name: 'Preflight & deploy' }).click();
-  await page.waitForSelector('.modal');
-  await page.getByText(/Preflight — \d+ checks before real patients/).waitFor();
+  await page.getByRole('button', { name: 'Check before release →' }).click();
+  await page.getByTestId('gate-dialog').waitFor();
+  await page.getByText('Know what is ready before anyone uses it.').waitFor();
   await page.screenshot({ path: shotPath('02-gate-failing.png') });
   await record('ui-gate-failing', Math.round(performance.now() - t),
-    'the 1a preflight modal: the named failure with its fix-it-for-me button → 02-gate-failing.png');
+    'the release gate names the failure and offers its repair → 02-gate-failing.png');
 
   const refused = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER });
   assert(refused.status === 409, `promote-while-failing must be 409, got ${refused.status}`);
@@ -290,11 +290,11 @@ async function main() {
 
   t = performance.now();
   await openApp(); // now shows the isolated synthetic-demo operate view
-  await page.getByText('SYNTHETIC DEMO').waitFor();
-  await page.getByText('uptime').waitFor();
+  await page.getByTestId('live-dashboard').waitFor();
+  await page.getByTestId('runtime-status').waitFor();
   await page.screenshot({ path: shotPath('03-live.png') });
   await record('ui-live', Math.round(performance.now() - t),
-    'the 1a operate view: SYNTHETIC DEMO badge, allocation, who-touched-what → 03-live.png');
+    'the live view: synthetic badge, frozen release record, ownership action, and honest runtime status → 03-live.png');
   await ui.close();
 
   // ---- 7. EJECT ----

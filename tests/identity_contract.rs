@@ -85,6 +85,156 @@ async fn create_app(router: &axum::Router, token: &str, pack: &str, name: &str) 
     body["app"]["id"].as_str().unwrap().to_string()
 }
 
+async fn guest_cookie(router: &axum::Router) -> String {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/public/session")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let res = router.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+async fn guest_call(
+    router: &axum::Router,
+    method: &str,
+    uri: &str,
+    cookie: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("cookie", cookie);
+    let req = match body {
+        Some(value) => builder
+            .header("content-type", "application/json")
+            .body(Body::from(value.to_string()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    };
+    let res = router.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn anonymous_workspaces_are_private_synthetic_and_export_requires_an_owner() {
+    let router = strict_router(None);
+    let first = guest_cookie(&router).await;
+    let second = guest_cookie(&router).await;
+    assert_ne!(first, second);
+    assert!(
+        !first.contains("anon-"),
+        "the derived tenant must not leak in the cookie"
+    );
+
+    let (status, created) = guest_call(
+        &router,
+        "POST",
+        "/api/apps",
+        &first,
+        Some(json!({"prompt":"a synthetic follow-up helper","pack":"outbound-followup"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert!(created["app"]["tenant"]
+        .as_str()
+        .unwrap()
+        .starts_with("anon-"));
+    assert!(created["app"]["data_source"]
+        .to_string()
+        .to_lowercase()
+        .contains("synthetic"));
+    let id = created["app"]["id"].as_str().unwrap();
+
+    let (status, other) =
+        guest_call(&router, "GET", &format!("/api/apps/{id}"), &second, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{other}");
+
+    let (status, _) = guest_call(
+        &router,
+        "GET",
+        &format!("/api/apps/{id}/export"),
+        &first,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn verified_identity_can_claim_its_guest_app_then_export_it() {
+    let router = strict_router(None);
+    let cookie = guest_cookie(&router).await;
+    let (_, created) = guest_call(
+        &router,
+        "POST",
+        "/api/apps",
+        &cookie,
+        Some(json!({"prompt":"a synthetic compliance helper","pack":"compliance-checklist"})),
+    )
+    .await;
+    let id = created["app"]["id"].as_str().unwrap();
+    let (status, _) = guest_call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
+        &cookie,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, preview) = guest_call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        &cookie,
+        Some(json!({"synthetic_demo":true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["app"]["allocation"]["pool"], "synthetic-demo");
+
+    let claim = Request::builder()
+        .method("POST")
+        .uri(format!("/api/apps/{id}/claim"))
+        .header("authorization", format!("Bearer {OSEI}"))
+        .header("cookie", &cookie)
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let claimed = router.clone().oneshot(claim).await.unwrap();
+    assert_eq!(claimed.status(), StatusCode::OK);
+
+    let (status, bundle, _) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{id}/export"),
+        Some(OSEI),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert!(bundle["files"]["app/src/main.rs"].is_string());
+}
+
 // ---------- dev fallback: zero-config UI keeps working, audited ----------
 
 #[tokio::test]

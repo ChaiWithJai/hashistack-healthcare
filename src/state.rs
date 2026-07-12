@@ -336,6 +336,7 @@ pub struct Platform {
     /// `app_from_env` swaps in `IDENTITIES_FILE` / `SESSION_IDLE_SECS`.
     pub identity: Arc<crate::identity::Registry>,
     pub clerk: Option<Arc<crate::clerk::ClerkVerifier>>,
+    pub anonymous: Arc<crate::anonymous::AnonymousSessions>,
     /// Operation rows upserted since the last write-through — tracked only
     /// when a store is attached, drained by [`Platform::take_dirty_operations`].
     dirty_ops: BTreeSet<String>,
@@ -361,6 +362,7 @@ impl Platform {
             cleanup_driver: Arc::new(crate::deploy::HashiCleanupDriver),
             identity: Arc::new(crate::identity::Registry::dev_default()),
             clerk: None,
+            anonymous: Arc::new(crate::anonymous::AnonymousSessions::development()),
             dirty_ops: BTreeSet::new(),
             app_locks: HashMap::new(),
             pending_app_ids: BTreeSet::new(),

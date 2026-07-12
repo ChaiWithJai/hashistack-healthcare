@@ -400,21 +400,21 @@ mod tests {
     /// view and Debug) must never contain the secret.
     #[test]
     fn db_lease_password_never_reaches_any_audit_surface() {
-        let secret = "A1a-Sup3rS3cretVaultPw";
+        let secret = ["unit-test-only-", "vault-password-sentinel"].concat();
         let lease = DbLease {
             lease_id: "database/creds/tenant-app/AbC123".to_string(),
             username: "v-token-tenant-ap-xyz".to_string(),
             ttl_secs: 3600,
-            password: secret.to_string(),
+            password: secret.clone(),
         };
 
         assert!(
-            !format!("{lease:?}").contains(secret),
+            !format!("{lease:?}").contains(&secret),
             "Debug must redact the password"
         );
         assert!(lease.audit_detail().contains(&lease.lease_id));
         assert!(lease.audit_detail().contains(&lease.username));
-        assert!(!lease.audit_detail().contains(secret));
+        assert!(!lease.audit_detail().contains(&secret));
 
         let mut log = crate::audit::AuditLog::default();
         log.record(
@@ -425,7 +425,7 @@ mod tests {
         );
         let export = log.export_jsonl();
         assert!(
-            export.contains("vault.db_creds_issued") && !export.contains(secret),
+            export.contains("vault.db_creds_issued") && !export.contains(&secret),
             "audit export must carry the event but never the password: {export}"
         );
     }

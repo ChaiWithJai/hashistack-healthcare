@@ -352,12 +352,15 @@ What the resolved principal enforces:
 
 ```bash
 # strict staging instance:
+TOKEN_OSEI="${STUDIO_TOKEN_OSEI:?set the Osei staging token}"
+TOKEN_PARK="${STUDIO_TOKEN_PARK:?set the Park staging token}"
+TOKEN_RIVERA="${STUDIO_TOKEN_RIVERA:?set the Rivera staging token}"
 curl -s http://127.0.0.1:39100/api/apps                                   # 401
-curl -s -H 'authorization: Bearer dev-token-osei' \
+curl -s -H "authorization: Bearer ${TOKEN_OSEI}" \
   http://127.0.0.1:39100/api/apps                                         # 200, meridian only
-curl -s -H 'authorization: Bearer dev-token-park' \
+curl -s -H "authorization: Bearer ${TOKEN_PARK}" \
   http://127.0.0.1:39100/api/apps                                         # 200, lakeside only
-curl -s -X POST -H 'authorization: Bearer dev-token-rivera' \
+curl -s -X POST -H "authorization: Bearer ${TOKEN_RIVERA}" \
   http://127.0.0.1:39100/api/apps/<id>/promote -d '{}' \
   -H 'content-type: application/json'                                     # 403 (staff)
 ```

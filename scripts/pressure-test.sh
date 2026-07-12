@@ -258,6 +258,7 @@ fi
 
 echo "-- vault (#9): dynamic db creds issued, verified, and revocable"
 PLAT_VUSER=""
+PLAT_LEASE=""
 SIB_PASS=""
 if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" ]]; then
   check "allocation carries the lease id"    "$PROOF_LIVE" '"vault_lease_id":"database/creds/tenant-app/'
@@ -267,6 +268,8 @@ if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" ]]; then
     "$PROOF_LIVE" 'vault database/creds/tenant-app: lease'
   PLAT_VUSER=$(echo "$PROOF_LIVE" \
     | jfield '["app"]["allocation"].get("vault_db_username") or ""')
+  PLAT_LEASE=$(echo "$PROOF_LIVE" \
+    | jfield '["app"]["allocation"].get("vault_lease_id") or ""')
 
   # A sibling lease from the same role, password in hand — the literal
   # authenticate-then-revoke-then-fail evidence (the platform never
@@ -406,6 +409,16 @@ check "back to sandbox"   "$BACK" '"stage":"sandbox"'
 check "synthetic again"   "$BACK" '"kind":"synthetic"'
 PROOF_BACK="$BACK"
 if [[ "$PROOF_ID" != "$ID" ]]; then
+  # Reproduce a restart/retry boundary with real providers: Vault cleanup
+  # succeeded outside this process, while the durable app record still owns
+  # the original lease handle. The platform must prove role absence, skip a
+  # second revoke, stop Nomad, and finish the rollback truthfully.
+  if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" \
+    && -n "$PLAT_LEASE" && -n "$PLAT_VUSER" ]]; then
+    vault_api PUT "/sys/leases/revoke" "{\"lease_id\":\"$PLAT_LEASE\"}" >/dev/null
+    check "externally revoked platform role is absent before retry" \
+      "$($PSQL "$CONTROL_DB_URL" -tAc "SELECT count(*) FROM pg_roles WHERE rolname='$PLAT_VUSER'")" "0"
+  fi
   PROOF_BACK=$(post "/api/apps/$PROOF_ID/rollback")
   check "infrastructure app returns to sandbox" "$PROOF_BACK" '"stage":"sandbox"'
 fi
@@ -459,7 +472,12 @@ fi
 if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" ]]; then
   PROOF_AUDIT=$(get "/api/apps/$PROOF_ID/audit")
   check "audit has vault.db_creds_issued" "$PROOF_AUDIT" '"vault.db_creds_issued"'
-  check "audit has vault.lease_revoked"   "$PROOF_AUDIT" '"vault.lease_revoked"'
+  if [[ -n "$PLAT_LEASE" && -n "$PLAT_VUSER" ]]; then
+    check "audit has verified already-revoked retry" \
+      "$PROOF_AUDIT" '"vault.lease_revocation_already_verified"'
+  else
+    check "audit has vault.lease_revoked" "$PROOF_AUDIT" '"vault.lease_revoked"'
+  fi
 else
   echo "  skipped (no vault+control-db): audit has vault.db_creds_issued, vault.lease_revoked"
 fi

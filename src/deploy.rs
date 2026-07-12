@@ -102,12 +102,35 @@ where
     Ok(!already_stopped)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LeaseCleanupOutcome {
+    Revoked,
+    AlreadyVerified,
+}
+
+/// Make lease cleanup retry-safe without trusting a repeated Vault response.
+/// Postgres role absence is the authoritative proof that the dynamic
+/// credential is already gone, so a retry skips revoke only after observing
+/// that absence directly. Otherwise it revokes once and verifies afterwards.
+fn cleanup_lease<E, R, V>(role_exists: E, revoke: R, verify: V) -> Result<LeaseCleanupOutcome>
+where
+    E: FnOnce() -> Result<bool>,
+    R: FnOnce() -> Result<()>,
+    V: FnOnce() -> Result<()>,
+{
+    if !role_exists()? {
+        return Ok(LeaseCleanupOutcome::AlreadyVerified);
+    }
+    revoke()?;
+    verify()?;
+    Ok(LeaseCleanupOutcome::Revoked)
+}
+
 fn require_cleanup_clients(
     already_stopped: bool,
     has_nomad_handle: bool,
     nomad_available: bool,
     has_lease: bool,
-    vault_available: bool,
     verification_db_available: bool,
 ) -> std::result::Result<(), CleanupFailure> {
     let unavailable = |message: &str| CleanupFailure {
@@ -116,9 +139,6 @@ fn require_cleanup_clients(
     };
     if !already_stopped && has_nomad_handle && !nomad_available {
         return Err(unavailable("nomad cleanup client unavailable"));
-    }
-    if has_lease && !vault_available {
-        return Err(unavailable("vault cleanup client unavailable"));
     }
     if has_lease && !verification_db_available {
         return Err(unavailable("staging database verification unavailable"));
@@ -477,10 +497,10 @@ pub fn staging_rollback(
             .is_some(),
         nomad.is_some(),
         lease.is_some(),
-        vault.is_some(),
         db_url.is_some(),
     )?;
 
+    let mut lease_cleanup = None;
     let stopped_now = cleanup_sequence(
         already_stopped,
         || match &nomad {
@@ -495,28 +515,34 @@ pub fn staging_rollback(
             }
             None => Ok(()),
         },
-        || match (&vault, lease) {
-            (Some(vault), Some((lease_id, _))) => vault.revoke_lease(lease_id),
-            (None, Some(_)) => bail!("vault cleanup client unavailable"),
-            (_, None) => Ok(()),
-        },
         || match (db_url.as_deref(), lease) {
             (Some(db_url), Some((lease_id, username))) => {
-                if pg_login_select1(db_url, username, "revocation-probe").is_ok() {
-                    bail!(
-                        "vault reported lease {lease_id} revoked but {username} still authenticates"
-                    );
-                }
-                if pg_role_exists(db_url, username)? {
-                    bail!(
-                        "vault reported lease {lease_id} revoked but role {username} still exists in pg_roles"
-                    );
-                }
+                lease_cleanup = Some(cleanup_lease(
+                    || pg_role_exists(db_url, username),
+                    || match &vault {
+                        Some(vault) => vault.revoke_lease(lease_id),
+                        None => bail!("vault cleanup client unavailable"),
+                    },
+                    || {
+                        if pg_login_select1(db_url, username, "revocation-probe").is_ok() {
+                            bail!(
+                                "vault reported lease {lease_id} revoked but {username} still authenticates"
+                            );
+                        }
+                        if pg_role_exists(db_url, username)? {
+                            bail!(
+                                "vault reported lease {lease_id} revoked but role {username} still exists in pg_roles"
+                            );
+                        }
+                        Ok(())
+                    },
+                )?);
                 Ok(())
             }
             (None, Some(_)) => bail!("staging database verification unavailable"),
             (_, None) => Ok(()),
         },
+        || Ok(()),
     )?;
 
     if nomad.is_some() {
@@ -539,13 +565,23 @@ pub fn staging_rollback(
         ));
     }
     if let Some((lease_id, username)) = lease {
-        events.push((
-            "vault.lease_revoked".to_string(),
-            format!(
-                "lease {lease_id} revoked — verified: {username} no longer authenticates \
-                 and is dropped from pg_roles"
-            ),
-        ));
+        match lease_cleanup {
+            Some(LeaseCleanupOutcome::Revoked) => events.push((
+                "vault.lease_revoked".to_string(),
+                format!(
+                    "lease {lease_id} revoked — verified: {username} no longer authenticates \
+                     and is dropped from pg_roles"
+                ),
+            )),
+            Some(LeaseCleanupOutcome::AlreadyVerified) => events.push((
+                "vault.lease_revocation_already_verified".to_string(),
+                format!(
+                    "lease {lease_id} cleanup was already complete — verified: role {username} \
+                     is absent from pg_roles; repeated revoke skipped"
+                ),
+            )),
+            None => {}
+        }
     }
     Ok(events)
 }
@@ -809,6 +845,28 @@ mod security_tests {
     }
 
     #[test]
+    fn already_absent_role_skips_repeat_revoke_and_is_explicitly_verified() {
+        let revocations = AtomicUsize::new(0);
+        let verifications = AtomicUsize::new(0);
+        let outcome = cleanup_lease(
+            || Ok(false),
+            || {
+                revocations.fetch_add(1, Ordering::SeqCst);
+                bail!("an already-absent role must not be revoked again")
+            },
+            || {
+                verifications.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome, LeaseCleanupOutcome::AlreadyVerified);
+        assert_eq!(revocations.load(Ordering::SeqCst), 0);
+        assert_eq!(verifications.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
     fn stop_failure_never_claims_workload_stopped() {
         let err = cleanup_sequence(false, || bail!("nomad refused stop"), || Ok(()), || Ok(()))
             .unwrap_err();
@@ -818,17 +876,11 @@ mod security_tests {
 
     #[test]
     fn persisted_cleanup_handles_require_every_verifier() {
-        let missing_nomad =
-            require_cleanup_clients(false, true, false, false, false, false).unwrap_err();
+        let missing_nomad = require_cleanup_clients(false, true, false, false, false).unwrap_err();
         assert!(!missing_nomad.workload_stopped);
         assert!(missing_nomad.to_string().contains("nomad"));
 
-        let missing_vault =
-            require_cleanup_clients(true, true, false, true, false, true).unwrap_err();
-        assert!(missing_vault.workload_stopped);
-        assert!(missing_vault.to_string().contains("vault"));
-
-        let missing_db = require_cleanup_clients(true, true, false, true, true, false).unwrap_err();
+        let missing_db = require_cleanup_clients(true, true, false, true, false).unwrap_err();
         assert!(missing_db.workload_stopped);
         assert!(missing_db.to_string().contains("database verification"));
     }

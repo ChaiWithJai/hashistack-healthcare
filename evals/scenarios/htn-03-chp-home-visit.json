@@ -1,0 +1,55 @@
+{
+  "id": "htn-03-chp-home-visit",
+  "category": "pack",
+  "persona": "community-health-worker",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "on my home visits I take blood pressures \u2014 I want to write them down and have the clinic alerted when readings are bad",
+  "app_name": "visit bp notebook",
+  "iterate": [
+    {
+      "instruction": "escalate anything above the target band to the clinic",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 7,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "CHP idiom: readings taken in the field, clinic in the loop."
+}

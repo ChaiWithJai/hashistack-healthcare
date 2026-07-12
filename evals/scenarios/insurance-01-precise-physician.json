@@ -1,0 +1,65 @@
+{
+  "id": "insurance-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "insurance-verification",
+  "must_pass": true,
+  "prompt": "verify each new patient's insurance eligibility and referral requirements before their first visit; the front desk sees a pending queue",
+  "app_name": "eligibility checker",
+  "iterate": [
+    {
+      "instruction": "wire roles so only front-desk staff see the queue",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    },
+    {
+      "instruction": "flag rejected eligibility checks for manual follow-up",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 9,
+    "initially_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path",
+      "human-review"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "RFC use case 14; the widest gate set (nine, including platform review)."
+}

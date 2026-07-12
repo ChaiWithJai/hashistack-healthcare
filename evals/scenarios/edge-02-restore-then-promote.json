@@ -1,0 +1,62 @@
+{
+  "id": "edge-02-restore-then-promote",
+  "category": "edge",
+  "edge": "restore-then-promote",
+  "persona": "precise-physician",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "home BP log with out-of-range alerts for my clinic",
+  "app_name": "bp log with restore",
+  "iterate": [
+    {
+      "instruction": "flag out-of-range readings to me",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    },
+    {
+      "instruction": "add a sodium-intake diary",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "restore_to_version": 2,
+  "workflow": {
+    "gate_total": 7,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5)"
+  },
+  "notes": "Iterate twice, restore to the checkpoint between them (dropping the sodium diary but keeping the wired escalation-path), then fix the last gate and promote. Restored lineage must survive to the ejected README."
+}

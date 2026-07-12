@@ -1,0 +1,61 @@
+{
+  "id": "rpm-03-clinic-operator",
+  "category": "pack",
+  "persona": "clinic-operator",
+  "pack": "rpm-wearables",
+  "must_pass": true,
+  "prompt": "RPM queue for a community clinic nurse",
+  "app_name": "wearable monitor",
+  "iterate": [
+    {
+      "instruction": "wire roles for the monitoring staff",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    },
+    {
+      "instruction": "escalate threshold exceptions for clinician review",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 8,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path",
+      "human-review",
+      "access-roles"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path",
+      "access-roles"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable rpm-wearables profile artifact evaluation."
+}

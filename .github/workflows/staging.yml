@@ -1,0 +1,73 @@
+# Full HashiStack staging pressure test (#2, #7): boots a real Vault dev
+# server + Nomad dev agent + the control plane (wired to a real Postgres
+# control DB) on the runner, then drives the entire
+# describe→gate→promote→audit workflow with the real-infrastructure
+# assertions enabled (job registered in Nomad, transit round-trip in Vault,
+# job stopped on rollback, kill -9 restart survival against Postgres).
+#
+# Runs nightly and on demand — not on every PR. Every PR still gets the
+# simulated pressure test via ci.yml; this job downloads binaries and boots
+# three processes, which is nightly-sized, not per-push-sized.
+name: staging-hashistack
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # nightly, off the top of the hour
+
+jobs:
+  staging-hashistack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The Postgres control DB (#7). staging-up.sh sees CONTROL_DB_URL
+    # already exported and boots nothing itself; the same script still
+    # boots its own portable postgres on a laptop with no container.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: staging
+          POSTGRES_PASSWORD: staging
+          POSTGRES_DB: control
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONTROL_DB_URL: postgres://staging:staging@127.0.0.1:5433/control
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Boot vault + nomad + control plane (on the postgres service)
+        run: ./scripts/staging-up.sh
+      - name: Pressure test against real HashiStack + control DB
+        # IDENTITIES_FILE / SESSION_IDLE_SECS mirror what staging-up.sh gave
+        # the control plane (#10): the test knows the instance is strict
+        # (skips its dev-fallback checks) and the kill -9 reboot keeps auth.
+        # VAULT_TOKEN must ride along for the same reason — the reboot
+        # inherits this step's env, and without the token the restarted
+        # plane silently skips lease revocation (found by the #10 in-container
+        # staging run; the vault.lease_revoked assertion catches it now).
+        run: |
+          NOMAD_ADDR=http://127.0.0.1:4646 \
+          VAULT_ADDR=http://127.0.0.1:8200 \
+          VAULT_TOKEN=staging-root \
+          IDENTITIES_FILE=staging/identities.hcl \
+          SESSION_IDLE_SECS=900 \
+          ./scripts/pressure-test.sh http://127.0.0.1:39100
+      # Run after the end-to-end pressure proof: these contracts intentionally
+      # leave uniquely named intermediate records in the disposable service
+      # database, and must not perturb the pressure test's initial state.
+      - name: Prove rollback intermediate states survive a real PgStore restart
+        run: |
+          TEST_CONTROL_DB_URL="$CONTROL_DB_URL" \
+          cargo test --test store_contract postgres_restart_recovers_rollback_ -- --ignored --test-threads=1
+      - name: Dump staging logs
+        if: failure()
+        run: tail -n +1 .staging/logs/*.log
+      - name: Teardown
+        if: always()
+        run: ./scripts/staging-up.sh down

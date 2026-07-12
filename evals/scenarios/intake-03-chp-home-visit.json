@@ -1,0 +1,56 @@
+{
+  "id": "intake-03-chp-home-visit",
+  "category": "pack",
+  "persona": "community-health-worker",
+  "pack": "patient-intake",
+  "must_pass": true,
+  "prompt": "families I visit can't always come to the clinic \u2014 let them fill intake at home in plain language and send me a summary",
+  "app_name": "home intake helper",
+  "iterate": [
+    {
+      "instruction": "add a translate-to-Spanish toggle",
+      "vocabulary": "off",
+      "expect_wired": []
+    },
+    {
+      "instruction": "idle log off for shared phones",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "auto-logoff"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "CHP idiom: shared household phones are why auto-logoff matters here."
+}

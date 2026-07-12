@@ -1,0 +1,55 @@
+{
+  "id": "htn-04-terse-typo",
+  "category": "pack",
+  "persona": "terse-typo",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "bp trakcer for pts, flag high ones",
+  "app_name": "bp trakcer",
+  "iterate": [
+    {
+      "instruction": "idle logoff",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "auto-logoff"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 7,
+    "initially_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "escalation-path"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "The prompt says 'flag' but prompts don't wire controls \u2014 only iterate instructions do; the gate catches what the prompt merely wished for."
+}

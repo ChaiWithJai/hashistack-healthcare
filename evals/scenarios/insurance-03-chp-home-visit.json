@@ -1,0 +1,64 @@
+{
+  "id": "insurance-03-chp-home-visit",
+  "category": "pack",
+  "persona": "community-health-worker",
+  "pack": "insurance-verification",
+  "must_pass": true,
+  "prompt": "before I book a home visit I need to know the family's coverage is still active",
+  "app_name": "coverage check before visit",
+  "iterate": [
+    {
+      "instruction": "escalate coverage lapses to the scheduling team",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    },
+    {
+      "instruction": "show a plain-language coverage summary",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 9,
+    "initially_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path",
+      "human-review"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff",
+      "access-roles"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "CHP idiom: coverage checked before travel, not at a front desk."
+}

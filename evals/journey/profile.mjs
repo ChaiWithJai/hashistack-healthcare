@@ -193,10 +193,10 @@ async function main() {
   });
   const page = await ui.newPage();
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort()); // hermetic
-  const openApp = async () => {
+  const openApp = async (view = 'studio') => {
     await page.goto(`${CP_BASE}/`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: new RegExp(APP_NAME) }).click();
-    await page.getByTestId('studio').waitFor();
+    await page.locator('button[onclick^="openApp("]').filter({ hasText: APP_NAME }).first().click();
+    await page.getByTestId(view).waitFor();
   };
   t = performance.now();
   await openApp();
@@ -289,7 +289,7 @@ async function main() {
     `digest ${att.report_digest.slice(0, 16)}…; allocation ${alloc.id} (${alloc.pool} pool, ${alloc.url})`);
 
   t = performance.now();
-  await openApp(); // now shows the isolated synthetic-demo operate view
+  await openApp('live-dashboard'); // now shows the isolated synthetic-demo operate view
   await page.getByTestId('live-dashboard').waitFor();
   await page.getByTestId('runtime-status').waitFor();
   await page.screenshot({ path: shotPath('03-live.png') });

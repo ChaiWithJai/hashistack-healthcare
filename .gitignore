@@ -26,5 +26,9 @@ target/
 *.tfstate
 *.tfstate.*
 *.tfplan
+*.tfvars
+!*.tfvars.example
+.dev.vars
+.wrangler/
 crash.log
 crash.*.log

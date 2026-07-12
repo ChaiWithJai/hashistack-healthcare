@@ -1,0 +1,51 @@
+name: cloudflare-dns
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the reviewed DNS plan
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-dns
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_zone_name: ${{ vars.CLOUDFLARE_ZONE_NAME }}
+      TF_VAR_staging_tunnel_id: ${{ vars.STAGING_TUNNEL_ID }}
+      TF_VAR_production_tunnel_id: ${{ vars.PRODUCTION_TUNNEL_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.TERRAFORM_STATE_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.TERRAFORM_STATE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Initialize
+        working-directory: terraform/cloudflare
+        run: |
+          terraform init -input=false +            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" +            -backend-config="key=cloudflare/dns.tfstate" +            -backend-config="region=${{ vars.TERRAFORM_STATE_REGION }}" +            -backend-config="endpoints={s3=\"https://${{ vars.TERRAFORM_STATE_REGION }}.digitaloceanspaces.com\"}" +            -backend-config="skip_credentials_validation=true" +            -backend-config="skip_region_validation=true" +            -backend-config="skip_requesting_account_id=true" +            -backend-config="skip_metadata_api_check=true" +            -backend-config="skip_s3_checksum=true"
+      - name: Check formatting
+        run: terraform fmt -check -recursive terraform/cloudflare
+      - name: Validate
+        working-directory: terraform/cloudflare
+        run: terraform validate
+      - name: Create plan
+        working-directory: terraform/cloudflare
+        run: terraform plan -input=false -out=dns.tfplan
+      - name: Apply reviewed plan
+        if: inputs.apply
+        working-directory: terraform/cloudflare
+        run: terraform apply -input=false dns.tfplan

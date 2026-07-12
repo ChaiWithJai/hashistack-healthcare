@@ -1,0 +1,4 @@
+zone_id             = "replace-with-zone-id"
+zone_name           = "example.com"
+staging_tunnel_id   = "replace-with-staging-tunnel-uuid"
+production_tunnel_id = "replace-with-production-tunnel-uuid"

@@ -34,3 +34,6 @@ jobs:
       - name: Validate GCP
         working-directory: terraform/single-host/gcp
         run: terraform init -backend=false -input=false && terraform validate
+      - name: Validate Cloudflare delivery DNS
+        working-directory: terraform/cloudflare
+        run: terraform init -backend=false -input=false && terraform validate

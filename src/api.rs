@@ -1053,7 +1053,7 @@ async fn promote(
             "deploy",
             "app.promoted",
             format!(
-                "deploy v{} approved (preflight {}) — co-signed {} ({}) binding report digest {} — allocation {} in prod pool",
+                "deploy v{} approved (preflight {}) — co-signed {} ({}) binding report digest {} — allocation {} in {} pool",
                 app.current_version,
                 report.summary(),
                 attestation.cosigner,
@@ -1063,6 +1063,10 @@ async fn promote(
                     .as_ref()
                     .map(|a| a.id.as_str())
                     .unwrap_or("?"),
+                app.allocation
+                    .as_ref()
+                    .map(|a| a.pool.as_str())
+                    .unwrap_or("unknown"),
             ),
             Some(&id),
         );

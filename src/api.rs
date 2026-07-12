@@ -1107,8 +1107,28 @@ async fn rollback(
     // Tenant-scoped but role-open: withdrawing an app from use must never
     // wait on the clinician (safety beats ceremony) — staff may roll back.
     ensure_tenant(&platform, &id, &principal)?;
-    let _serial = serialize_app_mutation(&platform, &id).await;
+    let serial = serialize_app_mutation(&platform, &id).await;
 
+    // The request is only an observer of the rollback worker. Moving the
+    // per-app guard into an owned task means a disconnected client cannot
+    // cancel the saga between an external side effect and its durable
+    // checkpoint; the worker continues to a truthful terminal state while
+    // later mutations of this app remain serialized behind it.
+    tokio::spawn(rollback_serialized(platform, id, serial))
+        .await
+        .map_err(|error| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("rollback worker panicked: {error}"),
+            )
+        })?
+}
+
+async fn rollback_serialized(
+    platform: SharedPlatform,
+    id: String,
+    _serial: tokio::sync::OwnedMutexGuard<()>,
+) -> ApiResult<AppRecord> {
     let real_cleanup = {
         let state = platform.read().unwrap();
         let app = state.apps.get(&id).ok_or_else(|| not_found("app"))?;

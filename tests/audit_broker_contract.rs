@@ -105,6 +105,11 @@ struct BlockingCleanup {
     release: Mutex<std::sync::mpsc::Receiver<()>>,
 }
 
+struct BlockingCleanupFailure {
+    started: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
 struct FailOnAppendSink {
     calls: AtomicUsize,
     confirmed: AtomicU64,
@@ -148,6 +153,22 @@ impl CleanupDriver for BlockingCleanup {
         }
         self.release.lock().unwrap().recv().unwrap();
         Ok(Vec::new())
+    }
+}
+
+impl CleanupDriver for BlockingCleanupFailure {
+    fn rollback(
+        &self,
+        _snapshot: &rust_proof_service::state::AppRecord,
+    ) -> Result<Vec<(String, String)>, CleanupFailure> {
+        if let Some(started) = self.started.lock().unwrap().take() {
+            let _ = started.send(());
+        }
+        self.release.lock().unwrap().recv().unwrap();
+        Err(CleanupFailure::injected(
+            true,
+            "vault-token-secret from canceled cleanup",
+        ))
     }
 }
 
@@ -544,6 +565,183 @@ async fn blocked_cleanup_does_not_stop_a_different_app_from_progressing() {
     release_tx.send(()).unwrap();
     let (status, response) = rollback.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{response}");
+}
+
+#[tokio::test]
+async fn aborted_rollback_request_finishes_truthfully_under_owned_worker() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        app.allocation = Some(allocation);
+    }
+
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    platform.write().unwrap().cleanup_driver = Arc::new(BlockingCleanup {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(release_rx),
+    });
+
+    let rollback_router = router.clone();
+    let rollback_id = id.clone();
+    let request = tokio::spawn(async move {
+        call(
+            &rollback_router,
+            "POST",
+            &format!("/api/apps/{rollback_id}/rollback"),
+            None,
+        )
+        .await
+    });
+    tokio::task::spawn_blocking(move || started_rx.recv().unwrap())
+        .await
+        .unwrap();
+    request.abort();
+    let _ = request.await;
+
+    let iterate_router = router.clone();
+    let iterate_id = id.clone();
+    let later_mutation = tokio::spawn(async move {
+        call(
+            &iterate_router,
+            "POST",
+            &format!("/api/apps/{iterate_id}/iterate"),
+            Some(json!({"instruction":"add caregiver status summaries"})),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        !later_mutation.is_finished(),
+        "the detached rollback worker must retain the per-app mutation guard"
+    );
+
+    release_tx.send(()).unwrap();
+    let (status, response) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), later_mutation)
+            .await
+            .expect("the owned rollback worker must finish after cleanup is released")
+            .unwrap();
+    assert_eq!(status, StatusCode::OK, "{response}");
+
+    let state = platform.read().unwrap();
+    let app = state.apps.get(&id).unwrap();
+    assert_eq!(app.stage, Stage::Sandbox);
+    assert!(app.allocation.is_none());
+    let actions: Vec<String> = state
+        .audit
+        .for_app(&id)
+        .iter()
+        .map(|event| event.action.clone())
+        .collect();
+    let requested = actions
+        .iter()
+        .position(|action| action == "app.rollback_requested")
+        .unwrap();
+    let verified = actions
+        .iter()
+        .position(|action| action == "app.rollback_cleanup_verified")
+        .unwrap();
+    let completed = actions
+        .iter()
+        .position(|action| action == "app.rolled_back")
+        .unwrap();
+    assert!(requested < verified && verified < completed, "{actions:?}");
+    assert!(!actions
+        .iter()
+        .any(|action| action == "app.rollback_reverted"));
+}
+
+#[tokio::test]
+async fn aborted_rollback_with_cleanup_failure_leaves_retryable_live_state() {
+    let sink = KillableSink::new();
+    let (platform, router) = platform_with_sink(sink).await;
+    let id = create_app(&router).await;
+    {
+        let mut state = platform.write().unwrap();
+        let app = state.apps.get_mut(&id).unwrap();
+        app.stage = Stage::Live;
+        let mut allocation = cleanup_allocation(false);
+        allocation.cleanup_pending = false;
+        allocation.cleanup_error = None;
+        app.allocation = Some(allocation);
+    }
+
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    platform.write().unwrap().cleanup_driver = Arc::new(BlockingCleanupFailure {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(release_rx),
+    });
+
+    let rollback_router = router.clone();
+    let rollback_id = id.clone();
+    let request = tokio::spawn(async move {
+        call(
+            &rollback_router,
+            "POST",
+            &format!("/api/apps/{rollback_id}/rollback"),
+            None,
+        )
+        .await
+    });
+    tokio::task::spawn_blocking(move || started_rx.recv().unwrap())
+        .await
+        .unwrap();
+    request.abort();
+    let _ = request.await;
+    release_tx.send(()).unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let settled = platform
+                .read()
+                .unwrap()
+                .apps
+                .get(&id)
+                .and_then(|app| app.allocation.as_ref())
+                .is_some_and(|allocation| {
+                    allocation.cleanup_pending
+                        && allocation.cleanup_workload_stopped
+                        && allocation.cleanup_error.as_deref() == Some("credential-cleanup-failed")
+                });
+            if settled {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the detached worker must persist its retryable failure state");
+
+    let (_, app) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    assert_eq!(app["stage"], "live");
+    assert_eq!(app["allocation"]["cleanup_pending"], true);
+    assert_eq!(app["allocation"]["cleanup_workload_stopped"], true);
+    assert_eq!(
+        app["allocation"]["cleanup_error"],
+        "credential-cleanup-failed"
+    );
+    assert!(
+        !app.to_string().contains("vault-token-secret"),
+        "backend failure details must remain out of tenant-visible state: {app}"
+    );
+
+    let (status, response) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/iterate"),
+        Some(json!({"instruction":"must wait for cleanup"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{response}");
 }
 
 #[tokio::test]

@@ -32,7 +32,7 @@ INSTRUCTIONS=(
   "let patients export their own recovery data as a PDF"
 )
 
-APP=$(curl -s -X POST "$BASE/api/apps" "${AUTH[@]}" -H 'content-type: application/json' \
+APP=$(curl -s -X POST "$BASE/api/apps" ${AUTH[@]+"${AUTH[@]}"} -H 'content-type: application/json' \
   -d '{"prompt":"ladder exercise: post-op recovery tracker","pack":"post-op-monitor","name":"ladder exercise '"$LABEL"'"}')
 ID=$(echo "$APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["id"])')
 echo "app: $ID (label: $LABEL, base: $BASE)"
@@ -40,7 +40,7 @@ echo
 
 for instr in "${INSTRUCTIONS[@]}"; do
   t0=$(now_ms)
-  curl -s -X POST "$BASE/api/apps/$ID/iterate" "${AUTH[@]}" -H 'content-type: application/json' \
+  curl -s -X POST "$BASE/api/apps/$ID/iterate" ${AUTH[@]+"${AUTH[@]}"} -H 'content-type: application/json' \
     -d "$(python3 -c 'import json,sys; print(json.dumps({"instruction": sys.argv[1]}))' "$instr")" >/dev/null
   t1=$(now_ms)
   echo "ran ($((t1-t0)) ms): $instr"
@@ -50,7 +50,7 @@ echo
 echo "== operations record (the ladder's own evidence)"
 OPS_JSON=$(mktemp)
 trap 'rm -f "$OPS_JSON"' EXIT
-curl -s "${AUTH[@]}" "$BASE/api/apps/$ID/operations" >"$OPS_JSON"
+curl -s ${AUTH[@]+"${AUTH[@]}"} "$BASE/api/apps/$ID/operations" >"$OPS_JSON"
 python3 - "$LABEL" "$OPS_JSON" <<'EOF'
 import json, sys
 
@@ -84,7 +84,7 @@ EOF
 
 echo
 echo "== escalation evidence in the audit stream (last 12 agent events)"
-curl -s "${AUTH[@]}" "$BASE/api/apps/$ID/audit" | python3 -c '
+curl -s ${AUTH[@]+"${AUTH[@]}"} "$BASE/api/apps/$ID/audit" | python3 -c '
 import json, sys
 events = json.load(sys.stdin).get("events", [])
 agent = [e for e in events if e.get("action","").startswith("agent.")]

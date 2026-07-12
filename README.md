@@ -116,7 +116,7 @@ with `scripts/staging-docker-up.sh down`.
 | Audit pipeline — append-only, JSONL export | `src/audit.rs` |
 | Practice Studio UI — clinician builder, release path, clinical view, and architecture, wired | `web/index.html` |
 | 12-app outcome/customization/export profile | `docs/evals/sample-artifact-profiles.md` |
-| Merge standard and current PR review | `docs/process/merge-standard.md`, `docs/process/pr-issue-disposition-2026-07-12.md` |
+| Merge and release standard | `docs/process/merge-standard.md` |
 | Doctor jobs from Anthony's podcast | `docs/research/anthony-doctor-jobs.md` |
 | Infrastructure as code (Phase 1 substrate) | `terraform/prod/`, `packer/`, `vault/policies/` |
 | Plan + design + steering | `docs/rfc/`, `docs/design/`, `docs/hashicorp-steering.md` |
@@ -124,14 +124,14 @@ with `scripts/staging-docker-up.sh down`.
 | Use-case enablement investigation | [`docs/investigations/0001-enable-all-use-cases.md`](docs/investigations/0001-enable-all-use-cases.md) (#12) |
 | Staging pressure test (`make staging`) | `scripts/pressure-test.sh` (#2) |
 | Platform eval harness — job-to-be-done + artifact layers, scored per scenario | `evals/`, `scripts/evals.sh`, baseline in [`docs/evals/scorecard.md`](docs/evals/scorecard.md) |
-| Pull request proof with before and after screenshots | [`docs/evals/pr-stack-proof-2026-07-12.md`](docs/evals/pr-stack-proof-2026-07-12.md) |
+| Local and DigitalOcean proof | [`docs/evals/local-infrastructure-proof-2026-07-12.md`](docs/evals/local-infrastructure-proof-2026-07-12.md), [`docs/evals/digitalocean-production-proof-2026-07-12.md`](docs/evals/digitalocean-production-proof-2026-07-12.md) |
 | Cross-pack artifact evidence — actual job, ownership, safety/honesty, accessibility, docs | `packs/*/artifact-quality.json`, [`docs/evals/scorecard.md`](docs/evals/scorecard.md) |
 | Journey profiler — one clinician journey run end-to-end: timed, audit-cross-referenced, ejected app driven | `scripts/journey.sh`, narrative in [`docs/evals/journey/journey.md`](docs/evals/journey/journey.md) |
 
 The local product still uses development identity and a deterministic rules
 driver by default. Production identity, signed attestations, enforcing workload
-identity, and archive retention remain open. The exact issue decisions are in
-[the PR and issue disposition](docs/process/pr-issue-disposition-2026-07-12.md).
+identity, and archive retention remain open. Current proof and limitations are
+indexed in [docs/evidence-index.md](docs/evidence-index.md).
 
 ## The workflow, from curl
 
@@ -157,39 +157,6 @@ curl -s localhost:3000/api/apps/post-op-tracker/export
 # audit: the whole story, append-only
 curl -s localhost:3000/api/audit/export
 ```
-
-## Trunk and squash plan
-
-The current work is a stacked PR chain. Review it in order because every branch
-uses the previous branch as its base. GitHub's mergeable label does not mean a
-PR has met its proof or review bar.
-
-| PR | Link | One line |
-|---|---|---|
-| [#1](https://github.com/ChaiWithJai/hashistack-healthcare/pull/1) | `demo:` | The honest start: a skinned UI over a simulated control plane, every simulation point labeled `TODO(#n)`, the false-pass guard already load-bearing |
-| [#13](https://github.com/ChaiWithJai/hashistack-healthcare/pull/13) | `platform:` | Real staging on one machine (#2), the ejection ownership bundle (#11), and the verified escalation ladder (#4) |
-| [#14](https://github.com/ChaiWithJai/hashistack-healthcare/pull/14) | `packs:` | post-op-monitor becomes a runnable scaffold — ejected bundles carry real app source (#5, pattern-setter) |
-| [#15](https://github.com/ChaiWithJai/hashistack-healthcare/pull/15) | `gates:` | Verdicts rest on evidence over real scaffolds, stubs never pass, HIPAA citations, frozen attestation reports (#3) |
-| [#16](https://github.com/ChaiWithJai/hashistack-healthcare/pull/16) | `state:` | Postgres control store with DB-enforced transitions; model I/O off the platform lock (#7, resolves F4) |
-| [#17](https://github.com/ChaiWithJai/hashistack-healthcare/pull/17) | `audit:` | The broker invariant — no durable audit write, no operation; salted HMAC for doctor-authored text (#8) |
-| [#19](https://github.com/ChaiWithJai/hashistack-healthcare/pull/19) | `vault:` | Dynamic DB creds issued, verified, and provably revoked; per-tenant policy mounts; Vault audit device (#9) |
-| [#20](https://github.com/ChaiWithJai/hashistack-healthcare/pull/20) | `identity:` | Real principals on every route: tenancy as 404, roles as capabilities, cryptographic co-sign (#10) |
-| [#21](https://github.com/ChaiWithJai/hashistack-healthcare/pull/21) | `closeout:` | Evaluation, refusal, identity, and observed status work that must be split or reviewed as an explicit large change |
-| [#22](https://github.com/ChaiWithJai/hashistack-healthcare/pull/22) | `evals:` | The clinician journey and artifact evidence |
-
-The merge plan is trunk based:
-
-1. Review the next PR against its parent and the proof linked in its body.
-2. Squash that PR into one clear commit.
-3. Merge it into `main`.
-4. Retarget the next PR to `main` and rerun its proof.
-5. Stop when a change needs a product, security, or clinical decision from a
-   person.
-
-Do not merge the entire chain in one action. PRs 15 through 22 currently inherit
-a failing scaffold formatting check, and no open PR has a human approval. The
-[disposition report](docs/process/pr-issue-disposition-2026-07-12.md) names what
-is proven locally and what still needs review.
 
 ## Design authority
 

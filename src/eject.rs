@@ -53,6 +53,11 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
             };
             files.insert(dest, (*content).to_string());
         }
+        files.insert(
+            "app/assets/clinician.css".to_string(),
+            clinician_design_system_css().to_string(),
+        );
+        files.insert("docs/DESIGN_SYSTEM.md".to_string(), design_system_md());
     }
     files.insert("README.md".to_string(), readme_md(app, pack));
     files.insert(
@@ -265,6 +270,8 @@ smallest useful change should remain easy to locate, run, and verify.
 | Change | Start here |
 |---|---|
 | Workflow, routes, forms, and validation | `app/src/main.rs` |
+| Theme tokens and reusable component classes | `app/assets/clinician.css` |
+| Design-system integration and component examples | `docs/DESIGN_SYSTEM.md` |
 | Dependencies and binary settings | `app/Cargo.toml` |
 | Safe example records | `{fixture}` |
 | Browser journey and quality rubric | `artifact-quality.json` |
@@ -309,6 +316,127 @@ and repeat the gate review under the intended BAA boundary.
         name = app.name,
         profile = pack.profile,
     )
+}
+
+// ---------- clean-room design system: owned by the exported project ----------
+
+/// Semantic tokens and a deliberately small component vocabulary shared by
+/// exported apps. This is independently authored project code: no supplied
+/// archive, Catalyst, Tailwind Plus, font, or demo asset is redistributed.
+fn clinician_design_system_css() -> &'static str {
+    r#"/* Project-owned warm clinician design system. Customize tokens first. */
+:root {
+  --hc-canvas: #fbf6f3;
+  --hc-surface: #fffdfc;
+  --hc-ink: #2c2528;
+  --hc-muted: #75696d;
+  --hc-line: #e7dadd;
+  --hc-brand: #9f3d5f;
+  --hc-brand-strong: #762844;
+  --hc-focus: #d76b8e;
+  --hc-success: #287052;
+  --hc-success-bg: #edf7f1;
+  --hc-warning: #8b571e;
+  --hc-warning-bg: #fff5df;
+  --hc-danger: #a43c3c;
+  --hc-danger-bg: #fff0ee;
+  --hc-radius-control: 12px;
+  --hc-radius-card: 18px;
+  --hc-shadow-card: 0 12px 32px rgb(70 35 46 / 8%);
+  --hc-target: 44px;
+}
+
+.hc-page { background: var(--hc-canvas); color: var(--hc-ink); font: 16px/1.5 ui-rounded, system-ui, sans-serif; }
+.hc-shell { width: min(72rem, calc(100% - 2rem)); margin-inline: auto; }
+.hc-card { padding: 1.25rem; background: var(--hc-surface); border: 1px solid var(--hc-line); border-radius: var(--hc-radius-card); box-shadow: var(--hc-shadow-card); }
+.hc-stack { display: grid; gap: 1rem; }
+.hc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.hc-button { min-height: var(--hc-target); display: inline-flex; align-items: center; justify-content: center; padding: .6rem 1rem; border: 1px solid var(--hc-line); border-radius: var(--hc-radius-control); background: var(--hc-surface); color: var(--hc-ink); font: inherit; font-weight: 700; cursor: pointer; }
+.hc-button--primary { border-color: var(--hc-brand); background: var(--hc-brand); color: white; }
+.hc-button--primary:hover { background: var(--hc-brand-strong); }
+.hc-field { min-height: var(--hc-target); width: 100%; padding: .65rem .8rem; border: 1px solid var(--hc-line); border-radius: var(--hc-radius-control); background: var(--hc-surface); color: var(--hc-ink); font: inherit; }
+.hc-label { display: grid; gap: .35rem; font-weight: 700; }
+.hc-help { color: var(--hc-muted); font-size: .875rem; font-weight: 400; }
+.hc-notice { padding: 1rem; border: 1px solid var(--hc-line); border-left: .35rem solid var(--hc-brand); border-radius: var(--hc-radius-control); background: var(--hc-surface); }
+.hc-notice--warning { border-left-color: var(--hc-warning); background: var(--hc-warning-bg); color: var(--hc-warning); }
+.hc-badge { display: inline-flex; align-items: center; min-height: 1.75rem; padding: .2rem .6rem; border-radius: 999px; background: var(--hc-success-bg); color: var(--hc-success); font-size: .75rem; font-weight: 800; }
+.hc-button:focus-visible, .hc-field:focus-visible, .hc-link:focus-visible { outline: 3px solid color-mix(in srgb, var(--hc-focus) 40%, transparent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+"#
+}
+
+fn design_system_md() -> String {
+    r##"# Project-owned clinician design system
+
+`app/assets/clinician.css` belongs to this exported project. It has no runtime
+dependency, external font, supplied-archive code, Catalyst code, or Tailwind
+Plus asset. Change the `--hc-*` tokens to make the app yours while preserving
+the accessible component behavior below.
+
+This asset is **opt-in**. The pack's existing pages keep their original inline
+styles until you wire this file in; exporting it does not silently restyle a
+clinical workflow.
+
+## Option A: embed it in an Axum page
+
+Keep the export self-contained by embedding the stylesheet at compile time:
+
+```rust
+const CLINICIAN_CSS: &str = include_str!("../assets/clinician.css");
+
+fn page(body: &str) -> String {
+    format!(r#"<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>{CLINICIAN_CSS}</style><body class="hc-page"><main class="hc-shell hc-stack">{body}</main></body></html>"#)
+}
+```
+
+## Option B: serve and link the stylesheet
+
+Add the route to your existing `Router`:
+
+```rust
+use axum::http::{header, HeaderValue};
+
+async fn clinician_css() -> ([(header::HeaderName, HeaderValue); 1], &'static str) {
+    ([
+        (header::CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8")),
+    ], include_str!("../assets/clinician.css"))
+}
+
+let app = Router::new()
+    .route("/assets/clinician.css", get(clinician_css))
+    // keep the pack's existing routes below
+    .route("/", get(home));
+```
+
+Then put this in each generated page's `<head>` and add `class="hc-page"` to
+its `<body>`:
+
+```html
+<link rel="stylesheet" href="/assets/clinician.css">
+```
+
+## Components
+
+```html
+<section class="hc-card hc-stack">
+  <span class="hc-badge">Synthetic learning environment</span>
+  <label class="hc-label">Patient-visible label
+    <span class="hc-help">Explain what happens with this value.</span>
+    <input class="hc-field" name="example" required>
+  </label>
+  <aside class="hc-notice hc-notice--warning" role="note">Not monitored for emergencies.</aside>
+  <div class="hc-actions">
+    <button class="hc-button hc-button--primary">Save for review</button>
+    <a class="hc-button hc-link" href="/">Cancel</a>
+  </div>
+</section>
+```
+
+Use semantic HTML and visible labels first; classes supply presentation, not
+meaning. Interactive controls retain a 44-pixel minimum target, visible focus,
+and reduced-motion behavior. Do not encode clinical status by color alone.
+"##
+    .to_string()
 }
 
 // ---------- COMPLIANCE.md: gate report + attestation + audit trail ----------
@@ -799,6 +927,26 @@ mod tests {
         assert!(customize.contains("synthetic/htn-demo.json"));
         assert!(customize.contains("## Make the next change"));
         assert!(customize.contains("## Export or share the next version"));
+        assert!(customize.contains("app/assets/clinician.css"));
+        assert!(customize.contains("docs/DESIGN_SYSTEM.md"));
+        let css = &bundle.files["app/assets/clinician.css"];
+        assert!(css.contains("--hc-brand:"), "semantic brand token missing");
+        assert!(css.contains("--hc-target: 44px"), "minimum target missing");
+        assert!(css.contains(":focus-visible"), "visible focus missing");
+        assert!(
+            css.contains("prefers-reduced-motion: reduce"),
+            "reduced-motion behavior missing"
+        );
+        assert!(css.contains(".hc-card"), "card component missing");
+        assert!(css.contains(".hc-notice"), "notice component missing");
+        assert!(!css.contains("Catalyst"));
+        assert!(!css.contains("Tailwind"));
+        assert!(!css.contains("Shakti"));
+        let design_docs = &bundle.files["docs/DESIGN_SYSTEM.md"];
+        assert!(design_docs.contains("**opt-in**"));
+        assert!(design_docs.contains("include_str!(\"../assets/clinician.css\")"));
+        assert!(design_docs.contains("/assets/clinician.css"));
+        assert!(design_docs.contains("<link rel=\"stylesheet\""));
         assert!(bundle.files["README.md"].contains("docs/CUSTOMIZE.md"));
         assert!(bundle.files["Dockerfile"].contains("FROM rust:1-alpine AS build"));
     }

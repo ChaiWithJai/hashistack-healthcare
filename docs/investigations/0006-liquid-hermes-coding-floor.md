@@ -13,6 +13,13 @@ not committed to this repository:
 | LiquidAI LFM2-1.2B Q4_K_M hip-optimized | 796,412,864 bytes | `5f2f0a9f648820a2cbb21fe02f5e71ab417481316508da6fb960d664e3fc9fce` | Liquid AI LFM 1.0 |
 | NousResearch Hermes-3 Llama-3.2-3B Q4_K_M | 2,019,373,888 bytes | `91776fe0f6cd7483d9d5e06162fdd1f8f0262c15ced269791b4d96a655e8a5a2` | Llama 3.2 community terms |
 
+The LFM Open License is not Apache-2.0: commercial use is licensed only while
+the legal entity remains below USD $10 million in annual revenue unless a
+separate commercial license applies. Redistribution and derivatives require
+the LFM license, notices, and modification markings. Hermes inherits the
+Llama 3.2 community terms. Any adapter must be treated as a base-model
+derivative for packaging and hosted-service review.
+
 Official sources:
 
 - <https://huggingface.co/LiquidAI/LFM2-1.2B-GGUF>

@@ -237,8 +237,9 @@ floor of one GGUF + one llama.cpp binary + our zero-dependency gates.
 **License.** Runtime is MIT (`License-Expression: MIT` in the wheel
 metadata). Model licenses ride separately, which our D3 `model {}` block
 already anticipates (SmolLM2 Apache-2.0; the gemma file is under the Gemma
-Terms — a pack shipping it must carry those terms; prefer Apache/LFM-class
-weights for shipped packs).
+Terms — a pack shipping it must carry those terms). Prefer Apache-2.0 weights
+for shipped packs; Liquid models carry the separate LFM license, including
+its commercial-use threshold and notice requirements.
 
 ## Changes / does-not-change
 

@@ -31,7 +31,7 @@ impl AnonymousSessions {
             .ok()
             .filter(|value| !value.trim().is_empty());
         let key = match key {
-            Some(value) if value.as_bytes().len() >= 32 => value.into_bytes(),
+            Some(value) if value.len() >= 32 => value.into_bytes(),
             Some(_) => bail!("ANON_SESSION_HMAC_KEY must contain at least 32 bytes"),
             None if deployed => bail!("ANON_SESSION_HMAC_KEY is required with Clerk"),
             None => return Ok(Self::development()),

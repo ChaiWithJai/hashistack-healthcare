@@ -189,11 +189,10 @@ async fn resolve_workspace(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let principal = if req.headers().contains_key(header::AUTHORIZATION) {
-        authenticated_principal(&platform, req.headers()).await?
-    } else if !req.headers().contains_key(header::COOKIE)
-        && platform.read().unwrap().clerk.is_none()
-    {
+    let use_authenticated = req.headers().contains_key(header::AUTHORIZATION)
+        || (!req.headers().contains_key(header::COOKIE)
+            && platform.read().unwrap().clerk.is_none());
+    let principal = if use_authenticated {
         authenticated_principal(&platform, req.headers()).await?
     } else {
         if req.method() != Method::GET {
@@ -282,7 +281,7 @@ async fn authenticated_principal(
                     .clone();
                 (principal, token.to_string())
             };
-            expire_idle_session(&platform, &registry, &principal, &session_key)?;
+            expire_idle_session(platform, &registry, &principal, &session_key)?;
             principal
         }
         None => {
@@ -295,7 +294,7 @@ async fn authenticated_principal(
                 ));
             };
             let session_key = principal.token.clone();
-            expire_idle_session(&platform, &registry, &principal, &session_key)?;
+            expire_idle_session(platform, &registry, &principal, &session_key)?;
             if registry.announce_dev_fallback() {
                 let mut plat = platform.write().unwrap();
                 plat.audit.record(

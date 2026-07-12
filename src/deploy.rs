@@ -12,6 +12,24 @@ use crate::state::{
     now_unix, valid_transition, Allocation, AppRecord, Attestation, DataSource, Stage,
 };
 
+fn validate_issued_lease<F, R>(lease_id: &str, validate: F, revoke: R) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+    R: FnOnce(&str) -> Result<()>,
+{
+    if let Err(validation_error) = validate() {
+        if let Err(revoke_error) = revoke(lease_id) {
+            bail!(
+                "vault issued lease {lease_id} but its credentials failed validation ({validation_error:#}); compensation also failed to revoke it ({revoke_error:#})"
+            );
+        }
+        bail!(
+            "vault issued lease {lease_id} but its credentials failed validation ({validation_error:#}); lease revoked"
+        );
+    }
+    Ok(())
+}
+
 /// Current immutable client image, as baked by Packer (packer/client.pkr.hcl).
 pub const CLIENT_IMAGE: &str = "registry.internal/clinician-client@sha256:8f32c9b98d31f5ad0e0be9f92efc47942c74ec352af89c3254ddf967db2d19f7";
 pub const REGION: &str = "nyc3";
@@ -31,7 +49,9 @@ pub const DB_CREDS_ROLE: &str = "tenant-app";
 /// (api layer) already enforced tenancy (404) and the role capability (403,
 /// audited); this function re-asserts both as defense in depth, then binds
 /// the attestation to the principal id, their registered display name, and
-/// a sha256 digest of the frozen gate report. `cosigner_claim` — the typed
+/// a sha256 integrity digest of the frozen gate report. This is authenticated
+/// attribution plus tamper evidence, not a public-key digital signature.
+/// `cosigner_claim` — the typed
 /// field the UI keeps — is only a display-name check: it must match the
 /// principal's registered name exactly, or be omitted.
 ///
@@ -42,10 +62,9 @@ pub const DB_CREDS_ROLE: &str = "tenant-app";
 /// #6 (honest slice landed): the operate endpoint now reports Nomad's dual
 /// status axes — `desired_state` from this record, `observed_state` polled
 /// from the real job when `NOMAD_ADDR` is set (src/hashi.rs `job_status`).
-/// TODO(#6): `healthy` is still a literal, and release≠deploy + generations
-/// are NOT implemented — both land with the real client pool (Phase 1),
-/// where per-allocation ClientStatus and deployment health exist to
-/// observe. Stated in docs/investigations/0001's status matrix.
+/// Allocation health starts false and may only become true when a runtime
+/// observation says the allocation is running. Release≠deploy + generations
+/// remain Phase 1 work for the real client pool.
 /// #9: with staging Vault + control DB present, [`staging_promote`] replaces
 /// the placeholder credentials string below with a real database-engine
 /// lease (lease id, username, TTL — proven to authenticate before it is
@@ -145,15 +164,19 @@ pub fn promote(
         } else {
             format!("{}.{}.app", app.id, app.tenant)
         },
-        healthy: true,
+        // A release record cannot manufacture an operational observation.
+        // `operate` combines this conservative value with Nomad's observed
+        // state, so pending/stopped/unknown jobs never report healthy.
+        healthy: false,
         deployed_at: now_unix(),
         nomad_eval_id: None,
         vault_transit_key: None,
     });
     app.attestation = Some(Attestation {
         cosigner,
-        // #10: the cryptographic act — authenticated principal id + sha256
-        // of the exact frozen report + timestamp, all on one record.
+        // #10: authenticated attribution + a tamper-evident sha256 digest
+        // of the exact frozen report + timestamp, all on one record. The
+        // digest is not represented as a public-key digital signature.
         principal: Some(principal.id.clone()),
         gate_summary: report.summary(),
         reviewer_note: app.reviewer_note.clone(),
@@ -245,12 +268,14 @@ pub fn staging_promote(app: &mut AppRecord) -> Result<Vec<(String, String)>> {
         // in the audit stream, never durable.
         if let Some(db_url) = staging_db_url() {
             let lease = vault.db_creds(DB_CREDS_ROLE)?;
-            pg_login_select1(&db_url, &lease.username, lease.password()).map_err(|e| {
-                anyhow::anyhow!(
-                    "vault issued lease {} but the credentials failed to authenticate: {e:#}",
-                    lease.lease_id
-                )
-            })?;
+            // The lease exists even when its credentials are unusable. Arm
+            // compensation immediately after issuance, before any validation
+            // or allocation mutation can fail.
+            validate_issued_lease(
+                &lease.lease_id,
+                || pg_login_select1(&db_url, &lease.username, lease.password()),
+                |lease_id| vault.revoke_lease(lease_id),
+            )?;
             let detail = format!(
                 "role {DB_CREDS_ROLE}: {} — verified: SELECT 1 as {} against the staging DB",
                 lease.audit_detail(),
@@ -530,6 +555,7 @@ fn strip_tenant_secrets(rendered: String) -> Result<String> {
 #[cfg(test)]
 mod security_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn production_job_template_has_a_bounded_unprivileged_container_contract() {
@@ -560,5 +586,36 @@ mod security_tests {
                 "forbidden workload setting: {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn invalid_issued_credentials_revoke_the_lease_exactly_once() {
+        let revocations = AtomicUsize::new(0);
+        let err = validate_issued_lease(
+            "database/creds/tenant-app/lease-1",
+            || bail!("SELECT 1 authentication failed"),
+            |lease_id| {
+                assert_eq!(lease_id, "database/creds/tenant-app/lease-1");
+                revocations.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(revocations.load(Ordering::SeqCst), 1);
+        assert!(err.to_string().contains("lease revoked"));
+    }
+
+    #[test]
+    fn invalid_credentials_report_failed_compensation() {
+        let err = validate_issued_lease(
+            "lease-2",
+            || bail!("credential rejected"),
+            |_| bail!("vault unavailable"),
+        )
+        .unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("credential rejected"), "{message}");
+        assert!(message.contains("vault unavailable"), "{message}");
+        assert!(message.contains("failed to revoke"), "{message}");
     }
 }

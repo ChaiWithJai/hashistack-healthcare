@@ -20,6 +20,14 @@ resource "digitalocean_droplet" "studio" {
     repository_url    = var.repository_url
     release_ref       = var.release_ref
   })
+
+  # Cloud-init is a first-boot bootstrap, not an application deployment
+  # mechanism. Reviewed releases are advanced in place with
+  # scripts/single-host-release.sh; changing release_ref must not destroy a
+  # host, its database volume, and its audit history.
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 resource "digitalocean_firewall" "studio" {

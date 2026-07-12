@@ -4,7 +4,7 @@
 //! parsed with hcl-rs exactly like packs) — id, display name, role, tenant,
 //! and a bearer token. Every `/api` route resolves its caller through this
 //! registry; the resolved [`Principal`] drives tenancy scoping, the role
-//! capability check, audit attribution, and the cryptographic co-sign.
+//! capability check, audit attribution, and the authenticated co-sign record.
 //!
 //! # Phase 0 honesty: static tokens are the dev credential
 //!

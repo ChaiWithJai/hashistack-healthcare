@@ -22,6 +22,14 @@ Measured from the operator's machine after boot:
 
 The source build is acceptable as a portability fallback, but too slow for a production recovery path. Publish the reviewed image once in CI and deploy it by immutable digest before treating recovery time as production-ready.
 
+Cloud-init is intentionally first-boot only. Updating `release_ref` does not
+replace the Droplet or erase its volumes. Advance an existing host with the
+full reviewed commit SHA and rerun the provider-neutral proof:
+
+```sh
+scripts/single-host-release.sh root@203.0.113.10 <40-character-commit-sha>
+```
+
 ## Local prerequisites
 
 1. Install `doctl` and Terraform.

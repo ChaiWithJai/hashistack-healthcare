@@ -253,6 +253,27 @@ pub struct Operation {
     pub finished_at: Option<u64>,
 }
 
+impl Operation {
+    /// Close work that a previous control-plane process promised but never
+    /// completed. Boot performs this reconciliation before serving traffic,
+    /// so `running` never becomes a permanent zombie after a crash.
+    pub fn interrupt_on_restart(&mut self, at: u64) -> bool {
+        if !matches!(self.status, OpStatus::Running | OpStatus::Escalated) {
+            return false;
+        }
+        self.status = OpStatus::Failed;
+        self.finished_at = Some(at);
+        self.attempts.push(AttemptRecord {
+            tier: "control-plane".to_string(),
+            started_at: at,
+            finished_at: at,
+            verdict: "rejected".to_string(),
+            reason: Some("control-plane-restart".to_string()),
+        });
+        true
+    }
+}
+
 // In-memory state is the read path. With `CONTROL_DB_URL` set (#7), every
 // mutation writes through to the Postgres control store in src/store.rs —
 // database-enforced app_valid_state transitions + append-only state history
@@ -369,4 +390,44 @@ pub fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod operation_recovery_tests {
+    use super::*;
+
+    fn operation(status: OpStatus) -> Operation {
+        Operation {
+            op_id: "op-restart".to_string(),
+            app_id: "app-1".to_string(),
+            kind: OpKind::Iterate,
+            status,
+            attempts: Vec::new(),
+            started_at: 10,
+            finished_at: None,
+        }
+    }
+
+    #[test]
+    fn restart_closes_running_operation_as_failed() {
+        let mut op = operation(OpStatus::Running);
+        assert!(op.interrupt_on_restart(42));
+        assert_eq!(op.status, OpStatus::Failed);
+        assert_eq!(op.finished_at, Some(42));
+        assert_eq!(op.attempts.len(), 1);
+        assert_eq!(op.attempts[0].tier, "control-plane");
+        assert_eq!(
+            op.attempts[0].reason.as_deref(),
+            Some("control-plane-restart")
+        );
+    }
+
+    #[test]
+    fn restart_does_not_rewrite_terminal_operation() {
+        let mut op = operation(OpStatus::Success);
+        assert!(!op.interrupt_on_restart(42));
+        assert_eq!(op.status, OpStatus::Success);
+        assert!(op.finished_at.is_none());
+        assert!(op.attempts.is_empty());
+    }
 }

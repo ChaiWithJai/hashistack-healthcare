@@ -102,8 +102,19 @@ impl PgStore {
             .await?
         {
             let record: serde_json::Value = row.get(0);
-            let op: Operation =
+            let mut op: Operation =
                 serde_json::from_value(record).context("operations.record does not parse")?;
+            if op.interrupt_on_restart(crate::state::now_unix()) {
+                let updated =
+                    serde_json::to_value(&op).context("serializing interrupted operation")?;
+                client
+                    .execute(
+                        "UPDATE operations SET status = 'failed', record = $2, finished_at = $3 WHERE op_id = $1",
+                        &[&op.op_id, &updated, &(op.finished_at.unwrap_or_default() as i64)],
+                    )
+                    .await
+                    .with_context(|| format!("reconciling interrupted operation {}", op.op_id))?;
+            }
             plat.operations.push(op);
         }
 

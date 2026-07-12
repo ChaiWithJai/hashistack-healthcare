@@ -1,5 +1,5 @@
-//! Contract tests for identity, tenancy, roles, and the cryptographic
-//! co-sign (#10), exercised end-to-end through the public API the way any
+//! Contract tests for identity, tenancy, roles, and the authenticated
+//! co-sign record (#10), exercised end-to-end through the public API the way any
 //! client would drive it.
 //!
 //! The bar (issue #10): two tenants on one control plane — cross-tenant
@@ -331,7 +331,7 @@ async fn attestation_binds_principal_name_and_report_digest_and_the_digest_verif
     .await;
 
     // A typed cosigner naming anyone but the authenticated principal is
-    // refused — the signature is the principal's own act.
+    // refused — the co-sign record is the principal's own authenticated act.
     let (status, err, _) = call(
         &router,
         "POST",

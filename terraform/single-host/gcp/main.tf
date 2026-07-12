@@ -36,7 +36,7 @@ resource "google_compute_firewall" "studio_web" {
   name          = "hashistack-healthcare-studio-web"
   network       = "default"
   target_tags   = ["hashistack-studio"]
-  source_ranges = ["0.0.0.0/0"]
+  source_ranges = var.studio_cidrs
   allow {
     protocol = "tcp"
     ports    = ["3000"]

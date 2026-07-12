@@ -30,7 +30,7 @@ resource "digitalocean_firewall" "studio" {
   inbound_rule {
     protocol         = "tcp"
     port_range       = "3000"
-    source_addresses = ["0.0.0.0/0", "::/0"]
+    source_addresses = var.studio_cidrs
   }
   outbound_rule {
     protocol              = "tcp"

@@ -6,6 +6,10 @@ variable "admin_cidrs" {
   description = "CIDRs allowed to reach SSH. Never use 0.0.0.0/0 for a persistent host."
   type        = list(string)
 }
+variable "studio_cidrs" {
+  description = "CIDRs allowed to reach the synthetic studio. Use 0.0.0.0/0 only for a disposable public demo containing no patient data."
+  type        = list(string)
+}
 variable "region" {
   type    = string
   default = "nyc3"
@@ -19,7 +23,6 @@ variable "repository_url" {
   default = "https://github.com/ChaiWithJai/hashistack-healthcare.git"
 }
 variable "release_ref" {
-  description = "Immutable tag or reviewed commit branch containing the single-host bundle."
+  description = "Reviewed immutable tag or commit containing the single-host bundle."
   type        = string
-  default     = "codex/single-host-portability"
 }

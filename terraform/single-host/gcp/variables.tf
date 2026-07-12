@@ -12,6 +12,7 @@ variable "machine_type" {
   default = "e2-medium"
 }
 variable "admin_cidrs" { type = list(string) }
+variable "studio_cidrs" { type = list(string) }
 variable "ssh_user" { type = string }
 variable "ssh_public_key" {
   type      = string
@@ -21,7 +22,4 @@ variable "repository_url" {
   type    = string
   default = "https://github.com/ChaiWithJai/hashistack-healthcare.git"
 }
-variable "release_ref" {
-  type    = string
-  default = "codex/single-host-portability"
-}
+variable "release_ref" { type = string }

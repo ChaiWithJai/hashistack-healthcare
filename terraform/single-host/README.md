@@ -26,9 +26,13 @@ cd terraform/single-host/digitalocean
 terraform init
 terraform apply \
   -var 'ssh_key_fingerprint=…' \
-  -var 'admin_cidrs=["203.0.113.4/32"]'
+  -var 'admin_cidrs=["203.0.113.4/32"]' \
+  -var 'studio_cidrs=["203.0.113.4/32"]' \
+  -var 'release_ref=716e3f6146644c59616ae8f309dd0dd9b544f426'
 ```
 
 GCP uses the sibling `gcp/` module with `project`, `ssh_user`,
 `ssh_public_key`, and `admin_cidrs`. Pin `release_ref` to a reviewed tag or
-commit for a durable deployment; the branch default exists only for PR proof.
+commit for a durable deployment. A public `studio_cidrs=["0.0.0.0/0"]` is an
+explicit disposable-demo choice; never combine it with patient data or the
+tracked development bearer tokens.

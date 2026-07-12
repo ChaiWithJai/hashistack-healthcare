@@ -12,7 +12,11 @@ write_files:
       STUDIO_PORT=3000
 runcmd:
   - systemctl enable --now docker
-  - git clone --depth 1 --branch '${release_ref}' '${repository_url}' /opt/hashistack-healthcare
+  - mkdir -p /opt/hashistack-healthcare
+  - git -C /opt/hashistack-healthcare init
+  - git -C /opt/hashistack-healthcare remote add origin '${repository_url}'
+  - git -C /opt/hashistack-healthcare fetch --depth 1 origin '${release_ref}'
+  - git -C /opt/hashistack-healthcare checkout --detach FETCH_HEAD
   - [bash, -lc, "cd /opt/hashistack-healthcare && docker compose --env-file /etc/hashistack-studio.env config --quiet"]
   - [bash, -lc, "cd /opt/hashistack-healthcare && docker compose --env-file /etc/hashistack-studio.env up -d --build --wait"]
 final_message: "Hashistack Healthcare synthetic studio is ready"

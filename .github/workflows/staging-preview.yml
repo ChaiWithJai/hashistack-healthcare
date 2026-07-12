@@ -3,12 +3,8 @@ name: staging-preview
 on:
   workflow_dispatch:
     inputs:
-      commit_sha:
-        description: Full reviewed commit SHA to deploy
-        required: true
-        type: string
       pull_request:
-        description: PR number to receive the preview comment
+        description: Open PR to deploy and receive the preview comment
         required: true
         type: number
 
@@ -25,13 +21,25 @@ jobs:
     environment: staging
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the current PR head
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pull_request }}
+        run: |
+          state=$(gh pr view "$PR" --json state --jq .state)
+          test "$state" = OPEN
+          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          test "$(printf '%s' "$sha" | wc -c)" -eq 40
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ steps.pr.outputs.sha }}
 
       - name: Require an exact repository commit
         env:
-          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
         run: |
           test "$(printf '%s' "$COMMIT_SHA" | wc -c)" -eq 40
           test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
@@ -40,15 +48,18 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.DO_STAGING_SSH_KEY }}
           STAGING_HOST: ${{ secrets.DO_STAGING_HOST }}
+          STAGING_KNOWN_HOSTS: ${{ secrets.DO_STAGING_KNOWN_HOSTS }}
         run: |
           install -d -m 0700 ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 0600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$STAGING_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+          ssh-keygen -F "$STAGING_HOST" -f ~/.ssh/known_hosts >/dev/null
 
       - name: Deploy exact SHA and prove the critical path
         env:
-          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
           STAGING_HOST: ${{ secrets.DO_STAGING_HOST }}
           STUDIO_BEARER_TOKEN: ${{ secrets.DO_STAGING_BEARER_TOKEN }}
         run: scripts/single-host-release.sh "root@$STAGING_HOST" "$COMMIT_SHA"
@@ -58,6 +69,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pull_request }}
           STAGING_HOST: ${{ secrets.DO_STAGING_HOST }}
-          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
         run: |
           gh pr comment "$PR" --body "DigitalOcean staging preview: http://$STAGING_HOST:3000 — deployed exact SHA \`$COMMIT_SHA\`. The synthetic create → gate → fix → publish → export proof passed. Synthetic data only; access is restricted by the DigitalOcean firewall."

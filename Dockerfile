@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.85-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4 AS builder
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
@@ -9,16 +9,19 @@ COPY nomad ./nomad
 COPY vault ./vault
 COPY staging/identities.hcl ./staging/identities.hcl
 COPY migrations ./migrations
-RUN cargo build --locked --release
+RUN --mount=type=cache,id=studio-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=studio-cargo-target,target=/src/target \
+    cargo build --locked --release \
+    && install -Dm0755 /src/target/release/rust-proof-service /out/studio
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 65532 studio \
     && useradd --system --uid 65532 --gid 65532 --no-create-home studio \
     && install -d -o 65532 -g 65532 -m 0700 /var/lib/studio
-COPY --from=builder /src/target/release/rust-proof-service /usr/local/bin/studio
+COPY --from=builder /out/studio /usr/local/bin/studio
 USER 65532:65532
 EXPOSE 3000
 ENV APP_BIND=0.0.0.0:3000

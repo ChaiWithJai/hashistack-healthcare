@@ -20,7 +20,7 @@ Measured from the operator's machine after boot:
 | Authenticated app-list latency | p50 33.7 ms, p95 38.6 ms over 30 requests |
 | Idle memory | studio 1.2 MiB, Postgres 72 MiB |
 
-The source build is acceptable as a portability fallback, but too slow for a production recovery path. Publish the reviewed image once in CI and deploy it by immutable digest before treating recovery time as production-ready.
+The source build is acceptable as a portability fallback, but too slow for a production recovery path. Builder and runtime bases are digest-pinned and BuildKit caches Cargo dependencies between host builds; production must still publish the reviewed image once in CI and deploy that result by immutable digest before treating recovery time as production-ready.
 
 Cloud-init is intentionally first-boot only. Updating `release_ref` does not
 replace the Droplet or erase its volumes. Advance an existing host with the

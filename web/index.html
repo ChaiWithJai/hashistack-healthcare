@@ -293,6 +293,8 @@ async function initAuth() {
   }
   S.authMode = "clerk";
   sessionStorage.removeItem("studio-token");
+  await startWorkspace();
+  await loadHome();
   const domain = atob(config.publishable_key.split("_")[2]).slice(0, -1);
   await loadScript(`https://${domain}/npm/@clerk/ui@1/dist/ui.browser.js`);
   await loadScript(`https://${domain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, {
@@ -301,8 +303,7 @@ async function initAuth() {
   await Clerk.load({ui: {ClerkUI: window.__internal_ClerkUICtor}});
   S.clerkReady = true;
   if (Clerk.isSignedIn) S.token = await Clerk.session.getToken();
-  await startWorkspace();
-  await loadHome();
+  render();
   mountClerkUser();
 }
 
@@ -890,7 +891,7 @@ function render() {
 
 initAuth().catch(error => {
   S.err = error.message;
-  S.authRequired = true;
+  S.authRequired = false;
   render();
 });
 </script>

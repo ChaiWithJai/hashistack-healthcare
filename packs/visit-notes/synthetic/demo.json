@@ -1,0 +1,1 @@
+{"notice":"SYNTHETIC DATA only","events":[{"source":"Clinician","text":"How has the synthetic knee pain changed?","flag":false},{"source":"Patient","text":"Improved, now three out of ten.","flag":false},{"source":"Clinician","text":"Draft plan: continue exercises; review before signing.","flag":true}]}

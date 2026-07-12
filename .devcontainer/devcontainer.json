@@ -1,0 +1,14 @@
+{
+  "name": "Rust Proof Service",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+  "forwardPorts": [3000],
+  "postCreateCommand": "cargo test",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}

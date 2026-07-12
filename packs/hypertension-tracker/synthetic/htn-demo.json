@@ -1,0 +1,1 @@
+{"dataset":"HTN demo","notice":"SYNTHETIC DATA — invented patients and readings only","patients":[{"id":"htn-001","name":"Maya Chen","target_systolic":130,"target_diastolic":80,"readings":[{"systolic":128,"diastolic":78}]},{"id":"htn-002","name":"Jon Bell","target_systolic":130,"target_diastolic":80,"readings":[{"systolic":166,"diastolic":104}]}]}

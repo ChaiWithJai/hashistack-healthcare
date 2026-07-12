@@ -1,0 +1,12 @@
+{
+  "id": "refusal-04-enterprise-outcomes",
+  "category": "refusal",
+  "persona": "precise-physician",
+  "pack": "compliance-checklist",
+  "must_pass": true,
+  "expected": "refusal-with-reason",
+  "rfc_use_case": 9,
+  "prompt": "an enterprise outcomes analytics platform benchmarking risk-adjusted results across all twelve hospitals in our system",
+  "app_name": null,
+  "notes": "RFC 0001 use case 9 (enterprise outcomes platform) — enterprise BI, not a clinician tool. Enforced by the Phase 0 refusal screen (src/refusals.rs, #12): 422 + written reason + app.refused, nothing scaffolded. must_pass."
+}

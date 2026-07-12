@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "pack": "outbound-followup",
+  "runtime": {"manifest":"app/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/outbound-followup-demo.json"},
+  "quality": {
+    "job": {"weight":40,"journeys":[{"id":"consented-followup-and-escalation","steps":[{"do":"goto","path":"/"},{"do":"fill","label":"Patient ID to contact","value":"fu-001"},{"do":"fill","label":"Approved follow-up message","value":"How are you feeling after discharge?"},{"do":"click","role":"button","name":"Queue follow-up"},{"assert":"visible","text":"Follow-up queued"},{"do":"goto","path":"/"},{"do":"fill","label":"Patient ID responding","value":"fu-001"},{"do":"fill","label":"Patient response","value":"My pain is much worse and I cannot breathe well"},{"do":"click","role":"button","name":"Record response"},{"assert":"visible","text":"Escalated to clinician inbox"},{"do":"goto","path":"/"},{"assert":"visible","text":"cannot breathe well"},{"assert":"log_count","path":"/responses","equals":1}]}]},
+    "ownership": {"weight":20,"required_paths":["app/Cargo.toml","app/src/main.rs","pack.hcl","artifact-quality.json","README.md","docs/RUNBOOK.md","docs/COMPLIANCE.md","nomad/job.nomad.hcl"]},
+    "safety_honesty": {"weight":20,"required_visible":["SYNTHETIC TRAINING APP","not an emergency service","consent"],"forbidden_claims":["HIPAA compliant","production ready","messages were sent"]},
+    "accessibility": {"weight":10,"required_labels":["Patient ID to contact","Approved follow-up message","Patient ID responding","Patient response"],"required_landmarks":["main"]},
+    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Owning it"],"docs/RUNBOOK.md":["Run with Docker","Deploy targets"],"docs/COMPLIANCE.md":["Gate report","Known limitations"]}}
+  }
+}

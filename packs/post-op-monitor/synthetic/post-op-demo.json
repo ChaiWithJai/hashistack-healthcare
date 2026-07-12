@@ -1,0 +1,152 @@
+{
+  "dataset": "post-op demo (12 pts)",
+  "notice": "SYNTHETIC DATA — generated, not derived from any real person. Every name, procedure, date, and check-in below was invented for preview mode. TODO(#5): regenerate with Synthea so plausibility is tool-attested, not hand-claimed.",
+  "patients": [
+    {
+      "id": "pt-001",
+      "name": "Amara Diallo",
+      "age": 58,
+      "procedure": "total knee arthroplasty (left)",
+      "surgery_date": "2026-06-30",
+      "surgeon": "Dr. A. Osei",
+      "checkins": [
+        { "day": 1, "pain": 6, "wound": "clean", "note": "sore but managing with prescribed meds" },
+        { "day": 3, "pain": 4, "wound": "clean", "note": "started PT exercises, swelling down" },
+        { "day": 7, "pain": 3, "wound": "clean", "note": "walking with cane indoors" }
+      ]
+    },
+    {
+      "id": "pt-002",
+      "name": "Ruth Okafor",
+      "age": 71,
+      "procedure": "total hip arthroplasty (right)",
+      "surgery_date": "2026-07-02",
+      "surgeon": "Dr. A. Osei",
+      "checkins": [
+        { "day": 2, "pain": 7, "wound": "redness", "note": "incision edge pink, warm to touch" },
+        { "day": 4, "pain": 5, "wound": "redness", "note": "redness stable after antibiotic review" }
+      ]
+    },
+    {
+      "id": "pt-003",
+      "name": "Marcus Whitfield",
+      "age": 44,
+      "procedure": "ACL reconstruction (right)",
+      "surgery_date": "2026-07-05",
+      "surgeon": "Dr. L. Tran",
+      "checkins": [
+        { "day": 1, "pain": 5, "wound": "clean", "note": "brace fitted, icing regularly" },
+        { "day": 5, "pain": 2, "wound": "clean", "note": "off crutches around the house" }
+      ]
+    },
+    {
+      "id": "pt-004",
+      "name": "Grace Munroe",
+      "age": 63,
+      "procedure": "laparoscopic cholecystectomy",
+      "surgery_date": "2026-07-06",
+      "surgeon": "Dr. P. Ansari",
+      "checkins": [
+        { "day": 1, "pain": 4, "wound": "clean", "note": "port sites dry, eating light meals" },
+        { "day": 3, "pain": 2, "wound": "clean", "note": "back to short walks" }
+      ]
+    },
+    {
+      "id": "pt-005",
+      "name": "Devon Castillo",
+      "age": 37,
+      "procedure": "open inguinal hernia repair (left)",
+      "surgery_date": "2026-07-03",
+      "surgeon": "Dr. P. Ansari",
+      "checkins": [
+        { "day": 2, "pain": 5, "wound": "swelling", "note": "expected bruising per discharge sheet" },
+        { "day": 6, "pain": 3, "wound": "clean", "note": "swelling resolved, no lifting yet" }
+      ]
+    },
+    {
+      "id": "pt-006",
+      "name": "Lillian Boateng",
+      "age": 68,
+      "procedure": "total knee arthroplasty (right)",
+      "surgery_date": "2026-06-27",
+      "surgeon": "Dr. A. Osei",
+      "checkins": [
+        { "day": 3, "pain": 8, "wound": "clean", "note": "pain spiking at night despite meds" },
+        { "day": 4, "pain": 6, "wound": "clean", "note": "better after dosing schedule adjusted" },
+        { "day": 10, "pain": 4, "wound": "clean", "note": "PT twice a week, bending improving" }
+      ]
+    },
+    {
+      "id": "pt-007",
+      "name": "Samuel Reyes",
+      "age": 52,
+      "procedure": "lumbar microdiscectomy (L4-L5)",
+      "surgery_date": "2026-07-04",
+      "surgeon": "Dr. H. Blackwood",
+      "checkins": [
+        { "day": 2, "pain": 6, "wound": "clean", "note": "leg numbness improving, incision dry" },
+        { "day": 5, "pain": 4, "wound": "clean", "note": "short walks three times daily" }
+      ]
+    },
+    {
+      "id": "pt-008",
+      "name": "Priya Raghunathan",
+      "age": 46,
+      "procedure": "laparoscopic appendectomy",
+      "surgery_date": "2026-07-07",
+      "surgeon": "Dr. P. Ansari",
+      "checkins": [
+        { "day": 1, "pain": 3, "wound": "clean", "note": "discharged same day, feeling well" }
+      ]
+    },
+    {
+      "id": "pt-009",
+      "name": "Harold Jenkins",
+      "age": 76,
+      "procedure": "transurethral resection of the prostate",
+      "surgery_date": "2026-07-01",
+      "surgeon": "Dr. M. Kovac",
+      "checkins": [
+        { "day": 2, "pain": 4, "wound": "clean", "note": "catheter out, mild discomfort" },
+        { "day": 6, "pain": 2, "wound": "clean", "note": "symptoms improving daily" }
+      ]
+    },
+    {
+      "id": "pt-010",
+      "name": "Yuki Tanabe",
+      "age": 33,
+      "procedure": "arthroscopic rotator cuff repair (right)",
+      "surgery_date": "2026-06-29",
+      "surgeon": "Dr. L. Tran",
+      "checkins": [
+        { "day": 3, "pain": 6, "wound": "clean", "note": "sling day and night, sleeping upright" },
+        { "day": 8, "pain": 4, "wound": "clean", "note": "pendulum exercises started" },
+        { "day": 12, "pain": 3, "wound": "clean", "note": "first PT session done" }
+      ]
+    },
+    {
+      "id": "pt-011",
+      "name": "Constance Adeyemi",
+      "age": 61,
+      "procedure": "abdominal hysterectomy",
+      "surgery_date": "2026-06-26",
+      "surgeon": "Dr. F. Lindqvist",
+      "checkins": [
+        { "day": 4, "pain": 5, "wound": "drainage", "note": "small amount of clear fluid at incision edge" },
+        { "day": 5, "pain": 5, "wound": "drainage", "note": "seen in clinic, dressing changed, culture taken" },
+        { "day": 9, "pain": 3, "wound": "clean", "note": "incision closed and dry" }
+      ]
+    },
+    {
+      "id": "pt-012",
+      "name": "Owen Gallagher",
+      "age": 49,
+      "procedure": "umbilical hernia repair with mesh",
+      "surgery_date": "2026-07-08",
+      "surgeon": "Dr. P. Ansari",
+      "checkins": [
+        { "day": 1, "pain": 5, "wound": "clean", "note": "resting, binder on, no fever" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+name: Proof review
+description: Ask for review on a learner-owned backend proof.
+title: "Proof review: "
+labels: ["proof-review"]
+body:
+  - type: input
+    id: evidence
+    attributes:
+      label: Evidence IDs
+      placeholder: decision service reliability
+    validations:
+      required: true
+  - type: input
+    id: artifact
+    attributes:
+      label: Artifact link
+      description: Link to the commit, test, runbook, release, or case study.
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: Claim
+      description: What backend judgment does this proof support?
+    validations:
+      required: true
+  - type: textarea
+    id: limitation
+    attributes:
+      label: Simpler stack limitation
+      description: When would a simpler stack be enough?
+    validations:
+      required: true

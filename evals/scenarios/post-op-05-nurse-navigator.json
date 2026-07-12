@@ -1,0 +1,62 @@
+{
+  "id": "post-op-05-nurse-navigator",
+  "category": "pack",
+  "persona": "nurse-navigator",
+  "pack": "post-op-monitor",
+  "must_pass": true,
+  "prompt": "our surgical nurse navigator needs one place with every joint patient's daily check-ins and the red flags on top",
+  "app_name": "navigator checkin board",
+  "iterate": [
+    {
+      "instruction": "wire roles so only the nurse team sees the board",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    },
+    {
+      "instruction": "sort the worst pain scores to the top",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 1,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "artifact": {
+    "expected": "playwright",
+    "checks": [
+      "renders",
+      "does-the-job",
+      "honesty-markers"
+    ]
+  },
+  "notes": "Staff-facing framing on a patient-facing pack; wires a control (access-roles) the pack's gate set does not require \u2014 recorded, not scored against the gate report."
+}

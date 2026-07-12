@@ -1,0 +1,9 @@
+.git
+.github
+.staging
+target
+docs
+evals
+terraform
+packer
+packs/*/scaffold/target

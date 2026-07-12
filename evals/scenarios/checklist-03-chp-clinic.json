@@ -1,0 +1,51 @@
+{
+  "id": "checklist-03-chp-clinic",
+  "category": "pack",
+  "persona": "community-health-worker",
+  "pack": "compliance-checklist",
+  "must_pass": true,
+  "prompt": "our community clinic needs one place that tracks trainings and safeguard tasks so we're ready for audits",
+  "app_name": "clinic audit readiness",
+  "iterate": [
+    {
+      "instruction": "remind the owner two weeks before a training lapses",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "Community clinic framing."
+}

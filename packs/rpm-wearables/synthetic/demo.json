@@ -1,0 +1,1 @@
+{"notice":"SYNTHETIC DATA only","events":[{"source":"watch-01","text":"heart rate 72 bpm","flag":false},{"source":"cuff-01","text":"blood pressure 184/112","flag":true},{"source":"watch-01","text":"heart rate 76 bpm","flag":false}]}

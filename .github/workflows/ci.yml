@@ -1,0 +1,44 @@
+name: rust-proof-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  # Pack scaffolds are standalone crates excluded from the platform
+  # workspace, so the verify job never builds them — this job does, keeping
+  # every runnable scaffold from rotting (#5). One matrix entry per
+  # converted pack.
+  pack-scaffolds:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pack: [post-op-monitor, hypertension-tracker, patient-intake, insurance-verification, compliance-checklist, patient-portal, clinical-dashboard, nemt-logistics, inbound-scheduling, outbound-followup, rpm-wearables, visit-notes, ambient-scribe, deid-local, note-extraction-local, airgapped-support, hybrid-pipeline]
+    defaults:
+      run:
+        working-directory: packs/${{ matrix.pack }}/scaffold
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo test
+
+  # Virtual staging pressure test: boots the control plane and drives the
+  # full describe→audit workflow over real HTTP, so verification never
+  # depends on manual smoke testing. The same script runs nightly against a
+  # real Nomad dev agent + Vault dev server in staging.yml (#2).
+  pressure-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/pressure-test.sh

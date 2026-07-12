@@ -1,0 +1,32 @@
+# post-op-monitor scaffold — the runnable app template this pack ships
+# (issue #5). A standalone crate: excluded from the platform workspace,
+# built and tested in its own CI job, and embedded file-for-file into the
+# ejection bundle (src/packs.rs SCAFFOLD file table).
+#
+# Dependencies are deliberately the platform's own set (axum/tokio/serde)
+# so a doctor who ejects inherits no surface the platform doesn't already
+# carry.
+
+[package]
+name = "post-op-monitor-scaffold"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone by construction: never joins an enclosing workspace — not the
+# platform's (whose `exclude` also names this path) and not whatever repo a
+# doctor ejects into.
+[workspace]
+
+# Fixed binary name so deploy manifests never depend on the package name.
+[[bin]]
+name = "app"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

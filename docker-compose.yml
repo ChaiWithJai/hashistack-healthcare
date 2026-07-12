@@ -1,0 +1,55 @@
+name: hashistack-healthcare-studio
+
+services:
+  postgres:
+    image: postgres:16.4-bookworm
+    environment:
+      POSTGRES_DB: studio
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-studio-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - studio-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  studio:
+    build:
+      context: .
+    image: ${STUDIO_IMAGE:-hashistack-healthcare-studio:local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_BIND: 0.0.0.0:3000
+      CONTROL_DB_URL: postgres://studio:${POSTGRES_PASSWORD:-local-studio-only}@postgres:5432/studio
+      AUDIT_FILE: /var/lib/studio/audit.jsonl
+      IDENTITIES_FILE: /run/config/identities.hcl
+      SESSION_IDLE_SECS: "900"
+    ports:
+      - "${STUDIO_PORT:-3000}:3000"
+    volumes:
+      - studio-audit:/var/lib/studio
+      - ./staging/identities.hcl:/run/config/identities.hcl:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  studio-postgres:
+  studio-audit:

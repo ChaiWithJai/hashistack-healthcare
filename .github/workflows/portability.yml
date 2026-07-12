@@ -1,0 +1,36 @@
+name: single-host-portability
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  local-compose-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the synthetic studio lifecycle
+        run: scripts/single-host-smoke.sh
+      - name: Preserve failure logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-host-logs
+          path: .single-host.log
+
+  terraform-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - run: terraform fmt -check -recursive terraform/single-host
+      - name: Validate DigitalOcean
+        working-directory: terraform/single-host/digitalocean
+        run: terraform init -backend=false -input=false && terraform validate
+      - name: Validate GCP
+        working-directory: terraform/single-host/gcp
+        run: terraform init -backend=false -input=false && terraform validate

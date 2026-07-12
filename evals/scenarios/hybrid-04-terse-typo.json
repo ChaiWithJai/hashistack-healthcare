@@ -1,0 +1,48 @@
+{
+  "id": "hybrid-04-terse-typo",
+  "category": "pack",
+  "persona": "terse-typo",
+  "pack": "hybrid-pipeline",
+  "must_pass": true,
+  "prompt": "hybrid local redact + approve",
+  "app_name": "hybrid pipeline",
+  "iterate": [
+    {
+      "instruction": "wire roles for staff who approve disclosure",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "human-review",
+      "access-roles"
+    ],
+    "fixable_failing": [
+      "access-roles"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable hybrid-pipeline profile artifact evaluation."
+}

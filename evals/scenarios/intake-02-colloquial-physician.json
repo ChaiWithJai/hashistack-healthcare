@@ -1,0 +1,51 @@
+{
+  "id": "intake-02-colloquial-physician",
+  "category": "pack",
+  "persona": "colloquial-physician",
+  "pack": "patient-intake",
+  "must_pass": true,
+  "prompt": "stop making people fill out clipboards \u2014 send them the forms before the visit",
+  "app_name": "no more clipboards",
+  "iterate": [
+    {
+      "instruction": "log off idle sessions in the waiting room",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "auto-logoff"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "Colloquial framing by outcome, not feature list."
+}

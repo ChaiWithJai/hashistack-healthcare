@@ -12,6 +12,12 @@ target/
 /node_modules
 /.playwright-cli
 /output
+/playwright-report
+/test-results
+/docs/evidence/screenshots
+/artifacts/screenshots
+*.trace.zip
+*.bundle
 **/.terraform/
 *.tfstate
 *.tfstate.*

@@ -11,6 +11,8 @@ exclude = ["packs/*/scaffold"]
 [dependencies]
 anyhow = "1"
 axum = "0.7"
+base64 = "0.22"
+getrandom = "0.2"
 hcl-rs = "0.19.7"
 hmac = "0.12"
 sha2 = "0.10"

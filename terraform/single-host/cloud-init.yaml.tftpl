@@ -9,6 +9,7 @@ write_files:
     permissions: "0600"
     content: |
       POSTGRES_PASSWORD=${postgres_password}
+      ANON_SESSION_HMAC_KEY=${anonymous_session_key}
       STUDIO_PORT=3000
 runcmd:
   - systemctl enable --now docker

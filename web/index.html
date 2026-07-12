@@ -152,6 +152,16 @@ footer{max-width:1280px;margin:12px auto 48px;padding:0 28px;color:#94a3b8;font-
 button,.chip,header a{min-height:44px}header a{display:inline-flex;align-items:center}
 @media(max-width:900px){.builder-grid{grid-template-columns:1fr}.builder-primary{border-right:0;border-bottom:1px solid var(--line)}.summary-grid{grid-template-columns:1fr}.pack-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}.b:hover:not(:disabled),.pack-card:hover{transform:none}}
+
+/* Shakti flow: one calm path from an idea to an owned app. */
+.flow-shell{display:grid;gap:22px}.flow-eyebrow{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--brand)}
+.flow-hero{max-width:700px;margin:54px auto 10px;text-align:center}.flow-hero h2{margin:8px 0 10px;font-size:clamp(30px,5vw,52px);line-height:1.04;letter-spacing:-.05em}.flow-hero p{max-width:600px;margin:auto;color:var(--muted);font-size:16px;line-height:1.65}
+.prompt-card{max-width:760px;margin:auto;padding:22px;border:1px solid var(--line);border-radius:20px;background:var(--panel);box-shadow:0 18px 44px rgba(70,35,46,.1)}.prompt-card textarea{min-height:112px;border:0;box-shadow:none;font-size:18px;line-height:1.55;outline:0}.prompt-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:15px;border-top:1px solid var(--line)}
+.quick-prompts{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}.quick-prompts button{border:1px solid var(--line);border-radius:999px;background:#fff;padding:8px 12px;color:var(--muted);cursor:pointer}.starter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:18px}.starter-grid .pack-card{min-height:102px}
+.studio-shell{display:grid;grid-template-columns:minmax(300px,396px) minmax(0,1fr);min-height:690px;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--panel);box-shadow:0 18px 44px rgba(70,35,46,.1)}.conversation{display:flex;flex-direction:column;padding:22px;border-right:1px solid var(--line);background:#fffaf8}.conversation-log{display:flex;flex-direction:column;gap:10px;overflow:auto}.bubble{max-width:92%;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid var(--line);font-size:13px}.bubble.user{align-self:flex-end;background:#fff0f4;border-color:#efc4d2}.conversation-compose{display:flex;gap:8px;margin-top:auto;padding-top:18px}.preview-pane{display:flex;flex-direction:column;min-width:0;background:#f7f3f1}.preview-bar{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);background:#fff}.preview-surface{display:grid;place-items:center;flex:1;padding:28px}.preview-app{width:min(520px,100%);padding:26px;border:1px solid var(--line);border-radius:20px;background:#fff;box-shadow:0 16px 36px rgba(70,35,46,.1)}.preview-features{display:grid;gap:9px;margin-top:20px}.preview-feature{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fffdfc}.studio-footer{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);background:#fff}
+.gate-backdrop{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(44,37,40,.48);backdrop-filter:blur(5px)}.gate-card{width:min(620px,100%);max-height:90vh;overflow:auto;padding:26px;border-radius:24px;background:#fff;box-shadow:0 28px 80px rgba(44,37,40,.3)}.gate-list{display:grid;gap:9px;margin:20px 0}.gate-item{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:start;padding:12px;border:1px solid var(--line);border-radius:14px}.gate-item.pass{background:var(--success-bg)}.gate-item.fail{background:var(--warn-bg)}
+.live-shell{display:grid;gap:18px}.live-hero{padding:28px;border:1px solid #ead49a;border-radius:20px;background:linear-gradient(135deg,#fff9e9,#fffdfc);box-shadow:0 18px 44px rgba(70,35,46,.08)}.live-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.live-card{padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff}.audit-list{display:grid;gap:7px}.auth-inline{margin-left:auto}
+@media(max-width:820px){.studio-shell{grid-template-columns:1fr}.conversation{min-height:440px;border-right:0;border-bottom:1px solid var(--line)}.starter-grid,.live-grid{grid-template-columns:1fr}.flow-hero{margin-top:24px}.prompt-actions{align-items:stretch;flex-direction:column}.prompt-actions .b{width:100%}}
 </style>
 </head>
 <body>
@@ -190,27 +200,41 @@ const S = {
   authMode: "static",
   clerkReady: false,
   authRequired: false,
+  owned: false,
 };
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-async function api(path, opts) {
+async function startWorkspace() {
+  const response = await fetch("/api/public/session", {
+    method: "POST",
+    headers: {"content-type":"application/json"},
+    body: "{}",
+  });
+  if (!response.ok) throw new Error("Could not start a private synthetic workspace");
+}
+
+async function api(path, opts, owner = false, retried = false) {
   const headers = {};
   if (opts) headers["content-type"] = "application/json";
-  if (S.authMode === "clerk" && window.Clerk?.session) {
+  if (owner && S.authMode === "clerk" && window.Clerk?.session) {
     S.token = await Clerk.session.getToken();
   }
-  if (S.token) headers.authorization = `Bearer ${S.token}`;
+  if (owner && S.token) headers.authorization = `Bearer ${S.token}`;
   const r = await fetch(path, {method: opts ? "POST" : "GET", headers, ...(opts ? {body:JSON.stringify(opts)} : {})});
   const body = await r.json().catch(() => ({}));
+  if (r.status === 401 && !owner && !retried) {
+    await startWorkspace();
+    return api(path, opts, owner, true);
+  }
   if (!r.ok) {
-    S.authRequired = r.status === 401;
+    S.authRequired = owner && r.status === 401;
     S.err = body.error || r.statusText;
     render();
     throw new Error(S.err);
   }
-  S.authRequired = false;
+  if (owner) S.authRequired = false;
   S.err = null;
   return body;
 }
@@ -263,7 +287,10 @@ async function loadScript(src, attrs = {}) {
 
 async function initAuth() {
   const config = await fetch("/auth/config").then(response => response.json());
-  if (config.mode !== "clerk") return loadHome();
+  if (config.mode !== "clerk") {
+    await startWorkspace();
+    return loadHome();
+  }
   S.authMode = "clerk";
   sessionStorage.removeItem("studio-token");
   const domain = atob(config.publishable_key.split("_")[2]).slice(0, -1);
@@ -273,12 +300,8 @@ async function initAuth() {
   });
   await Clerk.load({ui: {ClerkUI: window.__internal_ClerkUICtor}});
   S.clerkReady = true;
-  if (!Clerk.isSignedIn) {
-    S.authRequired = true;
-    render();
-    return;
-  }
-  S.token = await Clerk.session.getToken();
+  if (Clerk.isSignedIn) S.token = await Clerk.session.getToken();
+  await startWorkspace();
   await loadHome();
   mountClerkUser();
 }
@@ -346,10 +369,11 @@ async function restore(v) { await api(`/api/apps/${S.appId}/restore`, {version: 
 async function runReview() { S.review = await api(`/api/apps/${S.appId}/review`, {}); S.stage = "gate"; await refreshApp(); }
 
 async function promote() {
-  const cosigner = $("#cosign") ? $("#cosign").value.trim() : "Dr. A. Osei";
-  const synthetic_demo = (S.gate && S.gate.report && S.gate.report.stubbed > 0);
+  const anonymous = S.app && S.app.tenant.startsWith("anon-");
+  const cosigner = anonymous ? undefined : ($("#cosign") ? $("#cosign").value.trim() : "Dr. A. Osei");
+  const synthetic_demo = anonymous || (S.gate && S.gate.report && S.gate.report.stubbed > 0);
   try {
-    await api(`/api/apps/${S.appId}/promote`, {cosigner, synthetic_demo});
+    await api(`/api/apps/${S.appId}/promote`, {cosigner, synthetic_demo}, S.owned);
     S.modal = null; S.stage = "operate";
   } catch (e) { /* err already set; keep modal open so the lock is visible */ }
   await refreshApp();
@@ -364,6 +388,45 @@ async function openApp(id) {
   render();
 }
 function goHome() { S.appId = null; S.app = null; S.modal = null; loadHome(); }
+
+async function requireOwnership() {
+  if (S.authMode !== "clerk") return true;
+  if (!window.Clerk?.isSignedIn) {
+    S.authRequired = true;
+    sessionStorage.setItem("studio-pending-eject", S.appId || "");
+    render();
+    return false;
+  }
+  if (!S.owned && S.app && S.app.tenant.startsWith("anon-")) {
+    S.app = await api(`/api/apps/${S.appId}/claim`, {}, true);
+    S.owned = true;
+  }
+  return true;
+}
+
+async function ejectApp() {
+  if (!await requireOwnership()) return;
+  const bundle = await api(`/api/apps/${S.appId}/export`, null, true);
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {type:"application/json"});
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${S.app.id}.bundle.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function exportAudit() {
+  if (!await requireOwnership()) return;
+  const token = S.authMode === "clerk" ? await Clerk.session.getToken() : S.token;
+  const response = await fetch("/api/audit/export", {headers: token ? {authorization:`Bearer ${token}`} : {}});
+  if (!response.ok) throw new Error("Could not export the audit record");
+  const blob = await response.blob();
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "practice-studio-audit.jsonl";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
 
 // ---------- shared fragments ----------
 
@@ -534,8 +597,8 @@ function viewBuilder() {
     <b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Who touched what</b>
     ${auditRows(6)}
     <div class="row">
-      <a class="b" style="font-size:12.5px" href="/api/apps/${S.appId}/export">export app (no hostage code)</a>
-      <a class="b" style="font-size:12.5px" href="/api/audit/export">export audit log</a>
+      <button class="b" style="font-size:12.5px" onclick="ejectApp()">Make this mine · export</button>
+      <button class="b" style="font-size:12.5px" onclick="exportAudit()">export audit log</button>
       <button class="b" style="font-size:12.5px" onclick="rollback()">rollback</button>
     </div>` : previewHtml();
 
@@ -615,7 +678,7 @@ function viewPipeline() {
         db: managed pg / ${esc(S.app.allocation.database)} · creds: ${esc(S.app.allocation.credentials)}
       </div>
       <div class="row"><span class="tag ${S.operate.metrics.healthy ? "tg" : "ty"}">${S.operate.metrics.healthy ? "healthy" : "health unconfirmed"}</span><span class="tag tb">v${S.app.allocation.app_version} · gate ${esc(S.app.attestation.gate_summary)} attached</span></div>
-      <div class="row"><button class="b" onclick="rollback()">rollback</button><a class="b" href="/api/apps/${S.appId}/export">export (Render / Kamal)</a></div>
+      <div class="row"><button class="b" onclick="rollback()">rollback</button><button class="b" onclick="ejectApp()">Make this mine · export</button></div>
     </div>` : `<div class="col" style="flex:1;padding:16px 20px"><div class="muted">nothing deployed yet — clear the gate first</div></div>`;
   } else { // operate + audit split
     body = `<div style="display:flex;flex:1;min-height:0">
@@ -625,7 +688,7 @@ function viewPipeline() {
       </div>
       <div class="col" style="flex:1.2;border-left:1.4px solid #2b2b2b;padding:12px"><b style="font-family:'Shantell Sans',sans-serif;font-size:12px">Audit</b>
         ${auditRows(7)}
-        <a class="b" style="align-self:flex-start;font-size:12px" href="/api/audit/export">export for security review</a>
+        <button class="b" style="align-self:flex-start;font-size:12px" onclick="exportAudit()">export for security review</button>
       </div>
     </div>`;
   }
@@ -664,7 +727,7 @@ function viewChart() {
         <div class="row"><input type="text" id="reply" placeholder="describe the problem…" style="flex:1" onkeydown="if(event.key==='Enter'){rollback().then(()=>iterate())}"></div>
         <b style="font-family:'Shantell Sans',sans-serif;font-size:12px;margin-top:8px">Access record — every look at patient data is recorded, same idea as chart access logs</b>
         ${auditRows(6)}
-        <div class="row"><a class="b" style="font-size:12.5px" href="/api/audit/export">export record</a><button class="b" style="font-size:12.5px" onclick="rollback()">withdraw from use</button></div>
+        <div class="row"><button class="b" style="font-size:12.5px" onclick="exportAudit()">export record</button><button class="b" style="font-size:12.5px" onclick="rollback()">withdraw from use</button></div>
       </div>
     </div>`;
   }
@@ -760,12 +823,68 @@ function viewArch() {
 
 // ---------- render ----------
 
+function shaktiDescribe() {
+  const prompts = [
+    "a post-op recovery tracker for knee replacement patients",
+    "a front desk helper for insurance verification",
+    "a blood pressure follow-up tool for community health workers",
+  ];
+  const selected = S.packs.find(pack => pack.id === S.packSel) || S.packs[0];
+  return `<div class="flow-shell" data-testid="describe-screen">
+    <section class="flow-hero">
+      <div class="flow-eyebrow">Temporary workspace · synthetic examples only</div>
+      <h2>You already know what to build.</h2>
+      <p>Describe it like you would tell a colleague. Practice Studio turns the idea into a working clinical tool, keeps safeguards visible, and lets you take the source with you.</p>
+    </section>
+    <section class="prompt-card">
+      <label class="field-label" for="prompt">What would make your day easier?</label>
+      <textarea id="prompt" placeholder="A small tool that…">${esc(S.prompt)}</textarea>
+      <div class="prompt-actions"><span class="muted">No patient data. Start with a synthetic example.</span><button class="b bp" onclick="buildApp()">Grow it →</button></div>
+    </section>
+    <div class="quick-prompts" aria-label="Prompt examples">${prompts.map(prompt => `<button onclick="S.prompt='${prompt}';document.querySelector('#prompt').value=S.prompt">${esc(prompt.split(" for ")[0])}</button>`).join("")}</div>
+    <section style="max-width:900px;margin:22px auto 0;width:100%">
+      <div class="row"><div><div class="flow-eyebrow">Signed clinical starters</div><h3 style="margin:4px 0">Choose a safe starting shape</h3></div><span class="muted" style="margin-left:auto">${S.packs.length} available</span></div>
+      <div class="starter-grid">${S.packs.map(pack => `<button class="pack-card ${pack.id === selected?.id ? "on" : ""}" onclick="S.packSel='${pack.id}';S.prompt=document.querySelector('#prompt').value;render()"><span class="pack-card-top"><b>${esc(pack.name)}</b><span class="tag tb">${esc(pack.profile)}</span></span><p>${esc(pack.description)}</p></button>`).join("")}</div>
+      ${S.apps.length ? `<div class="catalogue-head"><h3>Return to a workspace</h3><span>${S.apps.length}</span></div><div class="existing-list">${S.apps.map(app => `<button class="b" onclick="openApp('${app.id}')">${esc(app.name)}<span class="tag ${app.stage === "live" ? "tg" : "ty"}">${app.stage}</span></button>`).join("")}</div>` : ""}
+    </section>
+  </div>`;
+}
+
+function shaktiStudio() {
+  const turns = S.app.addenda.map(addendum => `<div class="bubble user">${esc(addendum.instruction)}</div><div class="bubble">${esc(addendum.reply)}</div>`).join("");
+  const progress = S.generating ? S.scaffold.map(step => `<div class="bubble">${step.shown ? "✓" : "…"} ${esc(step.label)}</div>`).join("") : "";
+  const features = S.app.features.map(feature => `<div class="preview-feature">✓ ${esc(feature)}</div>`).join("");
+  const gate = S.gate?.report;
+  return `<div class="flow-shell" data-testid="studio">
+    <div class="row"><button class="b" onclick="goHome()">← Your ideas</button><div><div class="flow-eyebrow">${esc(S.app.name)}</div><span class="muted">You talk here · your app responds there</span></div>${badge()}</div>
+    <section class="studio-shell">
+      <aside class="conversation"><div class="row"><b>Build with Practice Studio</b><span class="tag tb" style="margin-left:auto">v${S.app.current_version}</span></div><div class="conversation-log">${progress || turns}</div><div class="conversation-compose"><input id="reply" type="text" placeholder="Ask for one change…" onkeydown="if(event.key==='Enter')iterate()"><button class="b bp" onclick="iterate()">Send</button></div></aside>
+      <div class="preview-pane"><div class="preview-bar"><span>● ● ●</span><b>${esc(S.app.name)}</b><span class="tag ty" data-testid="environment-badge" style="margin-left:auto">SANDBOX · SYNTHETIC</span></div><div class="preview-surface"><article class="preview-app"><div class="flow-eyebrow">Generated clinical app</div><h2 style="margin:8px 0">${esc(S.app.name)}</h2><p class="muted">A working preview built from the ${esc(S.app.pack)} starter. Every change remains in this workspace history.</p><div class="preview-features">${features}</div></article></div><div class="studio-footer"><button class="b" onclick="S.drawer=!S.drawer;render()">Under the hood · read-only</button><span class="muted">${gate ? `${gate.passed}/${gate.total} checks passed` : "Checking safeguards…"}</span><button class="b bp" style="margin-left:auto" onclick="S.modal='preflight';render()">Check before release →</button></div>${S.drawer ? `<div class="drawer"><b>What this preview uses</b><span>Rust and Axum · ${S.app.routes} routes · synthetic data · immutable history</span><span>No patient system or production database is connected.</span></div>` : ""}</div>
+    </section>
+    ${shaktiGate()}
+  </div>`;
+}
+
+function shaktiGate() {
+  if (S.modal !== "preflight" || !S.gate) return "";
+  const report = S.gate.report;
+  const checks = report.results.map(result => `<div class="gate-item ${result.status === "fail" ? "fail" : "pass"}"><b>${result.status === "pass" ? "✓" : result.status === "stubbed" ? "◐" : "!"}</b><div><b>${esc(result.title)}</b><div class="muted">${esc(result.reason || (result.status === "pass" ? "Verified from the current build." : "Could not verify."))}</div></div>${result.fixable && result.status === "fail" ? `<button class="b" onclick="fixGate('${result.id}')">Fix it</button>` : ""}</div>`).join("");
+  const needsReview = report.results.some(result => result.id === "human-review" && result.status !== "pass");
+  const anonymous = S.app.tenant.startsWith("anon-");
+  return `<div class="gate-backdrop" data-testid="gate-dialog"><section class="gate-card"><div class="flow-eyebrow">Release gate</div><h2 style="margin:7px 0">Know what is ready before anyone uses it.</h2><p class="muted">If a check cannot run, it appears as failed to verify. It never appears as passed.</p><div class="gate-list">${checks}</div>${needsReview ? `<button class="b" onclick="runReview()">Request a recorded review</button>` : ""}${S.gate.reviewer_note ? `<p class="safety-callout">${esc(S.gate.reviewer_note)}</p>` : ""}<div class="row" style="margin-top:18px"><button class="b" onclick="S.modal=null;render()">Return to studio</button>${!anonymous ? `<input id="cosign" type="text" placeholder="Co-signer name" style="max-width:210px">` : ""}<button class="b bp" style="margin-left:auto" ${report.green ? "" : "disabled"} onclick="promote()">${anonymous ? "Publish synthetic preview" : "Co-sign and release"} →</button></div></section></div>`;
+}
+
+function shaktiLive() {
+  const synthetic = S.app.allocation?.pool === "synthetic-demo";
+  return `<div class="live-shell" data-testid="live-dashboard"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ${synthetic ? "tb" : "tg"}" data-testid="environment-badge">${synthetic ? "SYNTHETIC DEMO" : "LIVE"}</span></div><section class="live-hero"><div class="flow-eyebrow">It is running</div><h2 style="margin:7px 0">${esc(S.app.name)}</h2><p>${synthetic ? "This isolated preview uses synthetic examples and cannot reach a patient database." : "This release passed its frozen gate and carries an authenticated clinical attestation."}</p><div class="row"><span class="tag tg">gate ${esc(S.app.attestation.gate_summary)}</span><span class="muted">allocation ${esc(S.app.allocation.id)}</span></div></section><div class="live-grid"><section class="live-card"><div class="flow-eyebrow">Release record</div><h3>What happened</h3><div class="audit-list">${auditRows(8)}</div></section><aside class="live-card"><div class="flow-eyebrow">Ownership</div><h3>Take the whole thing with you.</h3><p class="muted">Sign in only when you are ready to claim this workspace and eject the Rust source, docs, fixtures, and deploy files. No hostage code.</p><button class="b bp primary-wide" onclick="ejectApp()">Make this mine · export</button><button class="b primary-wide" onclick="rollback()">Return to studio</button><div style="margin-top:18px" data-testid="runtime-status"><b>Runtime status</b><p class="muted">${S.operate?.metrics?.available ? "Telemetry is available." : "Runtime telemetry is not yet available. No health claim is fabricated."}</p></div></aside></div></div>`;
+}
+
 function render() {
-  $("#skins").innerHTML = Object.entries(SKINS).map(([k, label]) =>
-    `<button class="${S.skin === k ? "on" : ""}" onclick="S.skin='${k}';render()">${label}</button>`).join("");
+  $("#skins").innerHTML = `<span class="muted">Build · verify · own</span>`;
+  const identityLabel = S.authMode !== "clerk" ? "Local workspace" : window.Clerk?.isSignedIn ? "Verified owner" : "Guest workspace";
+  $("header .who").innerHTML = `<span class="tag ${window.Clerk?.isSignedIn ? "tg" : "ty"}">${identityLabel}</span> <span id="clerk-user"></span>`;
   if (S.authRequired) { $("#main").innerHTML = authView(); return; }
-  const view = {a: viewBuilder, b: viewPipeline, c: viewChart, d: viewArch}[S.skin];
-  $("#main").innerHTML = errHtml() + view();
+  $("#main").innerHTML = errHtml() + (!S.app ? shaktiDescribe() : live() ? shaktiLive() : shaktiStudio());
   mountClerkUser();
 }
 

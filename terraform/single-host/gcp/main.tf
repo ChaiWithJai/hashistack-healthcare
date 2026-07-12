@@ -8,6 +8,11 @@ resource "random_password" "postgres" {
   special = false
 }
 
+resource "random_password" "anonymous_session" {
+  length  = 48
+  special = false
+}
+
 resource "google_compute_address" "studio" { name = "hashistack-healthcare-studio" }
 resource "google_compute_instance" "studio" {
   name         = "hashistack-healthcare-studio"
@@ -26,9 +31,10 @@ resource "google_compute_instance" "studio" {
   metadata = {
     ssh-keys = "${var.ssh_user}:${var.ssh_public_key}"
     user-data = templatefile("${path.module}/../cloud-init.yaml.tftpl", {
-      postgres_password = random_password.postgres.result
-      repository_url    = var.repository_url
-      release_ref       = var.release_ref
+      postgres_password     = random_password.postgres.result
+      anonymous_session_key = random_password.anonymous_session.result
+      repository_url        = var.repository_url
+      release_ref           = var.release_ref
     })
   }
 }

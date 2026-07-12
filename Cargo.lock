@@ -1163,6 +1163,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
+ "getrandom 0.2.17",
  "hcl-rs",
  "hmac 0.12.1",
  "jsonwebtoken",

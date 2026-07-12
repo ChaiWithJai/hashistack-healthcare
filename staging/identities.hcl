@@ -36,3 +36,17 @@ identity "ms-rivera" {
   tenant = "meridian"
   token  = "dev-token-rivera"
 }
+
+identity "staging-test-owner" {
+  name   = "Practice Studio Staging Test Owner"
+  role   = "clinician"
+  tenant = "staging-test"
+  token  = "dev-token-staging-test-owner"
+}
+
+identity "production-smoke-owner" {
+  name   = "Practice Studio Production Smoke Owner"
+  role   = "clinician"
+  tenant = "production-test"
+  token  = "dev-token-production-smoke-owner"
+}

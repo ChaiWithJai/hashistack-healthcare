@@ -223,7 +223,8 @@ pub fn promote(
     }
     // Defense in depth (#10): the api layer already answered 404/403 with
     // audit events; a future caller that skips it still cannot cross these.
-    if principal.role != Role::Clinician {
+    let anonymous_preview = principal.role == Role::Guest && synthetic_demo;
+    if principal.role != Role::Clinician && !anonymous_preview {
         bail!(
             "promotion requires a co-signature from the responsible clinician — role {} may not co-sign",
             principal.role.as_str()
@@ -239,10 +240,12 @@ pub fn promote(
     // The typed cosigner field survives only as a display-name check: the
     // signature IS the authenticated principal; a claim naming anyone else
     // is refused, and omitting the field signs as the principal directly.
-    let cosigner = match cosigner_claim.map(str::trim) {
-        None => principal.name.clone(),
-        Some(claim) if claim == principal.name => principal.name.clone(),
-        Some(claim) => bail!(
+    let cosigner = match (anonymous_preview, cosigner_claim.map(str::trim)) {
+        (true, None) => "Anonymous synthetic workspace".to_string(),
+        (true, Some(_)) => bail!("anonymous synthetic previews do not accept a co-signature"),
+        (false, None) => principal.name.clone(),
+        (false, Some(claim)) if claim == principal.name => principal.name.clone(),
+        (false, Some(claim)) => bail!(
             "co-signature {claim:?} does not match the authenticated clinician {:?} — \
              the co-sign is the principal's own act; omit the field or match the registered name",
             principal.name

@@ -64,6 +64,27 @@ data. It is not a PHI-production or high-availability claim. See
 The measured DigitalOcean procedure and topology decisions are in
 [`docs/digitalocean-runbook.md`](docs/digitalocean-runbook.md).
 
+## Try the hosted preview
+
+The hosted preview uses synthetic examples. You can explore the starters,
+build a tool, change it, and run the release checks without an account. Sign in
+only when you want to claim the workspace and export its source.
+
+The current staging site is
+[https://138-197-27-225.sslip.io](https://138-197-27-225.sslip.io). Each pull
+request includes its deployed commit and preview link in a pull request
+comment. See [the hosted preview guide](docs/get-started/hosted-preview.md).
+
+## Sign in and export
+
+An anonymous workspace lasts for 24 hours and accepts synthetic examples only.
+Clerk verifies the user when they select "Make this mine." The Rust service
+then claims the app for that user's tenant before it creates the export.
+
+Clerk dashboard access does not grant application access. The Rust principal
+directory assigns the application role and tenant. See
+[the access control reference](docs/reference/access-control.md).
+
 For source development without containers:
 
 ```bash

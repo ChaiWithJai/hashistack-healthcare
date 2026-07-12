@@ -61,6 +61,9 @@ const DEV_FALLBACK_ID: &str = "dr-osei";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    /// A temporary synthetic workspace. Guests may build and run gates but
+    /// hold no release, export, or operator capability.
+    Guest,
     /// Practices medicine: everything in their tenant, including the
     /// co-sign — releasing an app to real patients is a clinical act.
     Clinician,
@@ -72,6 +75,7 @@ pub enum Role {
 impl Role {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Role::Guest => "guest",
             Role::Clinician => "clinician",
             Role::Staff => "staff",
         }
@@ -82,6 +86,7 @@ impl Role {
     /// platform-audit capabilities (403 `auth.role_denied`).
     pub fn allows(&self, capability: Capability) -> bool {
         match self {
+            Role::Guest => false,
             Role::Clinician => true,
             Role::Staff => match capability {
                 Capability::CoSignRelease | Capability::ExportPlatformAudit => false,
@@ -353,9 +358,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_dev_registry_parses_with_two_tenants_and_a_staff_role() {
+    fn embedded_dev_registry_parses_practice_and_test_tenants() {
         let registry = Registry::dev_default();
-        assert_eq!(registry.principal_count(), 3);
+        assert_eq!(registry.principal_count(), 5);
         let osei = registry.by_token("dev-token-osei").unwrap();
         assert_eq!(
             (osei.id.as_str(), osei.tenant.as_str()),
@@ -370,6 +375,20 @@ mod tests {
         assert_eq!(
             (staff.role, staff.tenant.as_str()),
             (Role::Staff, "meridian")
+        );
+        assert_eq!(
+            registry
+                .by_token("dev-token-staging-test-owner")
+                .unwrap()
+                .tenant,
+            "staging-test"
+        );
+        assert_eq!(
+            registry
+                .by_token("dev-token-production-smoke-owner")
+                .unwrap()
+                .tenant,
+            "production-test"
         );
         assert_eq!(registry.fallback().unwrap().id, "dr-osei");
         assert!(registry.idle_secs().is_none(), "idle expiry is off in dev");

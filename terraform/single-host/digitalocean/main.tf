@@ -5,6 +5,11 @@ resource "random_password" "postgres" {
   special = false
 }
 
+resource "random_password" "anonymous_session" {
+  length  = 48
+  special = false
+}
+
 resource "digitalocean_droplet" "studio" {
   name       = "hashistack-healthcare-studio"
   image      = "ubuntu-24-04-x64"
@@ -16,9 +21,10 @@ resource "digitalocean_droplet" "studio" {
   monitoring = true
   ipv6       = true
   user_data = templatefile("${path.module}/../cloud-init.yaml.tftpl", {
-    postgres_password = random_password.postgres.result
-    repository_url    = var.repository_url
-    release_ref       = var.release_ref
+    postgres_password     = random_password.postgres.result
+    anonymous_session_key = random_password.anonymous_session.result
+    repository_url        = var.repository_url
+    release_ref           = var.release_ref
   })
 
   # Cloud-init is a first-boot bootstrap, not an application deployment

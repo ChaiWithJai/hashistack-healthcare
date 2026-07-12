@@ -303,7 +303,8 @@ async function initAuth() {
   await Clerk.load({ui: {ClerkUI: window.__internal_ClerkUICtor}});
   S.clerkReady = true;
   if (Clerk.isSignedIn) S.token = await Clerk.session.getToken();
-  render();
+  S.owned = Clerk.isSignedIn && sessionStorage.getItem("studio-owned") === "true";
+  if (S.owned) await loadHome(); else render();
   mountClerkUser();
 }
 
@@ -318,7 +319,7 @@ function mountClerkUser() {
 }
 
 async function loadHome() {
-  const [p, a] = await Promise.all([api("/api/packs"), api("/api/apps")]);
+  const [p, a] = await Promise.all([api("/api/packs"), api("/api/apps", null, S.owned)]);
   S.packs = p.packs; S.apps = a.apps;
   if (!S.packSel && S.packs.length) S.packSel = S.packs[0].id;
   render();
@@ -327,10 +328,10 @@ async function loadHome() {
 async function refreshApp() {
   if (!S.appId) return;
   const [app, gate, audit, operate] = await Promise.all([
-    api(`/api/apps/${S.appId}`),
-    api(`/api/apps/${S.appId}/gate`),
-    api(`/api/apps/${S.appId}/audit`),
-    api(`/api/apps/${S.appId}/operate`),
+    api(`/api/apps/${S.appId}`, null, S.owned),
+    api(`/api/apps/${S.appId}/gate`, null, S.owned),
+    api(`/api/apps/${S.appId}/audit`, null, S.owned),
+    api(`/api/apps/${S.appId}/operate`, null, S.owned),
   ]);
   S.app = app; S.gate = gate; S.audit = audit.events; S.operate = operate;
   render();
@@ -343,7 +344,7 @@ async function buildApp() {
   if (!prompt || !S.packSel) return;
   const pack = S.packs.find(p => p.id === S.packSel);
   const name = prompt.length < 34 ? prompt : pack.name;
-  const res = await api("/api/apps", {prompt, pack: S.packSel, name});
+  const res = await api("/api/apps", {prompt, pack: S.packSel, name}, S.owned);
   S.appId = res.app.id; S.app = res.app;
   S.scaffold = res.scaffold.map(s => ({...s, shown:false}));
   S.generating = true; S.stage = "generate"; S.review = null;
@@ -360,14 +361,14 @@ async function buildApp() {
 async function iterate() {
   const box = $("#reply"); const instruction = box && box.value.trim();
   if (!instruction) return;
-  await api(`/api/apps/${S.appId}/iterate`, {instruction});
+  await api(`/api/apps/${S.appId}/iterate`, {instruction}, S.owned);
   S.stage = "iterate";
   await refreshApp();
 }
 
-async function fixGate(id) { await api(`/api/apps/${S.appId}/gate/${id}/fix`, {}); await refreshApp(); }
-async function restore(v) { await api(`/api/apps/${S.appId}/restore`, {version: v}); await refreshApp(); }
-async function runReview() { S.review = await api(`/api/apps/${S.appId}/review`, {}); S.stage = "gate"; await refreshApp(); }
+async function fixGate(id) { await api(`/api/apps/${S.appId}/gate/${id}/fix`, {}, S.owned); await refreshApp(); }
+async function restore(v) { await api(`/api/apps/${S.appId}/restore`, {version: v}, S.owned); await refreshApp(); }
+async function runReview() { S.review = await api(`/api/apps/${S.appId}/review`, {}, S.owned); S.stage = "gate"; await refreshApp(); }
 
 async function promote() {
   const anonymous = S.app && S.app.tenant.startsWith("anon-");
@@ -380,7 +381,7 @@ async function promote() {
   await refreshApp();
 }
 
-async function rollback() { await api(`/api/apps/${S.appId}/rollback`, {}); S.stage = "deploy"; await refreshApp(); }
+async function rollback() { await api(`/api/apps/${S.appId}/rollback`, {}, S.owned); S.stage = "deploy"; await refreshApp(); }
 
 async function openApp(id) {
   S.appId = id; S.scaffold = []; S.generating = false; S.review = null;
@@ -401,6 +402,7 @@ async function requireOwnership() {
   if (!S.owned && S.app && S.app.tenant.startsWith("anon-")) {
     S.app = await api(`/api/apps/${S.appId}/claim`, {}, true);
     S.owned = true;
+    sessionStorage.setItem("studio-owned", "true");
   }
   return true;
 }

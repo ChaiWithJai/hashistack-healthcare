@@ -296,7 +296,7 @@ fi
 echo "-- restart survival (#7): kill -9 mid-flow, reboot on the same control DB"
 if [[ -n "${CONTROL_DB_URL:-}" ]]; then
   BIND="${BASE#http://}"
-  OLD_PID="$SERVER_PID"
+  OLD_PID="${CONTROL_PLANE_PID:-$SERVER_PID}"
   if [[ -z "$OLD_PID" && -f .staging/run/control-plane.pid ]]; then
     OLD_PID=$(cat .staging/run/control-plane.pid)
   fi
@@ -503,7 +503,7 @@ if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" ]]; then
     "$EXPORT_STREAM" 'password held in memory only, never recorded'
   if [[ -n "$SIB_PASS" ]]; then
     check "no dynamic db password in the audit export" \
-      "$(echo "$EXPORT_STREAM" | grep -c "$SIB_PASS" || true)" "0"
+      "$(echo "$EXPORT_STREAM" | grep -F -c -- "$SIB_PASS" || true)" "0"
   fi
 else
   echo "  skipped (no vault+control-db): no-password label + password absent from export"
@@ -518,7 +518,7 @@ if [[ -n "${AUDIT_FILE:-}" && -r "$AUDIT_FILE" ]]; then
   check "archive hides the words" "$(grep -c "$WORDS" "$AUDIT_FILE" || true)" "0"
   if [[ -n "$SIB_PASS" ]]; then
     check "archive holds no dynamic db password (#9)" \
-      "$(grep -c "$SIB_PASS" "$AUDIT_FILE" || true)" "0"
+      "$(grep -F -c -- "$SIB_PASS" "$AUDIT_FILE" || true)" "0"
   fi
 else
   echo "  skipped (no AUDIT_FILE): probe line, app.promoted, hmac form, no plaintext in archive"

@@ -2,8 +2,9 @@
 
 ## Result
 
-The control plane passed 130 of 130 pressure checks against local Nomad,
-Vault, and Postgres services.
+The exact branch build passed 125 of 125 end-to-end checks against local
+Nomad, Vault, and Postgres services. Two additional real-PgStore contracts
+passed after the pressure run, covering both durable rollback checkpoints.
 
 The test used these versions:
 
@@ -37,8 +38,15 @@ The test killed the control plane with signal 9. After restart, Postgres
 restored the live app, allocation, attestation, operations, audit events, and
 Vault lease handle.
 
-Rollback stopped the Nomad job, revoked the platform's Vault lease, proved
-that Postgres removed the issued role, and returned the app to synthetic data.
+The retry treatment externally revoked the platform's real Vault lease while
+its durable app record still owned the original handle. Rollback then proved
+the Postgres role was already absent, skipped a second revoke, stopped the
+Nomad job, emitted `vault.lease_revocation_already_verified`, and returned the
+app to synthetic data.
+
+Two tests then persisted and reloaded a fresh `PgStore` and `Platform` at the
+cleanup-requested and cleanup-verified boundaries. Both retained the live
+stage, pending/stopped truth, unhealthy state, and Nomad/Vault handles.
 
 The durable audit archive contained the release, Nomad, and Vault events. It
 stored the doctor prompt as an HMAC and did not contain either dynamic database
@@ -76,6 +84,18 @@ does not accept Docker Compose style `tmpfs`. The job now uses Nomad's native
 tmpfs mount block. The job also omitted `ports = ["http"]`, so Nomad reserved a
 port without asking Docker to publish it. The rendered job now publishes that
 port and binds the app to `0.0.0.0:8080`.
+
+The Postgres container briefly accepted connections during initialization and
+then restarted, which could leave an early control-plane connection closed.
+Docker staging now requires the image's post-init marker as well as
+`pg_isready` against the `control` database.
+
+Targeted pressure runs did not know the PID of a separately started control
+plane, so their kill-9 phase could not run. The harness now accepts the
+explicit `CONTROL_PLANE_PID` printed by the Docker start instructions. A
+Vault-generated password beginning with `-` also exposed unsafe `grep`
+argument handling; password absence checks now use fixed-string matching and
+the `--` option boundary.
 
 ## Remaining limits
 
@@ -116,9 +136,17 @@ CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control \
 AUDIT_FILE=.staging/logs/audit-macos.jsonl \
 IDENTITIES_FILE=staging/identities.hcl \
 SESSION_IDLE_SECS=900 \
+CONTROL_PLANE_PID="$CONTROL_PLANE_PID" \
 scripts/pressure-test.sh http://127.0.0.1:39100
 ```
 
 Set `NOMAD_STAGING_IMAGE=hashistack-healthcare-client:local` and
 `NOMAD_REQUIRE_ALLOCATION=1` to require container execution and health traffic.
-The final line was `130 passed, 0 failed`.
+The final pressure line was `125 passed, 0 failed`. The subsequent real-store
+command reported `2 passed, 0 failed`:
+
+```sh
+TEST_CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control \
+  cargo test --test store_contract postgres_restart_recovers_rollback_ \
+  -- --ignored --test-threads=1
+```

@@ -93,7 +93,8 @@ Start the control plane with these environment values, then run the proof:
   export CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control
   export AUDIT_FILE=.staging/logs/audit-docker.jsonl
   export IDENTITIES_FILE=staging/identities.hcl SESSION_IDLE_SECS=900
-  APP_BIND=127.0.0.1:39100 cargo run
+  APP_BIND=127.0.0.1:39100 cargo run &
+  export CONTROL_PLANE_PID=$!
 
 In another terminal:
 

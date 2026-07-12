@@ -184,17 +184,51 @@ const S = {
   stage: "describe",   // 1b rail position
   review: null,        // reviewer note + report after /review
   err: null,
+  token: sessionStorage.getItem("studio-token") || "",
+  authRequired: false,
 };
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 async function api(path, opts) {
-  const r = await fetch(path, opts && {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(opts)});
+  const headers = {};
+  if (opts) headers["content-type"] = "application/json";
+  if (S.token) headers.authorization = `Bearer ${S.token}`;
+  const r = await fetch(path, {method: opts ? "POST" : "GET", headers, ...(opts ? {body:JSON.stringify(opts)} : {})});
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) { S.err = body.error || r.statusText; render(); throw new Error(S.err); }
+  if (!r.ok) {
+    S.authRequired = r.status === 401;
+    S.err = body.error || r.statusText;
+    render();
+    throw new Error(S.err);
+  }
+  S.authRequired = false;
   S.err = null;
   return body;
+}
+
+async function signIn() {
+  const token = $("#studio-token").value.trim();
+  if (!token) return;
+  S.token = token;
+  sessionStorage.setItem("studio-token", token);
+  S.authRequired = false;
+  S.err = null;
+  try { await loadHome(); }
+  catch (_) { sessionStorage.removeItem("studio-token"); S.token = ""; }
+}
+
+function authView() {
+  return `<section class="scr" style="max-width:560px;margin:9vh auto;padding:28px">
+    <div class="generic">Practice identity</div>
+    <h2>Sign in to your studio</h2>
+    <p class="muted">Enter the access token issued by your practice administrator. It stays in this browser tab and is never written to the server or URL.</p>
+    <label for="studio-token"><b>Access token</b></label>
+    <input id="studio-token" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')signIn()">
+    <button class="b bp primary-wide" onclick="signIn()">Continue</button>
+    ${S.err ? `<p class="note">${esc(S.err)}</p>` : ""}
+  </section>`;
 }
 
 async function loadHome() {
@@ -667,11 +701,12 @@ function viewArch() {
 function render() {
   $("#skins").innerHTML = Object.entries(SKINS).map(([k, label]) =>
     `<button class="${S.skin === k ? "on" : ""}" onclick="S.skin='${k}';render()">${label}</button>`).join("");
+  if (S.authRequired) { $("#main").innerHTML = authView(); return; }
   const view = {a: viewBuilder, b: viewPipeline, c: viewChart, d: viewArch}[S.skin];
   $("#main").innerHTML = errHtml() + view();
 }
 
-loadHome();
+loadHome().catch(() => {});
 </script>
 </body>
 </html>

@@ -6,12 +6,15 @@ resource "random_password" "postgres" {
 }
 
 resource "digitalocean_droplet" "studio" {
-  name     = "hashistack-healthcare-studio"
-  image    = "ubuntu-24-04-x64"
-  region   = var.region
-  size     = var.size
-  ssh_keys = [var.ssh_key_fingerprint]
-  tags     = ["hashistack-studio", "synthetic-only"]
+  name       = "hashistack-healthcare-studio"
+  image      = "ubuntu-24-04-x64"
+  region     = var.region
+  size       = var.size
+  ssh_keys   = [var.ssh_key_fingerprint]
+  tags       = ["hashistack-studio", "synthetic-only"]
+  backups    = true
+  monitoring = true
+  ipv6       = true
   user_data = templatefile("${path.module}/../cloud-init.yaml.tftpl", {
     postgres_password = random_password.postgres.result
     repository_url    = var.repository_url

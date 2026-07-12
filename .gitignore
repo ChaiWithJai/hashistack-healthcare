@@ -12,3 +12,9 @@ target/
 /node_modules
 /.playwright-cli
 /output
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log

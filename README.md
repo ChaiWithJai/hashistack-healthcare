@@ -61,6 +61,8 @@ docker compose down --volumes       # explicit destructive reset
 This profile is for learning, customization, and owned export with synthetic
 data. It is not a PHI-production or high-availability claim. See
 [`terraform/single-host/`](terraform/single-host/) for provisioning.
+The measured DigitalOcean procedure and topology decisions are in
+[`docs/digitalocean-runbook.md`](docs/digitalocean-runbook.md).
 
 For source development without containers:
 

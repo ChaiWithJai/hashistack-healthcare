@@ -11,6 +11,10 @@ patient data in it. `terraform/prod/` remains the future multi-node managed
 substrate; `scripts/staging-docker-up.sh` is the local HashiStack integration
 proof.
 
+See [`docs/digitalocean-runbook.md`](../../docs/digitalocean-runbook.md) for
+the measured live-provider baseline, shared staging/production trade-offs,
+model-tier boundary, rollback, and teardown procedure.
+
 Local proof:
 
 ```sh

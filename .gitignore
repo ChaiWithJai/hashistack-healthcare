@@ -16,8 +16,12 @@ target/
 /test-results
 /docs/evidence/screenshots
 /artifacts/screenshots
+/docs/evals/journey/*.png
+/artifacts/bundles
+/output/bundles
 *.trace.zip
 *.bundle
+*.bundle.zip
 **/.terraform/
 *.tfstate
 *.tfstate.*

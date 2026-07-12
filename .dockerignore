@@ -1,5 +1,9 @@
-target
 .git
-.env
-*.log
-.DS_Store
+.github
+.staging
+target
+docs
+evals
+terraform
+packer
+packs/*/scaffold/target

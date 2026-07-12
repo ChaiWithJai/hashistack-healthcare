@@ -1,0 +1,18 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+write_files:
+  - path: /etc/hashistack-studio.env
+    permissions: "0600"
+    content: |
+      POSTGRES_PASSWORD=${postgres_password}
+      STUDIO_PORT=3000
+runcmd:
+  - systemctl enable --now docker
+  - git clone --depth 1 --branch '${release_ref}' '${repository_url}' /opt/hashistack-healthcare
+  - [bash, -lc, "cd /opt/hashistack-healthcare && docker compose --env-file /etc/hashistack-studio.env config --quiet"]
+  - [bash, -lc, "cd /opt/hashistack-healthcare && docker compose --env-file /etc/hashistack-studio.env up -d --build --wait"]
+final_message: "Hashistack Healthcare synthetic studio is ready"

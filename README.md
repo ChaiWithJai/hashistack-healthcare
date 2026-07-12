@@ -48,6 +48,22 @@ identity, workload identity, archive retention, or clinical fitness.
 
 ## Quick start
 
+The portable end-user proof uses the same Compose bundle locally and on the
+DigitalOcean/GCP single-host modules:
+
+```bash
+scripts/single-host-smoke.sh
+# UI: http://localhost:3000 — bearer token: dev-token-osei
+docker compose down                 # state and audit survive
+docker compose down --volumes       # explicit destructive reset
+```
+
+This profile is for learning, customization, and owned export with synthetic
+data. It is not a PHI-production or high-availability claim. See
+[`terraform/single-host/`](terraform/single-host/) for provisioning.
+
+For source development without containers:
+
 ```bash
 cp env.example .env   # optional; runs without secrets
 cargo run

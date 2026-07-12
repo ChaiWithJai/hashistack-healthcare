@@ -260,10 +260,10 @@ async function main() {
   const refused = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER });
   assert(refused.status === 409, `promote-while-failing must be 409, got ${refused.status}`);
   const refusalBody = refused.text; // verbatim — the product's own words
-  assert(/deploy locked \(1 failing\)/.test(refusalBody) && refusalBody.includes('auto-logoff'),
-    `the refusal must name the one failing check (labeled stubs are not failures): ${refusalBody}`);
+  assert(refusalBody.includes('auto-logoff') && refusalBody.includes('phi-encryption') && refusalBody.includes('STUBBED'),
+    `the real-data refusal must name both the failing check and the production-blocking stub: ${refusalBody}`);
   await record('promote-locked', refused.ms,
-    `POST promote while failing → 409, refusal body captured verbatim`);
+    `POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial`);
 
   // ---- 5. FIX: one click, then green ----
   const fixed = await api('POST', `/api/apps/${appId}/gate/auto-logoff/fix`, {});
@@ -275,7 +275,7 @@ async function main() {
     `POST gate/auto-logoff/fix → gate ${r1.passed + r1.stubbed}/${r1.total} satisfied, green (${r1.passed} passed + ${r1.stubbed} labeled stub)`);
 
   // ---- 6. CO-SIGN & RELEASE ----
-  const promoted = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER });
+  const promoted = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER, synthetic_demo: true });
   assert(promoted.status === 200, `promote returned ${promoted.status}: ${promoted.text.slice(0, 300)}`);
   assert(promoted.json.app.stage === 'live', 'promoted app must be live');
   const att = promoted.json.app.attestation;
@@ -284,16 +284,16 @@ async function main() {
     'attestation must bind the authenticated principal and the frozen report digest');
   const promptToLiveMs = Math.round(performance.now() - t0);
   await record('cosign-release', promoted.ms,
-    `POST promote (cosigner "${COSIGNER}") → live; attestation by ${att.principal}, ` +
+    `POST promote (cosigner "${COSIGNER}", synthetic_demo=true) → isolated synthetic demo; attestation by ${att.principal}, ` +
     `digest ${att.report_digest.slice(0, 16)}…; allocation ${alloc.id} (${alloc.pool} pool, ${alloc.url})`);
 
   t = performance.now();
-  await openApp(); // now shows the live/operate view
-  await page.getByText('LIVE ·').waitFor();
+  await openApp(); // now shows the isolated synthetic-demo operate view
+  await page.getByText('SYNTHETIC DEMO').waitFor();
   await page.getByText('uptime').waitFor();
   await page.screenshot({ path: shotPath('03-live.png') });
   await record('ui-live', Math.round(performance.now() - t),
-    'the 1a operate view: LIVE badge, allocation, who-touched-what → 03-live.png');
+    'the 1a operate view: SYNTHETIC DEMO badge, allocation, who-touched-what → 03-live.png');
   await ui.close();
 
   // ---- 7. EJECT ----
@@ -345,10 +345,12 @@ async function main() {
   const apage = await actx.newPage();
   await apage.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   t = performance.now();
-  await apage.goto(`${APP_BASE}/`, { waitUntil: 'domcontentloaded' });
+  await apage.goto(`${APP_BASE}/login`, { waitUntil: 'domcontentloaded' });
+  await apage.getByLabel('username').fill('demo-patient');
+  await apage.getByLabel('password').fill('learn-patient');
+  await apage.getByRole('button', { name: 'sign in' }).click();
   assert((await apage.getByText('synthetic data only').count()) > 0, 'the artifact must show its SYNTHETIC banner');
   await apage.screenshot({ path: shotPath('04-artifact-home.png') });
-  await apage.selectOption('select[name="patient_id"]', 'pt-001');
   await apage.fill('input[name="pain"]', '9');
   await apage.selectOption('select[name="wound"]', 'clean');
   await apage.fill('input[name="note"]', 'much worse since last night');
@@ -416,7 +418,7 @@ async function main() {
     artifact_boot_ms: bootMs,
     control_plane_boot_ms: cpBootMs,
   };
-  console.log(`\n  prompt → live: ${promptToLiveMs}ms (API calls alone: ${apiOnlyMs}ms)`);
+  console.log(`\n  prompt → isolated demo: ${promptToLiveMs}ms (API calls alone: ${apiOnlyMs}ms)`);
   console.log(`  prompt → ejected app running: ${promptToRunningMs}ms (build ${buildMs}ms, boot ${bootMs}ms)`);
 
   // ---- write the record ----
@@ -498,7 +500,7 @@ function renderMarkdown(j) {
   j.stages.forEach((s, i) => {
     L.push(`| ${i + 1} | ${s.stage} | ${sec(s.ms)} | ${s.what.replace(/\|/g, '\\|')} | ${seqRange(s.audit_seqs)} |`);
   });
-  L.push(`| | **totals** | | **prompt → live: ${sec(j.totals.prompt_to_live_ms)}** (API calls alone: ${sec(j.totals.api_calls_only_ms)}) · **prompt → ejected app running: ${sec(j.totals.prompt_to_ejected_running_ms)}** (incl. ${sec(j.totals.artifact_build_ms)} compile) | |`);
+  L.push(`| | **totals** | | **prompt → isolated synthetic demo: ${sec(j.totals.prompt_to_live_ms)}** (API calls alone: ${sec(j.totals.api_calls_only_ms)}) · **prompt → ejected app running: ${sec(j.totals.prompt_to_ejected_running_ms)}** (incl. ${sec(j.totals.artifact_build_ms)} compile) | |`);
   L.push('');
   L.push('Wall times are measured around each HTTP call / build / boot at ms');
   L.push('precision; the ui-* rows are the profiler driving the real doctor UI with');

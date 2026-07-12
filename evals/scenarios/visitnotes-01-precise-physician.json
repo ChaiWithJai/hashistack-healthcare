@@ -1,0 +1,52 @@
+{
+  "id": "visitnotes-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "visit-notes",
+  "must_pass": true,
+  "prompt": "stream a synthetic visit transcript into an unsigned note draft",
+  "app_name": "visit notes",
+  "iterate": [
+    {
+      "instruction": "wire roles for the clinical staff",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 8,
+    "initially_failing": [
+      "auto-logoff",
+      "human-review",
+      "access-roles"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable visit-notes profile artifact evaluation."
+}

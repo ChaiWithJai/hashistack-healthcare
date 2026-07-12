@@ -1,9 +1,7 @@
 # Platform eval harness (evals/README.md): the two nested layers — job-to-be-
-# done workflows over a fresh control plane per scenario, plus Playwright
-# against the RUNNING ejected post-op-monitor app — scored into the portable
-# scorecard baseline. Fails only on harness errors or regressions in
-# must_pass scenarios; the known gaps (refusals #12, unconverted packs #5)
-# are expected-fail by design.
+# done workflows over a fresh control plane per scenario, plus pack-owned
+# quality contracts interpreted through Playwright against all runnable packs
+# ejected apps — scored into the portable scorecard baseline.
 name: evals
 
 on:

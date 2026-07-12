@@ -147,8 +147,8 @@ data: the escalation machinery is proven, sub-1B models are not).
 | Use case (RFC #) | Pack | Profile | Status |
 |---|---|---|---|
 | 2 post-op-monitor | shipped (full pack spec, #5) | web | **fully proven at the bar**: the #2–#11 chain landed AND both eval layers — 4+ personas describe→gate→co-sign→eject over real HTTP, then the ejected bundle is built, run, and Playwright-judged (renders, does the clinical job, keeps its honesty markers) |
-| 1 hypertension-tracker · 4 compliance-checklist · 6 patient-intake · 14 insurance-verification | shipped (manifest) | web | **layer-1-proven via evals** (4 personas each: workflow, gate shape, false-pass guard, attestation, audit, bundle); artifact layer scores no-artifact until #5 ports the post-op scaffold pattern |
-| 5, 7, 12, 13, 16 | wave 2 backlog | web | blocked on spike 1 exit (the "someone who isn't us" run) |
-| 3, 8, 11 | wave 3 backlog | stream | blocked on spike 2 |
-| 17, 18, 19, 20 | wave 4 backlog | local | blocked on spike 3 — first runtime data point in investigation 0003: hermes-agent installs and confines cleanly but ≤270M local models emit zero tool calls; the local profile needs the LFM2/prod-tier weights decision 0002 names |
+| 1 hypertension-tracker · 4 compliance-checklist · 6 patient-intake · 14 insurance-verification | shipped (full pack spec) | web | **locally artifact-proven** across 4 personas each |
+| 5 patient-portal · 7 clinical-dashboard · 12 inbound-scheduling · 13 outbound-followup · 16 nemt-logistics | shipped (full pack spec) | web | **locally artifact-proven** across 4 personas each |
+| 3 rpm-wearables · 8 visit-notes · 11 ambient-scribe | shipped (full pack spec) | stream | **locally artifact-proven**; profile-native queue/voice/drain-survival staging spike remains open |
+| 17 deid-local · 18 note-extraction-local · 19 airgapped-support · 20 hybrid-pipeline | shipped (full pack spec) | local | **locally artifact-proven**; zero-allocation runtime, offline audit import, signed model bundle, and optional sidecar staging spike remain open |
 | 9, 10, 15, 21 | — | refused | **implemented, Phase 0** (`src/refusals.rs`): 422 + written RFC reason + `app.refused`, nothing scaffolded; eval refusal scenarios must_pass; keyword rules now, model screen behind the same seam later |

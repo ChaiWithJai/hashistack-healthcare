@@ -17,16 +17,12 @@ realistic sampling of scenarios, and emits a portable scorecard baseline:
   presence, audit reconstructability, ejection-bundle completeness. The
   agent tier used per operation is recorded (the rules floor today — that
   honesty is part of the baseline).
-- **Layer 2 — the artifact.** Is what got produced actually good? For packs
-  with a runnable scaffold (post-op-monitor today, #5), the ejected bundle
-  is unpacked, **compiled, and run** (ports 39300+, one shared worktree-local
-  `CARGO_TARGET_DIR` so it compiles once), then judged with Playwright
-  against the running ejected app: it renders (form fields, SYNTHETIC
-  banner, the sketchy-kit skin from `web/index.html`), it does the clinical
-  job (a pain-9 check-in routes a flag to the practice inbox and the stdout
-  audit JSONL; a pain-2 does not), and it keeps its honesty markers (the
-  encryption stub is labeled, never claimed). Unconverted packs score
-  **no-artifact (#5 pending)** — visible in the scorecard, never skipped.
+- **Layer 2 — the artifact.** Is what got produced actually good? Every
+  built-in pack owns `artifact-quality.json`. The ejected bundle is unpacked,
+  **compiled, and run**, then a generic Playwright interpreter drives the
+  pack's declared job journey. Five hard gates cover job behavior, ownership,
+  safety/honesty, accessibility, and documentation. The contract—not the
+  harness—contains pack-specific thresholds, selectors, and expected outcomes.
 
 **The journey profiler is the harness's single-journey sibling**: where the
 scorecard samples 30 scenarios for a regression baseline, `scripts/journey.sh`
@@ -37,9 +33,9 @@ referencing each to its audit seqs, and emitting a narrative anyone can be
 shown: [docs/evals/journey/journey.md](../docs/evals/journey/journey.md)
 (+ journey.json and six stage screenshots).
 
-Known gaps are **expected failures**, not errors, and land visibly in the
-scorecard's known-gaps section (today: the four packs without runnable
-scaffolds, the rules-tier floor, the keyword shape of the refusal screen).
+Known gaps land visibly in the scorecard (today: production controls outside
+the synthetic artifacts, the rules-tier floor, and the keyword shape of the
+refusal screen).
 The harness exits nonzero only on harness errors or a failing check in a
 scenario marked `must_pass` — it is a regression baseline, not a trophy.
 The four refusal scenarios (RFC 0001 use cases 9/10/15/21) are `must_pass`
@@ -98,7 +94,7 @@ One JSON file per scenario. Fields by category:
 | `workflow.cosigner` | string | co-signature for promote; asserted on the attestation |
 | `workflow.eject_core_files` | [string] | files every bundle must contain (the nine-file core) |
 | `workflow.eject_scaffold_source` | bool | converted packs must also ship `app/` source + the synthetic seed |
-| `artifact` | object | `{expected: "playwright", checks: [...]}` to run layer 2, or `{expected: "no-artifact", reason}` to score the gap visibly |
+| `artifact` | legacy object | ignored for pack workflows; a runnable pack must carry `artifact-quality.json` in its ejected bundle |
 | `edge` | string? | `"duplicate-names"` or `"restore-then-promote"` for the special flows |
 | `restore_to_version` | int? | for restore-then-promote: checkpoint to restore between iterating and fixing |
 

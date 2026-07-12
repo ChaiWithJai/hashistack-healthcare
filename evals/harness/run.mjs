@@ -7,14 +7,10 @@
 // over real HTTP, scoring the workflow contract (gate shape, false-pass
 // guard, attestation, audit reconstructability, ejection completeness).
 //
-// Layer 2 (artifact): is what got produced actually good? For packs that
-// ship a runnable scaffold (post-op-monitor today, #5), unpacks the ejected
-// bundle, builds and RUNS the ejected app, and drives it with Playwright:
-// does it render, does it do the clinical job (a pain-9 check-in routes a
-// flag; a pain-2 does not), and does it keep its honesty markers (the
-// encryption stub is labeled, never claimed). Unconverted packs score
-// "no-artifact (#5 pending)" — visible in the scorecard, never skipped
-// silently.
+// Layer 2 (artifact): every pack ships an artifact-quality.json. The harness
+// unpacks, builds, and RUNS the ejected app, then interprets that pack-owned
+// contract with a deliberately small Playwright DSL. Job behavior, ownership,
+// safety/honesty, accessibility, and documentation are hard gates.
 //
 // Identity (#10): the harness is an ordinary API client — every request
 // carries a Phase 0 dev bearer token from staging/identities.hcl, and two
@@ -240,10 +236,13 @@ async function runWorkflow(scenario, base, score) {
     const still = gate1.json.report.results.filter((r) => r.status === 'fail').map((r) => r.id);
     return fail(`gate not green before promote — still failing: [${still.join(', ')}]`);
   }
-  const promoted = await api(base, 'POST', `/api/apps/${appId}/promote`, { cosigner: wf.cosigner });
+  const promoted = await api(base, 'POST', `/api/apps/${appId}/promote`, {
+    cosigner: wf.cosigner,
+    synthetic_demo: (wf.stubbed ?? 0) > 0,
+  });
   if (promoted.status !== 200) return fail(`promote returned ${promoted.status}: ${promoted.text.slice(0, 200)}`);
   if (promoted.json.app.stage !== 'live') return fail('promoted app is not live');
-  steps.push(`promoted to live (gate ${promoted.json.report.passed}/${promoted.json.report.total} green, co-signed ${wf.cosigner})`);
+  steps.push(`${(wf.stubbed ?? 0) > 0 ? 'published to synthetic demo' : 'promoted to live'} (gate ${promoted.json.report.passed}/${promoted.json.report.total} green, co-signed ${wf.cosigner})`);
 
   // attestation: co-signature bound to the frozen gate report
   const att = promoted.json.app.attestation;
@@ -280,13 +279,12 @@ async function runWorkflow(scenario, base, score) {
   if (exported.status !== 200) return fail(`export returned ${exported.status}`);
   const files = exported.json.files;
   const missingCore = wf.eject_core_files.filter((f) => !(f in files));
-  const scaffoldOk = !wf.eject_scaffold_source ||
-    ('app/src/main.rs' in files && 'app/Cargo.toml' in files && 'synthetic/post-op-demo.json' in files);
+  const scaffoldOk = 'app/src/main.rs' in files && 'app/Cargo.toml' in files && 'artifact-quality.json' in files;
   const promptCarried = (files['README.md'] ?? '').includes(scenario.prompt);
   score.add('eject_bundle_complete',
     missingCore.length === 0 && scaffoldOk && promptCarried,
     `${Object.keys(files).length} files; core missing: [${missingCore.join(', ')}]; ` +
-    `scaffold source: ${wf.eject_scaffold_source ? (scaffoldOk ? 'present' : 'MISSING') : 'n/a (#5 pending)'}; ` +
+    `scaffold source + quality contract: ${scaffoldOk ? 'present' : 'MISSING'}; ` +
     `README carries the doctor's prompt: ${promptCarried}`);
   steps.push(`ejected ${Object.keys(files).length}-file bundle`);
 
@@ -443,7 +441,7 @@ async function runStaffDenial(scenario, base, score) {
   // the same green gate promotes for the clinician — and the attestation
   // binds the authenticated principal id + the frozen report digest (#10)
   const promoted = await api(base, 'POST', `/api/apps/${appId}/promote`,
-    { cosigner: wf.cosigner }, 'dr-osei');
+    { cosigner: wf.cosigner, synthetic_demo: (gate.json?.report?.stubbed ?? 0) > 0 }, 'dr-osei');
   const att = promoted.json?.app?.attestation;
   score.add('clinician_cosign_binds_principal',
     promoted.status === 200 && att?.principal === 'dr-osei' && !!att?.report_digest,
@@ -503,35 +501,98 @@ function unpackBundle(bundle, dir) {
   }
 }
 
-let builtAppHash = null;
-function buildEjectedApp(bundleDir, scenarioId) {
+const builtApps = new Map();
+function buildEjectedApp(bundleDir, scenarioId, contract) {
   const hash = createHash('sha256')
     .update(fs.readFileSync(path.join(bundleDir, 'app', 'src', 'main.rs')))
     .update(fs.readFileSync(path.join(bundleDir, 'app', 'Cargo.toml')))
     .digest('hex');
-  const bin = path.join(EJECT_TARGET_DIR, 'debug', 'app');
-  if (builtAppHash === hash && fs.existsSync(bin)) return bin; // compiled once, shared target dir
+  const targetDir = path.join(EJECT_TARGET_DIR, contract.pack);
+  const bin = path.join(targetDir, 'debug', 'app');
+  if (builtApps.get(contract.pack) === hash && fs.existsSync(bin)) return bin;
   console.log(`    [layer2] building the ejected app (${scenarioId}) …`);
   execFileSync('cargo', ['build', '--quiet'], {
     cwd: path.join(bundleDir, 'app'),
-    env: { ...process.env, CARGO_TARGET_DIR: EJECT_TARGET_DIR },
+    env: { ...process.env, CARGO_TARGET_DIR: targetDir },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
-  builtAppHash = hash;
+  builtApps.set(contract.pack, hash);
   return bin;
+}
+
+function readArtifactContract(bundle, expectedPack) {
+  const raw = bundle.files['artifact-quality.json'];
+  if (!raw) throw new Error('ejected bundle has no artifact-quality.json');
+  const contract = JSON.parse(raw);
+  if (contract.schema_version !== 1) throw new Error(`unsupported artifact contract v${contract.schema_version}`);
+  if (contract.pack !== expectedPack) throw new Error(`contract pack ${contract.pack} != scenario pack ${expectedPack}`);
+  const weights = Object.values(contract.quality).map((x) => x.weight);
+  if (weights.reduce((a, b) => a + b, 0) !== 100) throw new Error('quality category weights must total 100');
+  for (const rel of [contract.runtime.manifest, contract.runtime.synthetic]) {
+    if (!rel || path.isAbsolute(rel) || rel.split('/').includes('..') || !(rel in bundle.files)) {
+      throw new Error(`unsafe or missing runtime path ${JSON.stringify(rel)}`);
+    }
+  }
+  return contract;
+}
+
+function byStep(page, step) {
+  let locator;
+  if (step.label) locator = page.getByLabel(step.label, { exact: false });
+  else if (step.role) locator = page.getByRole(step.role, { name: step.name, exact: false });
+  else if (step.text) locator = page.getByText(step.text, { exact: false });
+  else throw new Error(`step has no allowed locator: ${JSON.stringify(step)}`);
+  return Number.isInteger(step.index) ? locator.nth(step.index) : locator.first();
+}
+
+async function runContractStep(page, base, step, logPath) {
+  if (step.do === 'goto') return page.goto(`${base}${step.path}`, { waitUntil: 'domcontentloaded' });
+  if (step.do === 'fill') return byStep(page, step).fill(step.value);
+  if (step.do === 'select') return byStep(page, step).selectOption(step.value);
+  if (step.do === 'click') return byStep(page, step).click();
+  if (step.assert === 'visible') {
+    const count = await byStep(page, step).count();
+    if (count < 1) throw new Error(`expected visible text/role/label: ${JSON.stringify(step)}`);
+    return;
+  }
+  if (step.assert === 'not_visible') {
+    const count = await byStep(page, step).count();
+    if (count !== 0) throw new Error(`expected content to be absent: ${JSON.stringify(step)}`);
+    return;
+  }
+  if (step.assert === 'log_count') {
+    await sleep(100);
+    const count = fs.readFileSync(logPath, 'utf8').split('\n').filter((line) => line.includes(`\"path\":\"${step.path}\"`)).length;
+    if (count !== step.equals) throw new Error(`expected ${step.equals} audit lines for ${step.path}, got ${count}`);
+    return;
+  }
+  if (step.assert === 'log_contains') {
+    await sleep(100);
+    if (!fs.readFileSync(logPath, 'utf8').includes(step.text)) throw new Error(`audit log missing ${step.text}`);
+    return;
+  }
+  throw new Error(`unknown contract step: ${JSON.stringify(step)}`);
 }
 
 async function runArtifactChecks(scenario, bundle, index, browser, score) {
   const bundleDir = path.join(BUNDLES_DIR, scenario.id);
   unpackBundle(bundle, bundleDir);
-  const bin = buildEjectedApp(bundleDir, scenario.id);
+  let contract;
+  try {
+    contract = readArtifactContract(bundle, scenario.pack);
+    score.add('artifact_contract_present', true, `validated schema v1 contract owned by ${contract.pack}`);
+  } catch (err) {
+    score.add('artifact_contract_present', false, err.message);
+    return;
+  }
+  const bin = buildEjectedApp(bundleDir, scenario.id, contract);
 
   const port = APP_PORT_BASE + index;
   const base = `http://127.0.0.1:${port}`;
   const logPath = path.join(LOGS_DIR, `${scenario.id}-app.jsonl`);
   const child = spawnServer(bin, {
     APP_BIND: `127.0.0.1:${port}`,
-    SYNTHETIC_DATA: path.join(bundleDir, 'synthetic', 'post-op-demo.json'),
+    SYNTHETIC_DATA: path.join(bundleDir, contract.runtime.synthetic),
   }, logPath, path.join(bundleDir, 'app'));
 
   const shot = (name) => path.join(SHOTS_DIR, `${scenario.id}-${name}.png`);
@@ -543,64 +604,54 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
     // make the harness depend on an external network.
     await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
 
-    // (a) renders: form fields, SYNTHETIC banner, the sketchy-kit skin
-    await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
-    const painField = await page.locator('input[name="pain"]').count();
-    const woundField = await page.locator('select[name="wound"]').count();
-    const patientField = await page.locator('select[name="patient_id"]').count();
-    const banner = await page.getByText('synthetic data only').count();
-    const sketchyRadius = painField
-      ? await page.locator('.sk').first().evaluate((el) => getComputedStyle(el).borderRadius)
-      : '';
+    const journey = contract.quality.job.journeys[0];
+    for (const step of journey.steps) await runContractStep(page, base, step, logPath);
+    await page.screenshot({ path: shot('job'), fullPage: true });
+    score.add('artifact_job', true, `${journey.id} passed; screenshot: ${path.relative(ROOT, shot('job'))}`);
+
+    const required = [...new Set([
+      ...contract.quality.ownership.required_paths,
+      'docs/CUSTOMIZE.md',
+    ])];
+    const missing = required.filter((rel) => !(rel in bundle.files));
+    score.add('artifact_ownership', missing.length === 0,
+      `${required.length - missing.length}/${required.length} required owned files present; missing [${missing.join(', ')}]`);
+
     const html = await page.content();
-    const sketchyKit = sketchyRadius.includes('225px') && html.includes('Patrick Hand');
-    await page.screenshot({ path: shot('home'), fullPage: true });
-    score.add('artifact_renders',
-      painField === 1 && woundField === 1 && patientField === 1 && banner > 0 && sketchyKit,
-      `pain/wound/patient fields: ${painField}/${woundField}/${patientField}; ` +
-      `SYNTHETIC banner hits: ${banner}; sketchy-kit border-radius on .sk: ${JSON.stringify(sketchyRadius)}; ` +
-      `screenshot: ${path.relative(ROOT, shot('home'))}`);
+    const missingHonesty = contract.quality.safety_honesty.required_visible.filter((text) => !html.toLowerCase().includes(text.toLowerCase()));
+    const badClaims = contract.quality.safety_honesty.forbidden_claims.filter((text) => html.toLowerCase().includes(text.toLowerCase()));
+    score.add('artifact_safety_honesty', missingHonesty.length === 0 && badClaims.length === 0,
+      `missing disclosures [${missingHonesty.join(', ')}]; forbidden claims found [${badClaims.join(', ')}]`);
 
-    // (b) does the job: pain 9 → flag routed; pain 2 → no flag
-    await page.selectOption('select[name="patient_id"]', 'pt-001');
-    await page.fill('input[name="pain"]', '9');
-    await page.selectOption('select[name="wound"]', 'clean');
-    await page.fill('input[name="note"]', 'much worse since last night');
-    await page.screenshot({ path: shot('form'), fullPage: true });
-    await page.click('button[type="submit"]');
-    const flagConfirmed = await page.getByText('flag routed to the practice inbox').count();
-    await page.screenshot({ path: shot('flag'), fullPage: true });
-    await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
-    const inboxShowsFlag = (await page.content()).includes('pain 9/10');
+    const accessibilityPath = contract.quality.accessibility.path;
+    if (accessibilityPath) await page.goto(`${base}${accessibilityPath}`, { waitUntil: 'domcontentloaded' });
+    const missingLabels = [];
+    for (const label of contract.quality.accessibility.required_labels ?? []) {
+      if (await page.getByLabel(label, { exact: false }).count() === 0) missingLabels.push(label);
+    }
+    const missingLandmarks = [];
+    for (const role of contract.quality.accessibility.required_landmarks ?? []) {
+      if (await page.getByRole(role).count() === 0) missingLandmarks.push(role);
+    }
+    const missingRoles = [];
+    for (const spec of contract.quality.accessibility.required_roles ?? []) {
+      if (await page.getByRole(spec.role, { name: spec.name, exact: false }).count() === 0) missingRoles.push(JSON.stringify(spec));
+    }
+    score.add('artifact_accessibility', missingLabels.length + missingLandmarks.length + missingRoles.length === 0,
+      `missing labels [${missingLabels.join(', ')}], landmarks [${missingLandmarks.join(', ')}], roles [${missingRoles.join(', ')}]`);
 
-    await page.selectOption('select[name="patient_id"]', 'pt-003');
-    await page.fill('input[name="pain"]', '2');
-    await page.selectOption('select[name="wound"]', 'clean');
-    await page.click('button[type="submit"]');
-    const noEscalation = await page.getByText('no escalation').count();
-    await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' });
-    const inboxStillOne = ((await page.content()).match(/pain \d+\/10 at or over threshold/g) ?? []).length === 1;
-
-    await sleep(150); // let stdout flush
-    const auditLines = fs.readFileSync(logPath, 'utf8').split('\n')
-      .filter((l) => l.includes('"control":"audit-log"') && l.includes('"path":"/checkin"'));
-    score.add('artifact_does_the_job',
-      flagConfirmed > 0 && inboxShowsFlag && noEscalation > 0 && inboxStillOne && auditLines.length === 2,
-      `pain-9 flag routed: ${flagConfirmed > 0} (inbox shows it: ${inboxShowsFlag}); ` +
-      `pain-2 not escalated: ${noEscalation > 0} (inbox count still 1: ${inboxStillOne}); ` +
-      `stdout audit JSONL recorded ${auditLines.length}/2 check-ins; ` +
-      `screenshots: ${path.relative(ROOT, shot('form'))}, ${path.relative(ROOT, shot('flag'))}`);
-
-    // (c) honesty markers: the encryption stub is labeled, exactly where the
-    // pack's gate report says `stubbed`
-    const homeHtml = (await page.content());
-    const stubLabeled = homeHtml.includes('encryption at rest is a labeled TODO')
-      && homeHtml.includes('hipaa-core placeholder');
-    score.add('artifact_honesty_markers', stubLabeled,
-      `encryption-stub label visible on the running page: ${homeHtml.includes('encryption at rest is a labeled TODO')}; ` +
-      `audit-placeholder label in the footer: ${homeHtml.includes('hipaa-core placeholder')}`);
+    const docsMissing = [];
+    for (const [rel, sections] of Object.entries(contract.quality.docs.required_sections)) {
+      const content = bundle.files[rel] ?? '';
+      for (const section of sections) if (!content.includes(section)) docsMissing.push(`${rel}:${section}`);
+    }
+    const customize = bundle.files['docs/CUSTOMIZE.md'] ?? '';
+    for (const section of ['Source map', 'Make the next change', 'Export or share the next version']) {
+      if (!customize.includes(section)) docsMissing.push(`docs/CUSTOMIZE.md:${section}`);
+    }
+    score.add('artifact_docs', docsMissing.length === 0, `missing required documentation sections [${docsMissing.join(', ')}]`);
   } catch (err) {
-    score.add('artifact_renders', false, `artifact layer crashed: ${err.message}`);
+    score.add('artifact_job', false, `artifact contract execution crashed: ${err.message}`);
   } finally {
     await context.close();
     stopServer(child);
@@ -619,12 +670,20 @@ function aggregate(results) {
   const layer1 = rate(results.flatMap((r) => r.layer1.checks));
   const layer2 = rate(results.flatMap((r) => r.layer2.checks));
   const perPack = {};
+  const qualityNames = {
+    artifact_job: 'job', artifact_ownership: 'ownership',
+    artifact_safety_honesty: 'safety_honesty', artifact_accessibility: 'accessibility',
+    artifact_docs: 'docs',
+  };
   for (const r of results) {
     // Refusals and identity scenarios aggregate under their own rows: they
     // judge platform surfaces, not the pack a doctor might have grabbed.
     const key = r.category === 'refusal' ? 'refusals (RFC 9/10/15/21)'
       : r.category === 'auth' ? 'identity/tenancy (#10)' : r.pack;
-    perPack[key] ??= { scenarios: 0, layer1: { passed: 0, applicable: 0 }, layer2: { passed: 0, applicable: 0, no_artifact: 0 } };
+    perPack[key] ??= {
+      scenarios: 0, layer1: { passed: 0, applicable: 0 }, layer2: { passed: 0, applicable: 0, no_artifact: 0 },
+      artifact_quality: Object.fromEntries(Object.values(qualityNames).map((name) => [name, { passed: 0, applicable: 0 }])),
+    };
     const p = perPack[key];
     p.scenarios += 1;
     for (const c of r.layer1.checks) {
@@ -633,6 +692,11 @@ function aggregate(results) {
     for (const c of r.layer2.checks) {
       if (c.status === 'pass' || c.status === 'fail') { p.layer2.applicable += 1; if (c.status === 'pass') p.layer2.passed += 1; }
       if (c.status === 'no-artifact') p.layer2.no_artifact += 1;
+      const category = qualityNames[c.name];
+      if (category && (c.status === 'pass' || c.status === 'fail')) {
+        p.artifact_quality[category].applicable += 1;
+        if (c.status === 'pass') p.artifact_quality[category].passed += 1;
+      }
     }
   }
   return { layer1, layer2, perPack };
@@ -662,13 +726,11 @@ function renderMarkdown(results, agg, meta) {
   lines.push('  attestation, audit reconstructability, bundle completeness).');
   lines.push('- **Layer 2 — the artifact.** Is what got produced actually good? The');
   lines.push('  ejected bundle is unpacked, **built, and run**, and Playwright drives');
-  lines.push('  the running ejected app: it must render the clinical form (with the');
-  lines.push('  SYNTHETIC banner and the sketchy-kit skin), do the clinical job (a');
-  lines.push('  pain-9 check-in routes a flag to the practice inbox and the stdout');
-  lines.push('  audit log; a pain-2 does not), and keep its honesty markers (the');
-  lines.push('  encryption stub labeled, never claimed). Only post-op-monitor ships a');
-  lines.push('  runnable scaffold today, so the other four packs score **no-artifact');
-  lines.push('  (#5 pending)** — visible, never silently skipped.');
+  lines.push('  every ejected bundle, builds and boots its Rust app, then interprets');
+  lines.push('  the pack-owned `artifact-quality.json`. Five hard gates judge whether');
+  lines.push('  it does its actual clinical/operations job, is fully owned and ejected,');
+  lines.push('  exposes safety limitations honestly, remains accessible, and carries');
+  lines.push('  enough documentation for a stranger to run and extend it.');
   lines.push('');
   lines.push('## Summary');
   lines.push('');
@@ -680,6 +742,17 @@ function renderMarkdown(results, agg, meta) {
       ? `${p.layer2.passed}/${p.layer2.applicable} (${pct(p.layer2.passed, p.layer2.applicable)})`
       : (p.layer2.no_artifact > 0 ? 'no-artifact (#5 pending)' : 'n/a');
     lines.push(`| ${pack} | ${p.scenarios} | ${p.layer1.passed}/${p.layer1.applicable} (${pct(p.layer1.passed, p.layer1.applicable)}) | ${l2} |`);
+  }
+  lines.push('');
+  lines.push('## Artifact quality by goal dimension');
+  lines.push('');
+  lines.push('| pack | actual job | ownership | safety + honesty | accessibility | documentation |');
+  lines.push('|---|---:|---:|---:|---:|---:|');
+  for (const [pack, p] of Object.entries(agg.perPack)) {
+    if (p.layer2.applicable === 0) continue;
+    const q = p.artifact_quality;
+    const cell = (x) => `${x.passed}/${x.applicable}`;
+    lines.push(`| ${pack} | ${cell(q.job)} | ${cell(q.ownership)} | ${cell(q.safety_honesty)} | ${cell(q.accessibility)} | ${cell(q.docs)} |`);
   }
   lines.push('');
   lines.push('## Per-scenario results');
@@ -708,13 +781,12 @@ function renderMarkdown(results, agg, meta) {
   lines.push('');
   lines.push('## Evidence: the running ejected app');
   lines.push('');
-  lines.push('Screenshots below are of the **ejected** post-op-monitor app — unpacked');
-  lines.push('from the export bundle, compiled, and driven by the harness (the full');
-  lines.push('set for every post-op scenario lands in `.evals/screenshots/`, gitignored):');
+  lines.push('Each image is an **ejected** app, unpacked, compiled, booted, and driven');
+  lines.push('through the pack-owned job contract by Playwright:');
   lines.push('');
-  lines.push('| the form renders | a pain-9 check-in filled | the flag routed |');
-  lines.push('|---|---|---|');
-  lines.push('| ![home](screenshots/home.png) | ![form](screenshots/form.png) | ![flag](screenshots/flag.png) |');
+  lines.push('| HTN tracker | Patient intake | Insurance verification | Compliance checklist | Post-op monitor |');
+  lines.push('|---|---|---|---|---|');
+  lines.push('| ![HTN](screenshots/hypertension-tracker/job.png) | ![Intake](screenshots/patient-intake/job.png) | ![Insurance](screenshots/insurance-verification/job.png) | ![Compliance](screenshots/compliance-checklist/job.png) | ![Post-op](screenshots/post-op-monitor/job.png) |');
   lines.push('');
   lines.push('## Known gaps (expected failures — this is a regression baseline, not a trophy)');
   lines.push('');
@@ -738,7 +810,8 @@ function renderMarkdown(results, agg, meta) {
   lines.push('');
   lines.push('## Methodology');
   lines.push('');
-  lines.push(`${results.length} scenarios (${meta.counts.pack} pack workflows across 5 packs × 4+ personas, ` +
+  const evaluatedPackCount = new Set(results.filter((r) => r.category === 'pack').map((r) => r.pack)).size;
+  lines.push(`${results.length} scenarios (${meta.counts.pack} pack workflows across ${evaluatedPackCount} packs × 4+ personas, ` +
     `${meta.counts.refusal} refusals from RFC 0001's out-of-scope list, ${meta.counts.edge} edges: duplicate names, restore-then-promote, ` +
     `${meta.counts.auth} identity scenarios: two-tenant isolation, staff role denial), ` +
     'each against a freshly booted in-memory control plane on its own port — no shared state, no mocked HTTP. ' +
@@ -801,14 +874,12 @@ async function main() {
       layer2.note('artifact', 'n/a', 'refusal scenario — nothing may be scaffolded, so there is no artifact to judge');
     } else if (scenario.category === 'auth') {
       layer2.note('artifact', 'n/a', 'identity scenario — the artifact is judged by the pack workflows, not re-judged here');
-    } else if (scenario.artifact?.expected === 'playwright') {
+    } else {
       if (outcome?.bundle) {
         await runArtifactChecks(scenario, outcome.bundle, i, browser, layer2);
       } else {
-        layer2.add('artifact_renders', false, 'layer 1 produced no bundle to judge');
+        layer2.add('artifact_contract_present', false, 'layer 1 produced no bundle to judge');
       }
-    } else {
-      layer2.note('artifact', 'no-artifact', `${scenario.artifact?.reason ?? 'no runnable scaffold'} — scored visibly, not skipped`);
     }
 
     for (const c of [...layer1.checks, ...layer2.checks]) {
@@ -824,11 +895,12 @@ async function main() {
   }
   await browser.close();
 
-  // promote the three evidence screenshots into the committed docs
-  const best = 'post-op-01-precise-physician';
-  for (const name of ['home', 'form', 'flag']) {
-    const src = path.join(SHOTS_DIR, `${best}-${name}.png`);
-    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DOCS_SHOTS_DIR, `${name}.png`));
+  // Promote one contract-driven audience screenshot per pack.
+  for (const scenario of scenarios.filter((s) => s.category === 'pack' && /01-precise-physician$/.test(s.id))) {
+    const src = path.join(SHOTS_DIR, `${scenario.id}-job.png`);
+    const destDir = path.join(DOCS_SHOTS_DIR, scenario.pack);
+    fs.mkdirSync(destDir, { recursive: true });
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(destDir, 'job.png'));
   }
 
   const agg = aggregate(results);
@@ -842,7 +914,7 @@ async function main() {
     runtime_seconds: Math.round((Date.now() - t0) / 1000),
     counts,
     known_gaps: [
-      '**Four packs have no runnable scaffold (#5).** hypertension-tracker, patient-intake, compliance-checklist, and insurance-verification eject the honest placeholder runtime, so their artifact layer scores no-artifact — the post-op-monitor pattern needs porting.',
+      '**Production controls remain incomplete.** The 17 artifacts are synthetic-data learning apps. Authentication, encryption at rest, durable audit retention, runtime egress enforcement, backups, and real infrastructure placement remain production gates; the quality contracts require those limitations to stay visible.',
       `**Agent tier floor: ${[...tiersSeen].join(', ') || 'rules'}.** No model endpoints were configured, so every scaffold/iterate ran on the deterministic rules driver — this baseline is the honest floor, not a measure of model-tier quality (decision 0002 keeps CI/sandbox model-free by design).`,
       '**The refusal screen is Phase 0 keyword rules (src/refusals.rs).** The four RFC out-of-scope classes are refused with written reasons and every corpus prompt is tuned both ways (unit tests), but a paraphrase outside the rule vocabulary can slip past — a model-based screen slots in behind the same seam (#12).',
     ],

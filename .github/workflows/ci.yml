@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pack: [post-op-monitor]
+        pack: [post-op-monitor, hypertension-tracker, patient-intake, insurance-verification, compliance-checklist, patient-portal, clinical-dashboard, nemt-logistics, inbound-scheduling, outbound-followup, rpm-wearables, visit-notes, ambient-scribe, deid-local, note-extraction-local, airgapped-support, hybrid-pipeline]
     defaults:
       run:
         working-directory: packs/${{ matrix.pack }}/scaffold

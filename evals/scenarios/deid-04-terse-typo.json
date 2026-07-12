@@ -1,0 +1,37 @@
+{
+  "id": "deid-04-terse-typo",
+  "category": "pack",
+  "persona": "terse-typo",
+  "pack": "deid-local",
+  "must_pass": true,
+  "prompt": "local deid no network",
+  "app_name": "local deidentifier",
+  "iterate": [],
+  "workflow": {
+    "gate_total": 4,
+    "initially_failing": [
+      "human-review"
+    ],
+    "fixable_failing": [],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable deid-local profile artifact evaluation."
+}

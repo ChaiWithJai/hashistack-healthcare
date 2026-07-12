@@ -37,12 +37,12 @@ testing:
 
 | # | Bar | Verified by |
 |---|-----|-------------|
-| 1 | Natural-language description + pack → running sandbox app on synthetic data, no hand-edits | staging pressure test (#2), agent driver (#4), runnable scaffolds (#5 — post-op-monitor converted and CI-tested; four packs pending), eval harness layer 1 across 4+ personas per pack (`scripts/evals.sh` → [evals/scorecard.md](evals/scorecard.md)) |
+| 1 | Natural-language description + pack → running sandbox app on synthetic data, no hand-edits | staging pressure test (#2), agent driver (#4), runnable scaffolds for all 17 in-scope packs, and eval harness layer 1 across 4+ personas per pack (`scripts/evals.sh` → [evals/scorecard.md](evals/scorecard.md)); profile-native stream/local infrastructure remains a production milestone |
 | 2 | The app cannot reach real data while any gate fails; the failure is named and, where safe, one-click fixable | false-pass guard (tested today), evidence-based gates (#3) |
 | 3 | Promotion requires a clinician co-signature and produces an attestation bound to the gate report | tested today; cryptographic binding in #10 |
 | 4 | Every action lands in one append-only audit stream, exportable for a security review | tested today; durable + load-bearing in #8 |
-| 5 | Eject produces a repo a stranger can run from the included docs alone | ejection ticket (#11), eval harness layer 2: the ejected bundle is unpacked, built, and RUN, then driven with Playwright ([evals/scorecard.md](evals/scorecard.md)) |
-| 6 | The ejected app works as the clinician's own template: re-import, extend, share | ejection ticket (#11), pack spec (#5 — pattern set by post-op-monitor: ejected bundles carry its real scaffold source), eval harness layer 1: every scenario's bundle must carry the derived pack.hcl and the doctor's own prompt ([evals/scorecard.md](evals/scorecard.md)) |
+| 5 | Eject produces a repo a stranger can run from the included docs alone | all 17 in-scope bundles carry real Rust source, are unpacked, built, run, and driven by Playwright through their pack-owned artifact quality contracts ([evals/scorecard.md](evals/scorecard.md)) |
+| 6 | The ejected app works as the clinician's own template: re-import, extend, share | every bundle carries the derived `pack.hcl`, `artifact-quality.json`, the doctor's prompt/history, source, docs, synthetic fixture, and deploy manifests ([evals/scorecard.md](evals/scorecard.md)) |
 | 7 | Out-of-scope use cases (RFC: 9, 10, 15, 21) are refused **with a written reason** in the product | refusal surface (`src/refusals.rs`, #12): describe answers 422 quoting the RFC rationale + an `app.refused` audit event, nothing scaffolded; eval refusal scenarios are must_pass and assert the full contract ([evals/scorecard.md](evals/scorecard.md)); Phase 0 keyword screen tuned against the whole corpus — a model screen slots behind the same seam |
 
 The demo in this repo proves bars 2–4 as *contracts* over a simulated

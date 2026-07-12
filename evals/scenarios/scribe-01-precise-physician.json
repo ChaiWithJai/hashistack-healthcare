@@ -1,0 +1,52 @@
+{
+  "id": "scribe-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "ambient-scribe",
+  "must_pass": true,
+  "prompt": "consent-labeled ambient transcript into an editable unsigned SOAP draft",
+  "app_name": "ambient scribe",
+  "iterate": [
+    {
+      "instruction": "wire roles for the clinical staff",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 8,
+    "initially_failing": [
+      "auto-logoff",
+      "human-review",
+      "access-roles"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable ambient-scribe profile artifact evaluation."
+}

@@ -7,6 +7,8 @@ pack "patient-intake" {
   tier        = 3
   wave        = 1
   signed_by   = "platform-root-v1"
+  scaffold_path = "scaffold"
+  quality_contract = "artifact-quality.json"
 
   scaffold = [
     "intake form builder (history, meds, allergies)",

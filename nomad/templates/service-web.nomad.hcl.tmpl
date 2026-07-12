@@ -12,11 +12,41 @@ job "{{app_id}}" {
 
   constraint {
     attribute = "${meta.role}"
-    value     = "prod"
+    value     = "{{pool}}"
   }
 
   group "app" {
     count = 1
+
+    update {
+      max_parallel      = 1
+      min_healthy_time  = "10s"
+      healthy_deadline  = "3m"
+      progress_deadline = "5m"
+      auto_revert       = true
+    }
+
+    restart {
+      attempts = 3
+      interval = "5m"
+      delay    = "15s"
+      mode     = "fail"
+    }
+
+    reschedule {
+      attempts       = 2
+      interval       = "1h"
+      delay          = "30s"
+      delay_function = "exponential"
+      max_delay      = "5m"
+      unlimited      = false
+    }
+
+    ephemeral_disk {
+      size    = 300
+      sticky  = false
+      migrate = false
+    }
 
     network {
       port "http" { to = 8080 }
@@ -32,16 +62,43 @@ job "{{app_id}}" {
         path     = "/health"
         interval = "10s"
         timeout  = "2s"
+        check_restart {
+          limit = 3
+          grace = "30s"
+        }
       }
     }
 
     task "web" {
       driver = "docker" # isolation swap point: firecracker/gvisor is a driver change only
+      user         = "65532"
+      kill_signal  = "SIGTERM"
+      kill_timeout = "30s"
 
       config {
-        image = "{{image}}"
+        image            = "{{image}}"
+        ports            = ["http"]
+        readonly_rootfs  = true
+        cap_drop         = ["ALL"]
+        pids_limit       = 128
+        security_opt     = ["no-new-privileges:true"]
+        mount {
+          type     = "tmpfs"
+          target   = "/tmp"
+          readonly = false
+          tmpfs_options {
+            size = 67108864
+          }
+        }
       }
 
+      resources {
+        cpu        = 500
+        memory     = 512
+        memory_max = 768
+      }
+
+      # BEGIN_TENANT_SECRETS — removed entirely for synthetic-demo jobs.
       vault {
         # The policy the deploy service really mounts at first promote (#9):
         # sys/policies/acl/tenant-{{tenant}} — transit + database paths.
@@ -59,9 +116,12 @@ DATABASE_URL=postgres://{{ .Data.username }}:{{ .Data.password }}@postgres.inter
 EOT
         destination = "secrets/db.env"
         env         = true
+        perms       = "0400"
       }
+      # END_TENANT_SECRETS
 
       env {
+        APP_BIND    = "0.0.0.0:8080"
         APP_VERSION  = "{{app_version}}"
         HIPAA_CORE   = "enabled"
         AUDIT_STREAM = "https://audit.internal/ingest"

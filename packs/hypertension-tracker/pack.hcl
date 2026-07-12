@@ -7,6 +7,8 @@ pack "hypertension-tracker" {
   tier        = 3
   wave        = 1
   signed_by   = "platform-root-v1"
+  scaffold_path = "scaffold"
+  quality_contract = "artifact-quality.json"
 
   scaffold = [
     "BP entry form (patient-facing)",

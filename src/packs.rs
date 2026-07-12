@@ -130,18 +130,25 @@ pub struct PackManifest {
     pub signed_by: String,
     /// Scaffold feature strings — still real: they drive the demo UI's
     /// generate animation and become the app's initial feature list.
-    /// post-op-monitor additionally ships the full RFC 0001 folder spec
-    /// (scaffold/ as a runnable axum crate, prompts/, policies/, gates/,
-    /// synthetic/, docs/) — the #5 pattern the other packs follow.
-    /// TODO(#5), still pending: converting the other four packs,
-    /// Synthea-generated synthetic data, and a registry signature covering
-    /// the whole pack folder rather than the manifest alone.
+    /// Every built-in pack ships a runnable axum scaffold plus a synthetic
+    /// fixture and an executable artifact-quality contract. Still pending:
+    /// Synthea-generated fixtures and a registry signature covering the
+    /// whole pack folder rather than the manifest alone.
     pub scaffold: Vec<String>,
     /// Relative path (inside the pack directory) of a runnable scaffold
     /// crate, when the pack ships one. `None` → feature strings only; the
     /// ejection bundle keeps its placeholder runtime and says so.
     #[serde(default)]
     pub scaffold_path: Option<String>,
+    /// Pack-owned executable quality contract copied into every ejected
+    /// repository and interpreted by the generic artifact eval harness.
+    #[serde(default)]
+    pub quality_contract: Option<String>,
+    /// Whether the pack's scaffold follows the source annotations consumed
+    /// by the Phase 0 static gate inspectors. Runnable does not imply that
+    /// every compliance verdict can be inferred from source.
+    #[serde(default)]
+    pub static_evidence: bool,
     pub prewired: Vec<String>,
     pub gates: Vec<String>,
     pub synthetic_dataset: String,
@@ -182,6 +189,18 @@ const PACK_SOURCES: &[&str] = &[
     include_str!("../packs/patient-intake/pack.hcl"),
     include_str!("../packs/post-op-monitor/pack.hcl"),
     include_str!("../packs/insurance-verification/pack.hcl"),
+    include_str!("../packs/patient-portal/pack.hcl"),
+    include_str!("../packs/clinical-dashboard/pack.hcl"),
+    include_str!("../packs/nemt-logistics/pack.hcl"),
+    include_str!("../packs/inbound-scheduling/pack.hcl"),
+    include_str!("../packs/outbound-followup/pack.hcl"),
+    include_str!("../packs/rpm-wearables/pack.hcl"),
+    include_str!("../packs/visit-notes/pack.hcl"),
+    include_str!("../packs/ambient-scribe/pack.hcl"),
+    include_str!("../packs/deid-local/pack.hcl"),
+    include_str!("../packs/note-extraction-local/pack.hcl"),
+    include_str!("../packs/airgapped-support/pack.hcl"),
+    include_str!("../packs/hybrid-pipeline/pack.hcl"),
 ];
 
 /// One embedded pack file: (path relative to the pack directory, content).
@@ -206,7 +225,160 @@ const POST_OP_MONITOR_SCAFFOLD: &[PackSourceFile] = &[
         "synthetic/post-op-demo.json",
         include_str!("../packs/post-op-monitor/synthetic/post-op-demo.json"),
     ),
+    (
+        "artifact-quality.json",
+        include_str!("../packs/post-op-monitor/artifact-quality.json"),
+    ),
 ];
+
+const HYPERTENSION_TRACKER_SCAFFOLD: &[PackSourceFile] = &[
+    (
+        "scaffold/Cargo.toml",
+        include_str!("../packs/hypertension-tracker/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/src/main.rs",
+        include_str!("../packs/hypertension-tracker/scaffold/src/main.rs"),
+    ),
+    (
+        "synthetic/htn-demo.json",
+        include_str!("../packs/hypertension-tracker/synthetic/htn-demo.json"),
+    ),
+    (
+        "artifact-quality.json",
+        include_str!("../packs/hypertension-tracker/artifact-quality.json"),
+    ),
+];
+
+const PATIENT_INTAKE_SCAFFOLD: &[PackSourceFile] = &[
+    (
+        "scaffold/Cargo.toml",
+        include_str!("../packs/patient-intake/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/src/main.rs",
+        include_str!("../packs/patient-intake/scaffold/src/main.rs"),
+    ),
+    (
+        "synthetic/intake-demo.json",
+        include_str!("../packs/patient-intake/synthetic/intake-demo.json"),
+    ),
+    (
+        "artifact-quality.json",
+        include_str!("../packs/patient-intake/artifact-quality.json"),
+    ),
+];
+
+const INSURANCE_VERIFICATION_SCAFFOLD: &[PackSourceFile] = &[
+    (
+        "scaffold/Cargo.toml",
+        include_str!("../packs/insurance-verification/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/src/main.rs",
+        include_str!("../packs/insurance-verification/scaffold/src/main.rs"),
+    ),
+    (
+        "synthetic/insurance-demo.json",
+        include_str!("../packs/insurance-verification/synthetic/insurance-demo.json"),
+    ),
+    (
+        "artifact-quality.json",
+        include_str!("../packs/insurance-verification/artifact-quality.json"),
+    ),
+];
+
+const COMPLIANCE_CHECKLIST_SCAFFOLD: &[PackSourceFile] = &[
+    (
+        "scaffold/Cargo.toml",
+        include_str!("../packs/compliance-checklist/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/src/main.rs",
+        include_str!("../packs/compliance-checklist/scaffold/src/main.rs"),
+    ),
+    (
+        "synthetic/compliance-demo.json",
+        include_str!("../packs/compliance-checklist/synthetic/compliance-demo.json"),
+    ),
+    (
+        "artifact-quality.json",
+        include_str!("../packs/compliance-checklist/artifact-quality.json"),
+    ),
+];
+
+macro_rules! pack_scaffold {
+    ($name:ident, $dir:literal, $seed:literal) => {
+        const $name: &[PackSourceFile] = &[
+            (
+                "scaffold/Cargo.toml",
+                include_str!(concat!("../packs/", $dir, "/scaffold/Cargo.toml")),
+            ),
+            (
+                "scaffold/src/main.rs",
+                include_str!(concat!("../packs/", $dir, "/scaffold/src/main.rs")),
+            ),
+            ($seed, include_str!(concat!("../packs/", $dir, "/", $seed))),
+            (
+                "artifact-quality.json",
+                include_str!(concat!("../packs/", $dir, "/artifact-quality.json")),
+            ),
+        ];
+    };
+}
+
+pack_scaffold!(
+    PATIENT_PORTAL_SCAFFOLD,
+    "patient-portal",
+    "synthetic/portal-demo.json"
+);
+pack_scaffold!(
+    CLINICAL_DASHBOARD_SCAFFOLD,
+    "clinical-dashboard",
+    "synthetic/dashboard-demo.json"
+);
+pack_scaffold!(
+    NEMT_LOGISTICS_SCAFFOLD,
+    "nemt-logistics",
+    "synthetic/rides.json"
+);
+pack_scaffold!(
+    INBOUND_SCHEDULING_SCAFFOLD,
+    "inbound-scheduling",
+    "synthetic/requests.json"
+);
+pack_scaffold!(
+    OUTBOUND_FOLLOWUP_SCAFFOLD,
+    "outbound-followup",
+    "synthetic/outbound-followup-demo.json"
+);
+pack_scaffold!(
+    RPM_WEARABLES_SCAFFOLD,
+    "rpm-wearables",
+    "synthetic/demo.json"
+);
+pack_scaffold!(VISIT_NOTES_SCAFFOLD, "visit-notes", "synthetic/demo.json");
+pack_scaffold!(
+    AMBIENT_SCRIBE_SCAFFOLD,
+    "ambient-scribe",
+    "synthetic/demo.json"
+);
+pack_scaffold!(DEID_LOCAL_SCAFFOLD, "deid-local", "synthetic/demo.json");
+pack_scaffold!(
+    NOTE_EXTRACTION_LOCAL_SCAFFOLD,
+    "note-extraction-local",
+    "synthetic/demo.json"
+);
+pack_scaffold!(
+    AIRGAPPED_SUPPORT_SCAFFOLD,
+    "airgapped-support",
+    "synthetic/demo.json"
+);
+pack_scaffold!(
+    HYBRID_PIPELINE_SCAFFOLD,
+    "hybrid-pipeline",
+    "synthetic/demo.json"
+);
 
 /// The embedded scaffold sources for a pack, if it ships a runnable
 /// scaffold. Kept in lockstep with each manifest's `scaffold_path` — a test
@@ -214,6 +386,22 @@ const POST_OP_MONITOR_SCAFFOLD: &[PackSourceFile] = &[
 pub fn scaffold_sources(pack_id: &str) -> Option<&'static [PackSourceFile]> {
     match pack_id {
         "post-op-monitor" => Some(POST_OP_MONITOR_SCAFFOLD),
+        "hypertension-tracker" => Some(HYPERTENSION_TRACKER_SCAFFOLD),
+        "patient-intake" => Some(PATIENT_INTAKE_SCAFFOLD),
+        "insurance-verification" => Some(INSURANCE_VERIFICATION_SCAFFOLD),
+        "compliance-checklist" => Some(COMPLIANCE_CHECKLIST_SCAFFOLD),
+        "patient-portal" => Some(PATIENT_PORTAL_SCAFFOLD),
+        "clinical-dashboard" => Some(CLINICAL_DASHBOARD_SCAFFOLD),
+        "nemt-logistics" => Some(NEMT_LOGISTICS_SCAFFOLD),
+        "inbound-scheduling" => Some(INBOUND_SCHEDULING_SCAFFOLD),
+        "outbound-followup" => Some(OUTBOUND_FOLLOWUP_SCAFFOLD),
+        "rpm-wearables" => Some(RPM_WEARABLES_SCAFFOLD),
+        "visit-notes" => Some(VISIT_NOTES_SCAFFOLD),
+        "ambient-scribe" => Some(AMBIENT_SCRIBE_SCAFFOLD),
+        "deid-local" => Some(DEID_LOCAL_SCAFFOLD),
+        "note-extraction-local" => Some(NOTE_EXTRACTION_LOCAL_SCAFFOLD),
+        "airgapped-support" => Some(AIRGAPPED_SUPPORT_SCAFFOLD),
+        "hybrid-pipeline" => Some(HYBRID_PIPELINE_SCAFFOLD),
         _ => None,
     }
 }
@@ -299,7 +487,7 @@ mod tests {
     #[test]
     fn builtin_packs_parse_and_verify() {
         let packs = builtin_packs();
-        assert_eq!(packs.len(), 5);
+        assert_eq!(packs.len(), 17);
         assert!(packs.iter().any(|p| p.id == "post-op-monitor"));
         let iv = packs
             .iter()
@@ -324,6 +512,11 @@ mod tests {
                         "{}: a runnable scaffold has a manifest",
                         pack.id
                     );
+                    assert_eq!(
+                        pack.quality_contract.as_deref(),
+                        Some("artifact-quality.json")
+                    );
+                    assert!(files.iter().any(|(p, _)| *p == "artifact-quality.json"));
                 }
                 (None, None) => {} // not yet converted (#5) — honestly absent
                 (path, files) => panic!(
@@ -333,12 +526,9 @@ mod tests {
                 ),
             }
         }
-        // The pattern-setter is converted; this flips per pack as #5 lands.
-        let post_op = builtin_packs()
-            .into_iter()
-            .find(|p| p.id == "post-op-monitor")
-            .unwrap();
-        assert_eq!(post_op.scaffold_path.as_deref(), Some("scaffold"));
+        assert!(builtin_packs()
+            .iter()
+            .all(|pack| pack.scaffold_path.as_deref() == Some("scaffold")));
     }
 
     #[test]

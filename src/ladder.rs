@@ -166,6 +166,20 @@ impl EscalationLadder {
         };
         let op_id = op.op_id.clone();
 
+        // Waypoint's upsert-first rule is a durability rule, not merely an
+        // in-memory ordering rule. When a control store is configured, the
+        // RUNNING row must reach it before any driver is allowed to work.
+        // A crash during the climb then leaves an observable promise rather
+        // than making the whole operation disappear.
+        if let Err(error) = crate::store::write_through(platform, &[], None).await {
+            let mut plat = platform.write().unwrap();
+            self.settle_exhausted(&mut plat, &mut op);
+            return Err(LadderFailure {
+                op_id,
+                reason: format!("control store refused RUNNING operation: {error:#}"),
+            });
+        }
+
         let attempt_pack = pack.clone();
         let prompt = prompt.to_string();
         let accepted = self
@@ -213,6 +227,17 @@ impl EscalationLadder {
             (op, before)
         };
         let op_id = op.op_id.clone();
+
+        // Persist the promise before model/rules work begins. This closes
+        // the crash window where RUNNING existed only in process memory.
+        if let Err(error) = crate::store::write_through(platform, &[], None).await {
+            let mut plat = platform.write().unwrap();
+            self.settle_exhausted(&mut plat, &mut op);
+            return Err(LadderFailure {
+                op_id,
+                reason: format!("control store refused RUNNING operation: {error:#}"),
+            });
+        }
 
         let Some(before) = before else {
             let mut plat = platform.write().unwrap();

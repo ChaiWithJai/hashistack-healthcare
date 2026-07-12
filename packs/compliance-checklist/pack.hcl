@@ -8,6 +8,8 @@ pack "compliance-checklist" {
   tier        = 2
   wave        = 1
   signed_by   = "platform-root-v1"
+  scaffold_path = "scaffold"
+  quality_contract = "artifact-quality.json"
 
   scaffold = [
     "safeguard checklist with recurrence",

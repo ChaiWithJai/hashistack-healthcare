@@ -308,7 +308,7 @@ async fn staff_cannot_promote_cosign_or_export_the_platform_audit() {
         "POST",
         &format!("/api/apps/{id}/promote"),
         Some(OSEI),
-        Some(json!({})),
+        Some(json!({"synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{promoted}");
@@ -337,7 +337,7 @@ async fn attestation_binds_principal_name_and_report_digest_and_the_digest_verif
         "POST",
         &format!("/api/apps/{id}/promote"),
         Some(OSEI),
-        Some(json!({"cosigner": "Dr. Somebody Else"})),
+        Some(json!({"cosigner": "Dr. Somebody Else", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{err}");
@@ -349,7 +349,7 @@ async fn attestation_binds_principal_name_and_report_digest_and_the_digest_verif
         "POST",
         &format!("/api/apps/{id}/promote"),
         Some(OSEI),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{promoted}");
@@ -433,7 +433,7 @@ async fn audit_actor_is_the_real_principal_id_for_every_doctor_action() {
         "POST",
         &format!("/api/apps/{id}/promote"),
         Some(PARK),
-        Some(json!({})),
+        Some(json!({"synthetic_demo": true})),
     )
     .await;
     let (_, audit, _) = call(

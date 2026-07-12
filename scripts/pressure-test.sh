@@ -108,7 +108,7 @@ echo "== pressure test against $BASE"
 echo "-- health & registry"
 check "health"            "$(get /health)" '"status":"ok"'
 PACKS=$(get /api/packs)
-check "5 signed packs"    "$(echo "$PACKS" | python3 -c 'import json,sys; p=json.load(sys.stdin)["packs"]; print(len(p), all(x["signed_by"]=="platform-root-v1" for x in p))')" "5 True"
+check "17 signed packs"   "$(echo "$PACKS" | python3 -c 'import json,sys; p=json.load(sys.stdin)["packs"]; print(len(p), all(x["signed_by"]=="platform-root-v1" for x in p))')" "17 True"
 
 echo "-- describe → sandbox, synthetic data only"
 APP=$(post /api/apps '{"prompt":"a post-op recovery tracker for my knee replacement patients","pack":"post-op-monitor","name":"pt post-op tracker"}')
@@ -139,20 +139,38 @@ check "no allocation"     "$STILL" '"allocation":null'
 
 echo "-- fix it for me, refuse blank co-sign, then promote"
 post "/api/apps/$ID/gate/auto-logoff/fix" >/dev/null
-NOSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"  "}')
+NOSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"  ","synthetic_demo":true}')
 check "blank co-sign refused" "$NOSIGN" 'co-signature'
 # #10: the typed field is only a display-name check against the
 # authenticated principal — naming anyone else is refused.
-WRONGSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. Somebody Else"}')
+WRONGSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. Somebody Else","synthetic_demo":true}')
 check "mismatched co-sign name refused" "$WRONGSIGN" 'co-signature'
-LIVE=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei"}')
+LIVE=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei","synthetic_demo":true}')
 check "live"              "$LIVE" '"stage":"live"'
-check "prod pool"         "$LIVE" '"pool":"prod"'
+check "synthetic demo pool" "$LIVE" '"pool":"synthetic-demo"'
+check "stub demo never receives tenant data" "$LIVE" '"data_source":{"kind":"synthetic"'
 check "attestation discloses the stub" "$LIVE" '"gate_summary":"5/6 (1 stubbed)"'
 # #10: the co-sign is cryptographic — the attestation binds the
 # authenticated principal and a sha256 digest of the frozen gate report.
 check "attestation binds the principal"     "$LIVE" '"principal":"dr-osei"'
 check "attestation carries the report digest" "$LIVE" '"report_digest":"sha256:'
+
+# The post-op reference intentionally contains a labeled encryption stub, so
+# it may only enter the synthetic-demo pool. Infrastructure proof uses a
+# separate no-stub app; mixing these two paths used to make the staging test
+# expect a production Nomad job and Vault lease for a synthetic demo.
+PROOF_ID="$ID"
+PROOF_LIVE="$LIVE"
+if [[ -n "${NOMAD_ADDR:-}${VAULT_ADDR:-}${CONTROL_DB_URL:-}" ]]; then
+  INFRA=$(post /api/apps '{"prompt":"track home blood pressure and route urgent readings for review","pack":"hypertension-tracker","name":"infrastructure proof"}')
+  PROOF_ID=$(echo "$INFRA" | jfield '["app"]["id"]')
+  for g in auto-logoff escalation-path; do
+    post "/api/apps/$PROOF_ID/gate/$g/fix" >/dev/null
+  done
+  PROOF_LIVE=$(post "/api/apps/$PROOF_ID/promote" '{"cosigner":"Dr. A. Osei"}')
+  check "infrastructure proof has no stubs" "$PROOF_LIVE" '"gate_summary":"7/7"'
+  check "infrastructure proof enters prod pool" "$PROOF_LIVE" '"pool":"prod"'
+fi
 
 echo "-- staging: promote reaches real infrastructure (#2)"
 NS="tenant-meridian"
@@ -161,26 +179,43 @@ NS="tenant-meridian"
 # (status_source nomad — an honest "pending" on the one-machine dev agent,
 # where role=prod is unsatisfiable) and mirrors desired in simulated mode
 # (status_source simulated — labeled, never claimed).
-OPERATE=$(get "/api/apps/$ID/operate")
+OPERATE=$(get "/api/apps/$PROOF_ID/operate")
 check "operate: desired axis is the record" "$OPERATE" '"desired_state":"running"'
 check "operate: observed axis present"      "$OPERATE" '"observed_state":"'
 if [[ -n "${NOMAD_ADDR:-}" ]]; then
-  check "nomad eval id recorded" "$LIVE" '"nomad_eval_id":"'
-  NJOB=$(curl -s "$NOMAD_ADDR/v1/job/$ID?namespace=$NS")
-  check "job registered in nomad" "$NJOB" "\"ID\":\"$ID\""
+  check "nomad eval id recorded" "$PROOF_LIVE" '"nomad_eval_id":"'
+  NJOB=$(curl -s "$NOMAD_ADDR/v1/job/$PROOF_ID?namespace=$NS")
+  check "job registered in nomad" "$NJOB" "\"ID\":\"$PROOF_ID\""
   check "nomad job not stopped"   "$NJOB" '"Stop":false'
   # The observation must really come from Nomad, and must agree with what
   # Nomad itself says about the job right now.
   check "operate: observed from real nomad" "$OPERATE" '"status_source":"nomad"'
   NSTATUS=$(echo "$NJOB" | jfield '["Status"]')
   check "operate: observed matches nomad's own word" "$OPERATE" "\"observed_state\":\"$NSTATUS\""
+  if [[ "${NOMAD_REQUIRE_ALLOCATION:-}" == "1" ]]; then
+    ALLOCS="[]"
+    for _ in $(seq 1 60); do
+      ALLOCS=$(curl -s "$NOMAD_ADDR/v1/job/$PROOF_ID/allocations?namespace=$NS")
+      ASTATUS=$(echo "$ALLOCS" | python3 -c \
+        'import json,sys; a=json.load(sys.stdin); print(a[0]["ClientStatus"] if a else "missing")')
+      [[ "$ASTATUS" == "running" || "$ASTATUS" == "failed" ]] && break
+      sleep 0.5
+    done
+    check "nomad allocation reaches running" "$ASTATUS" "running"
+    ALLOC_ID=$(echo "$ALLOCS" | jfield '[0]["ID"]')
+    ADETAIL=$(curl -s "$NOMAD_ADDR/v1/allocation/$ALLOC_ID?namespace=$NS")
+    APORT=$(echo "$ADETAIL" | jfield '["AllocatedResources"]["Shared"]["Ports"][0]["Value"]')
+    AHEALTH=$(curl -s "http://127.0.0.1:$APORT/health")
+    check "nomad allocation health route answers" "$AHEALTH" '"status":"ok"'
+    check "nomad allocation keeps synthetic dataset guard" "$AHEALTH" '"synthetic_only":true'
+  fi
 else
   echo "  skipped (no nomad): eval id recorded, job registered, job not stopped"
   check "operate: simulated mode reports desired=observed, labeled" "$OPERATE" '"status_source":"simulated"'
   check "operate: simulated observed mirrors desired" "$OPERATE" '"observed_state":"running"'
 fi
 if [[ -n "${VAULT_ADDR:-}" ]]; then
-  check "vault transit round-trip" "$LIVE" "\"vault_transit_key\":\"$NS\""
+  check "vault transit round-trip" "$PROOF_LIVE" "\"vault_transit_key\":\"$NS\""
 else
   echo "  skipped (no vault): transit round-trip recorded on the allocation"
 fi
@@ -195,7 +230,7 @@ if [[ -n "${VAULT_ADDR:-}" ]]; then
 
   # Rotate-proof: encrypt, rotate the tenant key, decrypt the PRE-rotation
   # ciphertext — key versioning means rotation never strands old data.
-  RPROBE=$(printf 'rotate-proof-%s' "$ID" | base64)
+  RPROBE=$(printf 'rotate-proof-%s' "$PROOF_ID" | base64)
   CT=$(vault_api POST "/transit/encrypt/$NS" "{\"plaintext\":\"$RPROBE\"}" \
     | jfield '["data"]["ciphertext"]')
   vault_api POST "/transit/keys/$NS/rotate" >/dev/null
@@ -225,12 +260,12 @@ echo "-- vault (#9): dynamic db creds issued, verified, and revocable"
 PLAT_VUSER=""
 SIB_PASS=""
 if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" && -n "$PSQL" ]]; then
-  check "allocation carries the lease id"    "$LIVE" '"vault_lease_id":"database/creds/tenant-app/'
-  check "allocation carries the issued user" "$LIVE" '"vault_db_username":"v-'
-  check "allocation ttl is 1h"               "$LIVE" '"vault_lease_ttl_secs":3600'
+  check "allocation carries the lease id"    "$PROOF_LIVE" '"vault_lease_id":"database/creds/tenant-app/'
+  check "allocation carries the issued user" "$PROOF_LIVE" '"vault_db_username":"v-'
+  check "allocation ttl is 1h"               "$PROOF_LIVE" '"vault_lease_ttl_secs":3600'
   check "credentials string is the real lease, not the placeholder" \
-    "$LIVE" 'vault database/creds/tenant-app: lease'
-  PLAT_VUSER=$(echo "$LIVE" \
+    "$PROOF_LIVE" 'vault database/creds/tenant-app: lease'
+  PLAT_VUSER=$(echo "$PROOF_LIVE" \
     | jfield '["app"]["allocation"].get("vault_db_username") or ""')
 
   # A sibling lease from the same role, password in hand — the literal
@@ -275,6 +310,7 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
     env APP_BIND="$BIND" CONTROL_DB_URL="$CONTROL_DB_URL" \
       ${AUDIT_FILE:+AUDIT_FILE="$AUDIT_FILE"} \
       ${NOMAD_ADDR:+NOMAD_ADDR="$NOMAD_ADDR"} \
+      ${NOMAD_STAGING_IMAGE:+NOMAD_STAGING_IMAGE="$NOMAD_STAGING_IMAGE"} \
       ${VAULT_ADDR:+VAULT_ADDR="$VAULT_ADDR"} \
       ${VAULT_TOKEN:+VAULT_TOKEN="$VAULT_TOKEN"} \
       ${IDENTITIES_FILE:+IDENTITIES_FILE="$IDENTITIES_FILE"} \
@@ -294,14 +330,14 @@ if [[ -n "${CONTROL_DB_URL:-}" ]]; then
       curl -sf "$BASE/health" >/dev/null 2>&1 && break
       sleep 0.1
     done
-    SURVIVED=$(get "/api/apps/$ID")
+    SURVIVED=$(get "/api/apps/$PROOF_ID")
     check "app survives kill -9, still live"   "$SURVIVED" '"stage":"live"'
     check "allocation survives restart"        "$SURVIVED" '"pool":"prod"'
-    check "attestation survives restart"       "$SURVIVED" '"gate_summary":"5/6 (1 stubbed)"'
-    SAUDIT=$(get "/api/apps/$ID/audit")
+    check "attestation survives restart"       "$SURVIVED" '"gate_summary":"7/7"'
+    SAUDIT=$(get "/api/apps/$PROOF_ID/audit")
     check "audit survives restart (created)"   "$SAUDIT" '"app.created"'
     check "audit survives restart (promoted)"  "$SAUDIT" '"app.promoted"'
-    SOPS=$(get "/api/apps/$ID/operations")
+    SOPS=$(get "/api/apps/$PROOF_ID/operations")
     check "operation rows survive restart"     "$SOPS" '"kind":"scaffold"'
     # #9: the lease HANDLE survives the restart (the password does not — the
     # control plane persists no secrets), so rollback can still revoke it.
@@ -339,10 +375,10 @@ check "reviewer attests"  "$REVIEW" 'Meets release criteria'
 LIVE2=$(post "/api/apps/$ID2/promote" '{"cosigner":"Dr. A. Osei"}')
 check "9/9 attested"      "$LIVE2" '"gate_summary":"9/9"'
 
-echo "-- eject: an owned bundle, docs from the record, prod-pinned Nomad job"
+echo "-- eject: an owned bundle, docs from the record, placement-safe Nomad job"
 EXPORT=$(get "/api/apps/$ID/export")
 check "job rendered"      "$EXPORT" "job \\\"$ID\\\""
-check "prod constraint"   "$EXPORT" 'value     = \"prod\"'
+check "synthetic-demo constraint" "$EXPORT" 'value     = \"synthetic-demo\"'
 check "no raw tokens"     "$(echo "$EXPORT" | grep -c '{{app_id}}' || true)" "0"
 check "compliance doc in bundle" "$EXPORT" '"docs/COMPLIANCE.md"'
 check "readme tells their story" "$EXPORT" 'post-op recovery tracker for my knee replacement patients'
@@ -352,10 +388,8 @@ check "unpack one-liner ships"   "$EXPORT" 'python3 -c'
 # bundle carries real app source and the runbook drops its old caveat.
 check "real scaffold source ships" "$EXPORT" '"app/src/main.rs"'
 check "runbook drops placeholder caveat" "$(echo "$EXPORT" | python3 -c 'import json,sys; rb=json.load(sys.stdin)["files"]["docs/RUNBOOK.md"]; print("caveat-present" if "scaffold placeholder" in rb else "real-source")')" "real-source"
-# F1 (review-log round 1): staging submission strips the vault stanza for
-# the dev agent, but the RENDERED job text the doctor owns must always
-# carry it — the stripped path may never quietly become load-bearing.
-check "rendered job keeps vault stanza" "$(echo "$EXPORT" | python3 -c 'import json,sys; job=json.load(sys.stdin)["files"]["nomad/job.nomad.hcl"]; print("stanza-present" if "vault {" in job else "stanza-missing")')" "stanza-present"
+# Stubbed synthetic-demo jobs must never receive tenant credentials.
+check "synthetic demo job omits tenant vault stanza" "$(echo "$EXPORT" | python3 -c 'import json,sys; job=json.load(sys.stdin)["files"]["nomad/job.nomad.hcl"]; print("stanza-present" if "vault {" in job else "stanza-missing")')" "stanza-missing"
 # F3: a released app's compliance record embeds the report frozen at
 # promotion — the evidence that admitted it — never a lineage re-run.
 COMPLIANCE=$(echo "$EXPORT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
@@ -364,14 +398,19 @@ check "compliance names the stub"             "$COMPLIANCE" 'STUBBED —'
 check "compliance carries HIPAA citations"    "$COMPLIANCE" '45 CFR §164.312(b)'
 # The adversarial broken scaffold (#3) is cargo-test-only fixture data:
 # it must never register as a pack or reach any API surface.
-check "adversarial fixture is not a shipped pack" "$(get /api/packs | python3 -c 'import json,sys; p=json.load(sys.stdin)["packs"]; print("absent" if not any("broken" in x["id"] for x in p) and len(p)==5 else "present")')" "absent"
+check "adversarial fixture is not a shipped pack" "$(get /api/packs | python3 -c 'import json,sys; p=json.load(sys.stdin)["packs"]; print("absent" if not any("broken" in x["id"] for x in p) and len(p)==17 else "present")')" "absent"
 
 echo "-- rollback destroys the allocation"
 BACK=$(post "/api/apps/$ID/rollback")
 check "back to sandbox"   "$BACK" '"stage":"sandbox"'
 check "synthetic again"   "$BACK" '"kind":"synthetic"'
+PROOF_BACK="$BACK"
+if [[ "$PROOF_ID" != "$ID" ]]; then
+  PROOF_BACK=$(post "/api/apps/$PROOF_ID/rollback")
+  check "infrastructure app returns to sandbox" "$PROOF_BACK" '"stage":"sandbox"'
+fi
 if [[ -n "${NOMAD_ADDR:-}" ]]; then
-  NSTOP=$(curl -s "$NOMAD_ADDR/v1/job/$ID?namespace=$NS")
+  NSTOP=$(curl -s "$NOMAD_ADDR/v1/job/$PROOF_ID?namespace=$NS")
   check "nomad job stopped on rollback" "$NSTOP" '"Stop":true'
 else
   echo "  skipped (no nomad): nomad job stopped on rollback"
@@ -403,20 +442,24 @@ for action in app.created agent.scaffolded gate.fixed gate.passed app.promoted a
   check "audit has $action" "$AUDIT" "\"$action\""
 done
 if [[ -n "${NOMAD_ADDR:-}" ]]; then
-  check "audit has nomad.job_submitted" "$AUDIT" '"nomad.job_submitted"'
-  check "audit has nomad.job_stopped"   "$AUDIT" '"nomad.job_stopped"'
+  PROOF_AUDIT=$(get "/api/apps/$PROOF_ID/audit")
+  check "audit has nomad.job_submitted" "$PROOF_AUDIT" '"nomad.job_submitted"'
+  check "audit has nomad.job_stopped"   "$PROOF_AUDIT" '"nomad.job_stopped"'
 else
   echo "  skipped (no nomad): audit has nomad.job_submitted, nomad.job_stopped"
 fi
 if [[ -n "${VAULT_ADDR:-}" ]]; then
-  check "audit has vault.transit_verified" "$AUDIT" '"vault.transit_verified"'
-  check "audit has vault.policy_mounted"   "$AUDIT" '"vault.policy_mounted"'
+  PROOF_AUDIT=$(get "/api/apps/$PROOF_ID/audit")
+  check "audit has vault.transit_verified" "$PROOF_AUDIT" '"vault.transit_verified"'
+  check "audit has vault.policy mounted or reused" \
+    "$PROOF_AUDIT$(vault_api GET "/sys/policies/acl/$NS")" "transit/encrypt/$NS"
 else
   echo "  skipped (no vault): audit has vault.transit_verified, vault.policy_mounted"
 fi
 if [[ -n "${VAULT_ADDR:-}" && -n "${CONTROL_DB_URL:-}" ]]; then
-  check "audit has vault.db_creds_issued" "$AUDIT" '"vault.db_creds_issued"'
-  check "audit has vault.lease_revoked"   "$AUDIT" '"vault.lease_revoked"'
+  PROOF_AUDIT=$(get "/api/apps/$PROOF_ID/audit")
+  check "audit has vault.db_creds_issued" "$PROOF_AUDIT" '"vault.db_creds_issued"'
+  check "audit has vault.lease_revoked"   "$PROOF_AUDIT" '"vault.lease_revoked"'
 else
   echo "  skipped (no vault+control-db): audit has vault.db_creds_issued, vault.lease_revoked"
 fi

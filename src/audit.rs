@@ -326,6 +326,11 @@ impl AuditSink for MemorySink {
 pub struct FileSink {
     path: PathBuf,
     file: Mutex<std::fs::File>,
+    /// Serializes one complete confirmation round: watermark read, pending
+    /// selection, durable append, then watermark advance. The file mutex
+    /// alone is too narrow because two callers could select the same gap
+    /// before either acquired it and append duplicate receipts.
+    append_round: Mutex<()>,
     confirmed: AtomicU64,
 }
 
@@ -357,6 +362,7 @@ impl FileSink {
         Ok(Self {
             path,
             file: Mutex::new(file),
+            append_round: Mutex::new(()),
             confirmed: AtomicU64::new(in_file.min(restored_seq)),
         })
     }
@@ -407,6 +413,7 @@ impl AuditSink for FileSink {
     }
     fn append<'a>(&'a self, events: &'a [AuditEvent]) -> SinkFuture<'a> {
         Box::pin(async move {
+            let _round = self.append_round.lock().unwrap();
             let since = self.confirmed.load(Ordering::SeqCst);
             let pending: Vec<&AuditEvent> = events.iter().filter(|e| e.seq > since).collect();
             let Some(last) = pending.last() else {
@@ -601,6 +608,43 @@ mod tests {
             "archive is platform-wide: {content}"
         );
         assert_eq!(content.lines().count(), 2, "probe line + one event");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn concurrent_file_confirmations_append_each_sequence_once() {
+        let path = std::env::temp_dir().join(format!(
+            "audit-sink-concurrent-{}.jsonl",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let sink = Arc::new(FileSink::open(&path, 0).expect("open"));
+        let mut log = AuditLog::with_key(KEY);
+        log.record("a", "one", "d", None);
+        log.record("a", "two", "d", None);
+        let events = Arc::new(log.events().to_vec());
+
+        let left = {
+            let sink = Arc::clone(&sink);
+            let events = Arc::clone(&events);
+            tokio::spawn(async move { sink.append(&events).await })
+        };
+        let right = {
+            let sink = Arc::clone(&sink);
+            let events = Arc::clone(&events);
+            tokio::spawn(async move { sink.append(&events).await })
+        };
+        left.await.unwrap().unwrap();
+        right.await.unwrap().unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let sequences: Vec<u64> = content
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter_map(|value| value.get("seq").and_then(serde_json::Value::as_u64))
+            .collect();
+        assert_eq!(sequences, vec![1, 2], "each receipt must be archived once");
+        assert_eq!(sink.confirmed_seq(), 2);
         let _ = std::fs::remove_file(&path);
     }
 

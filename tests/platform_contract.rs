@@ -63,7 +63,7 @@ async fn registry_serves_signed_wave_one_packs() {
     let (status, body) = call(&router, "GET", "/api/packs", None).await;
     assert_eq!(status, StatusCode::OK);
     let packs = body["packs"].as_array().unwrap();
-    assert_eq!(packs.len(), 5);
+    assert_eq!(packs.len(), 17);
     for pack in packs {
         assert_eq!(pack["signed_by"], "platform-root-v1");
     }
@@ -74,8 +74,8 @@ async fn registry_serves_signed_wave_one_packs() {
         .collect();
     assert_eq!(
         wave1.len(),
-        3,
-        "RFC wave 1: compliance-checklist, hypertension-tracker, patient-intake"
+        5,
+        "wave 1 includes checklist, hypertension, intake, portal, and dashboard"
     );
 }
 
@@ -139,7 +139,7 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -177,10 +177,39 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
         Some(json!({"cosigner": "Dr. A. Osei"})),
     )
     .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(promoted["error"]
+        .as_str()
+        .unwrap()
+        .contains("phi-encryption"));
+
+    let (_, audit) = call(&router, "GET", &format!("/api/apps/{id}/audit"), None).await;
+    let denial = audit["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| {
+            event["action"] == "gate.promotion_denied"
+                && event["detail"]
+                    .as_str()
+                    .is_some_and(|detail| detail.contains("STUBBED"))
+        })
+        .expect("denied real-data promotion is audited");
+    assert_eq!(denial["actor"], "dr-osei");
+    assert!(denial["detail"].as_str().unwrap().contains("STUBBED"));
+    assert!(denial["detail"].as_str().unwrap().contains(&id));
+
+    let (status, promoted) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "promotion should pass: {promoted}");
     assert_eq!(promoted["app"]["stage"], "live");
-    assert_eq!(promoted["app"]["allocation"]["pool"], "prod");
-    assert_eq!(promoted["app"]["data_source"]["kind"], "tenant");
+    assert_eq!(promoted["app"]["allocation"]["pool"], "synthetic-demo");
+    assert_eq!(promoted["app"]["data_source"]["kind"], "synthetic");
     assert_eq!(promoted["app"]["attestation"]["cosigner"], "Dr. A. Osei");
     assert_eq!(
         promoted["app"]["attestation"]["gate_summary"], "5/6 (1 stubbed)",
@@ -325,7 +354,7 @@ async fn audit_stream_records_the_whole_story_append_only() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
 
@@ -367,7 +396,7 @@ async fn audit_stream_records_the_whole_story_append_only() {
 }
 
 #[tokio::test]
-async fn export_renders_nomad_job_pinned_to_prod_pool() {
+async fn synthetic_demo_export_does_not_claim_a_prod_nomad_job() {
     let router = app();
     let id = create_post_op_app(&router).await;
     // No allocation yet → the bundle still ships (no hostage docs), but the
@@ -393,20 +422,19 @@ async fn export_renders_nomad_job_pinned_to_prod_pool() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
 
     let (status, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
     assert_eq!(status, StatusCode::OK);
     let job = export["files"]["nomad/job.nomad.hcl"].as_str().unwrap();
-    assert!(job.contains(&format!("job \"{id}\"")));
+    assert!(job.contains("value     = \"synthetic-demo\""));
+    assert!(!job.contains("value     = \"prod\""));
     assert!(
-        job.contains("value     = \"prod\""),
-        "job must constrain to the prod pool"
+        !job.contains("vault {"),
+        "synthetic demos receive no tenant credentials"
     );
-    assert!(job.contains("driver = \"docker\""));
-    assert!(job.contains("namespace   = \"tenant-meridian\""));
     assert!(!job.contains("{{app_id}}"), "no unrendered tokens");
 }
 
@@ -437,7 +465,7 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -524,7 +552,7 @@ async fn rollback_destroys_allocation_and_returns_to_synthetic_data() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
 
@@ -593,7 +621,7 @@ async fn operate_reports_dual_status_axes_labeled_simulated() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{promoted}");

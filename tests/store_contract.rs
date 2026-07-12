@@ -138,8 +138,15 @@ fn illegal_transitions_are_refused_and_leave_the_record_untouched() {
     let mut live = app_in(Stage::Live);
     let report = gates::preflight(&live, &[]);
     let before = live.clone();
-    let err = deploy::promote(&mut live, &report, &dr_osei(), None, "a-1".to_string())
-        .expect_err("promoting a live app must fail");
+    let err = deploy::promote(
+        &mut live,
+        &report,
+        &dr_osei(),
+        None,
+        "a-1".to_string(),
+        false,
+    )
+    .expect_err("promoting a live app must fail");
     assert!(err.to_string().contains("already live"), "{err}");
     assert_eq!(live.stage, before.stage);
     assert_eq!(live.current_version, before.current_version);
@@ -161,8 +168,15 @@ fn legal_transition_passes_the_same_table() {
     let required = vec!["auto-logoff".to_string()];
     let report = gates::preflight(&app, &required);
     assert!(report.green, "one wired control-basis gate is green");
-    deploy::promote(&mut app, &report, &dr_osei(), None, "a-2".to_string())
-        .expect("sandbox→live is legal");
+    deploy::promote(
+        &mut app,
+        &report,
+        &dr_osei(),
+        None,
+        "a-2".to_string(),
+        false,
+    )
+    .expect("sandbox→live is legal");
     assert_eq!(app.stage, Stage::Live);
     deploy::rollback(&mut app, "synthea-postop-v1").expect("live→sandbox is legal");
     assert_eq!(app.stage, Stage::Sandbox);

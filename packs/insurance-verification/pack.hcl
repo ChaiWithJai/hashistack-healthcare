@@ -9,6 +9,8 @@ pack "insurance-verification" {
   tier        = 3
   wave        = 2
   signed_by   = "platform-root-v1"
+  scaffold_path = "scaffold"
+  quality_contract = "artifact-quality.json"
 
   scaffold = [
     "eligibility check form",

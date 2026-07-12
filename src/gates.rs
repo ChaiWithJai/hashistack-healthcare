@@ -36,10 +36,9 @@ pub enum Basis {
 pub enum GateStatus {
     Pass,
     /// Evidence found the control's plumbing, but the mechanism is a labeled
-    /// placeholder (e.g. the scaffold's encryption stub). A stub satisfies a
-    /// Phase 0 sandbox gate — the substrate itself is labeled simulation —
-    /// but it is never rendered as `pass`, so no report can claim (say)
-    /// encryption that never happened. Decision 0003 records the shape.
+    /// placeholder (e.g. the scaffold's encryption stub). A stub may publish
+    /// only through the explicit synthetic-demo path; it blocks tenant data
+    /// and production placement. It is never rendered as `pass`.
     Stubbed {
         reason: String,
     },
@@ -50,8 +49,8 @@ pub enum GateStatus {
 }
 
 impl GateStatus {
-    /// Satisfied for promotion: passing, or a labeled stub. Only a `Fail`
-    /// blocks the deploy — but only a `Pass` is ever *called* a pass.
+    /// Satisfied for the Phase 0 meter: passing, or a labeled stub. Production
+    /// authorization is stricter and uses `GateReport::promotion_blockers`.
     pub fn satisfied(&self) -> bool {
         !matches!(self, GateStatus::Fail { .. })
     }
@@ -84,7 +83,8 @@ pub struct GateReport {
     pub stubbed: usize,
     pub total: usize,
     /// No failures (every gate passed or is a labeled stub) and at least one
-    /// gate ran. Green unlocks promotion; the stub count stays visible.
+    /// gate ran. Green means the build loop is settled; production promotion
+    /// additionally requires zero stubs.
     pub green: bool,
 }
 
@@ -97,13 +97,31 @@ impl GateReport {
         }
     }
 
-    /// Gates that block promotion — failures only. Stubbed verdicts are
-    /// surfaced by [`GateReport::stubbed`] and the per-result status, not
-    /// here: they gate honesty, not the deploy button.
+    /// Failing results for UI/reporting. Production authorization uses
+    /// `promotion_blockers`, which also blocks stubs outside synthetic demos.
     pub fn failing(&self) -> Vec<&GateResult> {
         self.results
             .iter()
             .filter(|r| matches!(r.outcome, GateStatus::Fail { .. }))
+            .collect()
+    }
+
+    /// Reasons this report cannot authorize a release. A labeled stub is
+    /// acceptable only for an explicitly synthetic demo; it never admits a
+    /// workload to tenant data or the production pool.
+    pub fn promotion_blockers(&self, synthetic_demo: bool) -> Vec<String> {
+        self.results
+            .iter()
+            .filter_map(|result| match &result.outcome {
+                GateStatus::Fail { reason, .. } => {
+                    Some(format!("{} ({}): {}", result.id, result.title, reason))
+                }
+                GateStatus::Stubbed { reason } if !synthetic_demo => Some(format!(
+                    "{} ({}): STUBBED — {}",
+                    result.id, result.title, reason
+                )),
+                _ => None,
+            })
             .collect()
     }
 }
@@ -160,6 +178,12 @@ impl EvidenceContext {
     /// The evidence context for a pack, if it ships a runnable scaffold.
     /// Packs without one get `None` and keep control-basis verdicts.
     pub fn for_pack(pack_id: &str) -> Option<Self> {
+        let pack = crate::packs::builtin_packs()
+            .into_iter()
+            .find(|pack| pack.id == pack_id)?;
+        if !pack.static_evidence {
+            return None;
+        }
         let files = crate::packs::scaffold_sources(pack_id)?;
         Some(Self {
             files,
@@ -926,7 +950,7 @@ mod tests {
     }
 
     #[test]
-    fn packs_without_a_scaffold_keep_control_basis_verdicts() {
+    fn runnable_packs_without_static_annotations_keep_control_basis_verdicts() {
         let mut app = post_op_app();
         app.pack = "hypertension-tracker".to_string();
         let report = preflight(&app, &required());

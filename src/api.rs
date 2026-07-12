@@ -336,6 +336,26 @@ fn audit_unavailable(what: &str, cause: String) -> ApiError {
     ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("{what} — {cause}"))
 }
 
+/// Compensate a failed durable write only when the record is still exactly
+/// the value this request installed. A blind snapshot restore can erase a
+/// newer concurrent edit/review/promotion while an audit sink is timing out.
+fn restore_if_unchanged(
+    platform: &SharedPlatform,
+    app_id: &str,
+    installed: &AppRecord,
+    prior: AppRecord,
+) -> bool {
+    let mut plat = platform.write().unwrap();
+    let Some(current) = plat.apps.get_mut(app_id) else {
+        return false;
+    };
+    let unchanged = serde_json::to_vec(&*current).ok() == serde_json::to_vec(installed).ok();
+    if unchanged {
+        *current = prior;
+    }
+    unchanged
+}
+
 // ---------- packs ----------
 
 async fn list_packs(State(platform): State<SharedPlatform>) -> ApiResult<serde_json::Value> {
@@ -612,10 +632,7 @@ async fn iterate(
         }
     })?;
     if let Err(cause) = durable {
-        let mut plat = platform.write().unwrap();
-        if let Some(a) = plat.apps.get_mut(&id) {
-            *a = snapshot;
-        }
+        restore_if_unchanged(&platform, &id, &app, snapshot);
         return Err(audit_unavailable("edit reverted", cause));
     }
     Ok(Json(json!({ "reply": reply, "app": app })))
@@ -789,10 +806,7 @@ async fn fix_gate(
     // Load-bearing (#8): a wired compliance control the audit stream cannot
     // prove was wired is unwired again.
     if let Err(cause) = settle_durable(&platform, &[&id], None).await {
-        let mut plat = platform.write().unwrap();
-        if let Some(a) = plat.apps.get_mut(&id) {
-            *a = snapshot;
-        }
+        restore_if_unchanged(&platform, &id, &wired_response, snapshot);
         return Err(audit_unavailable("gate fix reverted", cause));
     }
     Ok(Json(
@@ -809,7 +823,7 @@ async fn review(
     Path(id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     ensure_tenant(&platform, &id, &principal)?;
-    let (note, report, snapshot) = {
+    let (note, report, reviewed_app, snapshot) = {
         let mut plat = platform.write().unwrap();
         let pack = plat
             .apps
@@ -844,21 +858,19 @@ async fn review(
         if report.green {
             app.controls.insert("human-review".to_string());
         }
+        let reviewed_app = app.clone();
         plat.audit.record(
             "platform-reviewer",
             "review.completed",
             note.clone(),
             Some(&id),
         );
-        (note, report, snapshot)
+        (note, report, reviewed_app, snapshot)
     };
     // Load-bearing (#8): an attested review must be durably recorded — the
     // note and the satisfied human-review control revert otherwise.
     if let Err(cause) = settle_durable(&platform, &[&id], None).await {
-        let mut plat = platform.write().unwrap();
-        if let Some(a) = plat.apps.get_mut(&id) {
-            *a = snapshot;
-        }
+        restore_if_unchanged(&platform, &id, &reviewed_app, snapshot);
         return Err(audit_unavailable("review reverted", cause));
     }
     Ok(Json(json!({ "reviewer_note": note, "report": report })))
@@ -873,6 +885,11 @@ struct Promote {
     /// principal's registered name, or be omitted — deploy::promote).
     #[serde(default)]
     cosigner: Option<String>,
+    /// Explicit escape hatch for demos whose report contains labeled stubs.
+    /// This publishes only to the synthetic-demo pool and never changes the
+    /// app's data source to tenant data.
+    #[serde(default)]
+    synthetic_demo: bool,
 }
 
 async fn promote(
@@ -886,6 +903,57 @@ async fn promote(
     // act, so staff answer 403 `auth.role_denied`.
     ensure_tenant(&platform, &id, &principal)?;
     require_capability(&platform, &principal, Capability::CoSignRelease, Some(&id))?;
+
+    // Refused release attempts are security events, not transient HTTP
+    // errors. Record the principal, exact report, and blockers before
+    // returning, and require the configured durable audit broker to confirm
+    // the event just like a successful promotion.
+    let denied = {
+        let mut plat = platform.write().unwrap();
+        let required = plat
+            .apps
+            .get(&id)
+            .and_then(|a| plat.pack(&a.pack))
+            .map(|p| p.gates.clone())
+            .ok_or_else(|| not_found("app"))?;
+        let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        let report = gates::preflight(app, &required);
+        let blockers = report.promotion_blockers(req.synthetic_demo);
+        if blockers.is_empty() {
+            None
+        } else {
+            let detail = format!(
+                "principal {} denied promotion of app {} at v{}; report {} ({}) digest {}; blockers: {}",
+                principal.id,
+                id,
+                report.app_version,
+                report.summary(),
+                if req.synthetic_demo { "synthetic-demo requested" } else { "real-data release requested" },
+                gates::report_digest(&report),
+                blockers.join("; ")
+            );
+            plat.audit.record(
+                &principal.id,
+                "gate.promotion_denied",
+                detail.clone(),
+                Some(&id),
+            );
+            Some(detail)
+        }
+    };
+    if let Some(detail) = denied {
+        if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+            return Err(audit_unavailable(
+                "promotion denial could not be durably recorded",
+                cause,
+            ));
+        }
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("deploy locked: {detail}"),
+        ));
+    }
+
     let (app, report, snapshot) = {
         let mut plat = platform.write().unwrap();
         let required = plat
@@ -902,15 +970,26 @@ async fn promote(
         // promotion: the record must never claim "live" when real
         // infrastructure said no.
         let snapshot = app.clone();
-        deploy::promote(app, &report, &principal, req.cosigner.as_deref(), alloc_id)
-            .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
+        deploy::promote(
+            app,
+            &report,
+            &principal,
+            req.cosigner.as_deref(),
+            alloc_id,
+            req.synthetic_demo,
+        )
+        .map_err(|e| ApiError(StatusCode::CONFLICT, e.to_string()))?;
         // Staging (#2, #9): submit the rendered job to a real Nomad dev
         // agent, prove the tenant transit key, mount the tenant policy, and
         // issue + verify dynamic DB creds against a real Vault — no-op (and
         // no events) when NOMAD_ADDR / VAULT_ADDR+VAULT_TOKEN are unset.
         // NOTE: these are loopback dev-mode calls; a real client pool moves
         // them off the lock like the model tiers (F4 / #6).
-        let staging_events = match deploy::staging_promote(app) {
+        let staging_events = match if req.synthetic_demo {
+            Ok(Vec::new())
+        } else {
+            deploy::staging_promote(app)
+        } {
             Ok(events) => events,
             Err(e) => {
                 *app = snapshot;
@@ -976,10 +1055,8 @@ async fn promote(
     )
     .await
     {
+        restore_if_unchanged(&platform, &id, &app, snapshot);
         let mut plat = platform.write().unwrap();
-        if let Some(a) = plat.apps.get_mut(&id) {
-            *a = snapshot;
-        }
         plat.audit
             .record("deploy", "app.promotion_reverted", cause.clone(), Some(&id));
         return Err(audit_unavailable("promotion reverted", cause));
@@ -1049,10 +1126,8 @@ async fn rollback(
     )
     .await
     {
+        restore_if_unchanged(&platform, &id, &app, snapshot);
         let mut plat = platform.write().unwrap();
-        if let Some(a) = plat.apps.get_mut(&id) {
-            *a = snapshot;
-        }
         plat.audit
             .record("deploy", "app.rollback_reverted", cause.clone(), Some(&id));
         return Err(audit_unavailable("rollback reverted", cause));

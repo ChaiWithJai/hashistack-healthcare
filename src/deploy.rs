@@ -7,13 +7,13 @@ use anyhow::{bail, Context, Result};
 
 use crate::gates::GateReport;
 use crate::hashi;
-use crate::identity::{Principal, Role};
+use crate::identity::{validate_app_slug, validate_tenant_slug, Principal, Role};
 use crate::state::{
     now_unix, valid_transition, Allocation, AppRecord, Attestation, DataSource, Stage,
 };
 
 /// Current immutable client image, as baked by Packer (packer/client.pkr.hcl).
-pub const CLIENT_IMAGE: &str = "client-v2026.07.1";
+pub const CLIENT_IMAGE: &str = "registry.internal/clinician-client@sha256:8f32c9b98d31f5ad0e0be9f92efc47942c74ec352af89c3254ddf967db2d19f7";
 pub const REGION: &str = "nyc3";
 
 const JOB_TEMPLATE: &str = include_str!("../nomad/templates/service-web.nomad.hcl.tmpl");
@@ -56,6 +56,7 @@ pub fn promote(
     principal: &Principal,
     cosigner_claim: Option<&str>,
     alloc_id: String,
+    synthetic_demo: bool,
 ) -> Result<()> {
     if app.stage == Stage::Live {
         bail!(
@@ -77,16 +78,12 @@ pub fn promote(
     if report.app_id != app.id || report.app_version != app.current_version {
         bail!("gate report is stale: it attests a different app or version");
     }
-    if !report.green {
-        let failing: Vec<String> = report.failing().iter().map(|r| r.title.clone()).collect();
-        // Count what the message names: labeled stubs are satisfied-with-a-
-        // caveat (#3), so `total - passed` would overcount and contradict
-        // both the named list and the UI's meter (caught by the journey
-        // profiler capturing this refusal verbatim).
+    let blockers = report.promotion_blockers(synthetic_demo);
+    if !blockers.is_empty() {
         bail!(
-            "deploy locked ({} failing): {}",
-            failing.len(),
-            failing.join("; ")
+            "deploy locked ({} blocking): {}",
+            blockers.len(),
+            blockers.join("; ")
         );
     }
     // Defense in depth (#10): the api layer already answered 404/403 with
@@ -117,10 +114,19 @@ pub fn promote(
         ),
     };
 
-    let database = format!("tenant_{}_{}", app.tenant, app.id.replace('-', "_"));
+    let database = if synthetic_demo {
+        "synthetic-demo-only".to_string()
+    } else {
+        format!("tenant_{}_{}", app.tenant, app.id.replace('-', "_"))
+    };
     app.allocation = Some(Allocation {
         id: alloc_id,
-        pool: "prod".to_string(),
+        pool: if synthetic_demo {
+            "synthetic-demo"
+        } else {
+            "prod"
+        }
+        .to_string(),
         region: REGION.to_string(),
         image: CLIENT_IMAGE.to_string(),
         profile: "web".to_string(),
@@ -128,9 +134,17 @@ pub fn promote(
         vault_lease_id: None,
         vault_db_username: None,
         vault_lease_ttl_secs: None,
-        credentials: "simulated: vault dynamic postgres creds, 1h TTL, auto-revoked (real lease issued in staging, #9)".to_string(),
+        credentials: if synthetic_demo {
+            "none: explicitly synthetic demo; tenant credentials are not issued".to_string()
+        } else {
+            "simulated: vault dynamic postgres creds, 1h TTL, auto-revoked (real lease issued in staging, #9)".to_string()
+        },
         app_version: app.current_version,
-        url: format!("{}.{}.app", app.id, app.tenant),
+        url: if synthetic_demo {
+            format!("{}.synthetic-demo.local", app.id)
+        } else {
+            format!("{}.{}.app", app.id, app.tenant)
+        },
         healthy: true,
         deployed_at: now_unix(),
         nomad_eval_id: None,
@@ -150,7 +164,9 @@ pub fn promote(
         at: now_unix(),
     });
     app.stage = Stage::Live;
-    app.data_source = DataSource::Tenant(format!("tenant-{}", app.tenant));
+    if !synthetic_demo {
+        app.data_source = DataSource::Tenant(format!("tenant-{}", app.tenant));
+    }
     Ok(())
 }
 
@@ -173,6 +189,25 @@ fn staging_db_url() -> Option<String> {
 pub fn staging_promote(app: &mut AppRecord) -> Result<Vec<(String, String)>> {
     let mut events = Vec::new();
     let namespace = format!("tenant-{}", app.tenant);
+    let mut issued_lease: Option<String> = None;
+
+    // The production image is immutable and digest pinned. A local staging
+    // client cannot pull registry.internal, so an explicit environment value
+    // may select a locally built proof image. The chosen image is stored on
+    // the allocation and therefore remains visible in state and audit evidence.
+    if let Ok(image) = std::env::var("NOMAD_STAGING_IMAGE") {
+        let image = image.trim();
+        if image.is_empty() || image.chars().any(char::is_whitespace) {
+            bail!("NOMAD_STAGING_IMAGE must be a non-empty image reference without whitespace");
+        }
+        if let Some(alloc) = app.allocation.as_mut() {
+            alloc.image = image.to_string();
+        }
+        events.push((
+            "nomad.staging_image_selected".to_string(),
+            format!("local staging override selected image {image}"),
+        ));
+    }
 
     if let Some(vault) = hashi::Vault::from_env() {
         vault.transit_roundtrip(&namespace, &format!("promotion-probe-{}", app.id))?;
@@ -230,14 +265,37 @@ pub fn staging_promote(app: &mut AppRecord) -> Result<Vec<(String, String)>> {
                 alloc.vault_db_username = Some(lease.username.clone());
                 alloc.vault_lease_ttl_secs = Some(lease.ttl_secs);
             }
+            issued_lease = Some(lease.lease_id.clone());
             events.push(("vault.db_creds_issued".to_string(), detail));
         }
     }
 
     if let Some(nomad) = hashi::Nomad::from_env() {
-        let job_hcl = render_job(app)?;
-        nomad.ensure_namespace(&namespace)?;
-        let eval_id = nomad.submit_job_hcl(&job_hcl)?;
+        let submitted = (|| -> Result<String> {
+            let job_hcl = render_job(app)?;
+            nomad.ensure_namespace(&namespace)?;
+            nomad.submit_job_hcl(&job_hcl)
+        })();
+        let eval_id = match submitted {
+            Ok(eval_id) => eval_id,
+            Err(submit_error) => {
+                // Packer-style compensation: preparation may have issued a
+                // short-lived database credential before Nomad execution.
+                // A refused submission must not orphan that lease.
+                if let (Some(vault), Some(lease_id)) =
+                    (hashi::Vault::from_env(), issued_lease.as_deref())
+                {
+                    if let Err(revoke_error) = vault.revoke_lease(lease_id) {
+                        bail!(
+                            "nomad submission failed ({submit_error:#}); compensation also failed to revoke vault lease {lease_id} ({revoke_error:#})"
+                        );
+                    }
+                }
+                return Err(
+                    submit_error.context("nomad submission failed; issued vault lease revoked")
+                );
+            }
+        };
         events.push((
             "nomad.job_submitted".to_string(),
             format!(
@@ -408,6 +466,8 @@ pub fn rollback(app: &mut AppRecord, synthetic_dataset: &str) -> Result<()> {
 /// Render the Nomad job for a live allocation — also the portability export:
 /// no hostage code means the doctor can read exactly what runs.
 pub fn render_job(app: &AppRecord) -> Result<String> {
+    validate_tenant_slug(&app.tenant).context("unsafe tenant for Nomad job")?;
+    validate_app_slug(&app.id).context("unsafe app id for Nomad job")?;
     let Some(alloc) = &app.allocation else {
         bail!("app {} has no allocation to render", app.id);
     };
@@ -416,13 +476,89 @@ pub fn render_job(app: &AppRecord) -> Result<String> {
         .as_ref()
         .map(|a| a.gate_summary.replace('/', "-of-"))
         .unwrap_or_default();
-    Ok(JOB_TEMPLATE
+    let rendered = JOB_TEMPLATE
         .replace("{{app_id}}", &app.id)
         .replace("{{tenant}}", &app.tenant)
         .replace("{{region}}", &alloc.region)
         .replace("{{image}}", &alloc.image)
+        .replace("{{pool}}", &alloc.pool)
         .replace("{{database}}", &alloc.database)
         .replace("{{url}}", &alloc.url)
         .replace("{{gate_summary}}", &gate_summary)
-        .replace("{{app_version}}", &alloc.app_version.to_string()))
+        .replace("{{app_version}}", &alloc.app_version.to_string());
+    for token in [
+        "{{app_id}}",
+        "{{tenant}}",
+        "{{region}}",
+        "{{image}}",
+        "{{database}}",
+        "{{url}}",
+        "{{gate_summary}}",
+        "{{app_version}}",
+        "{{pool}}",
+    ] {
+        if rendered.contains(token) {
+            bail!("Nomad job rendering left unresolved token {token}");
+        }
+    }
+    let rendered = if alloc.pool == "synthetic-demo" {
+        strip_tenant_secrets(rendered)?
+    } else {
+        rendered
+    };
+    Ok(rendered)
+}
+
+fn strip_tenant_secrets(rendered: String) -> Result<String> {
+    const START: &str = "      # BEGIN_TENANT_SECRETS — removed entirely for synthetic-demo jobs.";
+    const END: &str = "      # END_TENANT_SECRETS";
+    let start = rendered
+        .find(START)
+        .context("tenant-secret start marker missing")?;
+    let end = rendered
+        .find(END)
+        .context("tenant-secret end marker missing")?
+        + END.len();
+    let mut safe = rendered;
+    safe.replace_range(
+        start..end,
+        "      # synthetic demo: no Vault policy and no database credentials\n",
+    );
+    Ok(safe)
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn production_job_template_has_a_bounded_unprivileged_container_contract() {
+        for required in [
+            "user         = \"65532\"",
+            "readonly_rootfs  = true",
+            "cap_drop         = [\"ALL\"]",
+            "no-new-privileges:true",
+            "pids_limit",
+            "memory_max",
+            "ephemeral_disk",
+            "auto_revert",
+            "perms       = \"0400\"",
+        ] {
+            assert!(JOB_TEMPLATE.contains(required), "missing {required}");
+        }
+        assert!(
+            CLIENT_IMAGE.contains("@sha256:"),
+            "image must be digest-pinned"
+        );
+        for forbidden in [
+            "privileged = true",
+            "/var/run/docker.sock",
+            "network_mode = \"host\"",
+        ] {
+            assert!(
+                !JOB_TEMPLATE.contains(forbidden),
+                "forbidden workload setting: {forbidden}"
+            );
+        }
+    }
 }

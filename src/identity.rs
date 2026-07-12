@@ -140,6 +140,44 @@ struct IdentityFile {
     identity: BTreeMap<String, PrincipalDecl>,
 }
 
+/// Tenant names cross several trust boundaries: Vault paths, Nomad
+/// namespaces, database identifiers, and hostnames. Keep one deliberately
+/// conservative grammar before any of those renderers see the value.
+pub fn validate_tenant_slug(value: &str) -> Result<()> {
+    validate_slug("tenant", value, 40)
+}
+
+/// DNS/HCL-safe application identifier validation used by the deploy
+/// renderer. App ids are allowed the full DNS-label length.
+pub fn validate_app_slug(value: &str) -> Result<()> {
+    validate_slug("app id", value, 63)
+}
+
+fn validate_slug(kind: &str, value: &str, max: usize) -> Result<()> {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > max {
+        bail!("{kind} must be 1..={max} ASCII bytes");
+    }
+    if !bytes[0].is_ascii_lowercase() {
+        bail!("{kind} must start with a lowercase ASCII letter");
+    }
+    if bytes.last() == Some(&b'-') {
+        bail!("{kind} must not end with a hyphen");
+    }
+    let mut previous_hyphen = false;
+    for byte in bytes {
+        let valid = byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-';
+        if !valid {
+            bail!("{kind} contains an unsafe character");
+        }
+        if *byte == b'-' && previous_hyphen {
+            bail!("{kind} must not contain consecutive hyphens");
+        }
+        previous_hyphen = *byte == b'-';
+    }
+    Ok(())
+}
+
 /// The loaded registry: principals, the (dev-only) fallback, and the
 /// in-memory session table behind `SESSION_IDLE_SECS`.
 #[derive(Debug)]
@@ -179,6 +217,8 @@ impl Registry {
             if decl.tenant.trim().is_empty() || decl.name.trim().is_empty() {
                 bail!("identity {id:?} needs a non-empty name and tenant");
             }
+            validate_tenant_slug(decl.tenant.trim())
+                .with_context(|| format!("identity {id:?} declares an unsafe tenant"))?;
             principals.push(Principal {
                 id: id.clone(),
                 name: decl.name.trim().to_string(),
@@ -366,6 +406,38 @@ mod tests {
         assert!(Registry::parse(&block("x", "staff", "", "tk", ""), None, None).is_err());
         assert!(Registry::parse(&block("x", "staff", "t", " ", ""), None, None).is_err());
         assert!(Registry::parse("", None, None).is_err(), "empty registry");
+    }
+
+    #[test]
+    fn tenant_slugs_are_safe_for_vault_nomad_database_and_dns_rendering() {
+        for valid in [
+            "meridian",
+            "clinic-2",
+            "a",
+            "a234567890123456789012345678901234567890",
+        ] {
+            assert!(validate_tenant_slug(valid).is_ok(), "{valid}");
+        }
+        for invalid in [
+            "",
+            "Meridian",
+            "clinic_2",
+            "clinic.example",
+            "../vault",
+            "two--hyphens",
+            "trailing-",
+            "${meta.role}",
+            "tenant\"}\njob \"owned\" {",
+            "méridian",
+            "a2345678901234567890123456789012345678901",
+        ] {
+            assert!(validate_tenant_slug(invalid).is_err(), "{invalid:?}");
+            let source = block("x", "staff", invalid, "tk", "");
+            assert!(
+                Registry::parse(&source, None, None).is_err(),
+                "registry accepted {invalid:?}"
+            );
+        }
     }
 
     #[test]

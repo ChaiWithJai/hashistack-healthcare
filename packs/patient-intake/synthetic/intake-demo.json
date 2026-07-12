@@ -1,0 +1,1 @@
+{"dataset":"intake demo","notice":"SYNTHETIC DATA — invented people and histories only","invites":[{"token":"demo-alex","expires_at":4102444800,"patient_id":"in-001","name":"Alex Rivera","visit":"Annual wellness"},{"token":"expired-demo","expires_at":1,"patient_id":"in-002","name":"Nora Singh","visit":"New patient"}]}

@@ -13,6 +13,8 @@ pack "post-op-monitor" {
   # This pack ships a real runnable app template (issue #5): scaffold/ is a
   # standalone axum crate seeded from synthetic/, ejected as the app source.
   scaffold_path = "scaffold"
+  quality_contract = "artifact-quality.json"
+  static_evidence = true
 
   # What the agent scaffolds before the doctor's first edit, hipaa-core pre-wired.
   scaffold = [

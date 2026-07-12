@@ -184,7 +184,7 @@ async fn kill_the_sink_and_the_next_promotion_fails_sandboxed_with_the_failure_o
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(
@@ -221,7 +221,7 @@ async fn kill_the_sink_and_the_next_promotion_fails_sandboxed_with_the_failure_o
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{live}");
@@ -325,7 +325,7 @@ async fn file_sink_archives_hmac_form_while_the_doctor_keeps_their_words() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -399,7 +399,7 @@ async fn dev_mode_without_a_durable_sink_never_blocks() {
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei"})),
+        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{live}");

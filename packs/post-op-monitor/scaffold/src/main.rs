@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Form, Multipart, Request, State};
+use axum::extract::{Extension, Form, Multipart, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -152,10 +152,31 @@ struct Inner {
     checkins: Mutex<Vec<Checkin>>,
     photos: Mutex<Vec<PhotoStub>>,
     inbox: Mutex<Vec<Flag>>,
-    sessions: Mutex<HashMap<String, Instant>>,
+    sessions: Mutex<HashMap<String, Session>>,
     session_seq: AtomicU64,
     idle_timeout: Duration,
     audit: AuditSink,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Role {
+    Patient,
+    Clinician,
+}
+
+#[derive(Clone, Debug)]
+struct Session {
+    last_seen: Instant,
+    role: Role,
+    patient_id: Option<String>,
+    actor: String,
+}
+
+#[derive(Clone, Debug)]
+struct AuthSession {
+    role: Role,
+    patient_id: Option<String>,
+    actor: String,
 }
 
 #[derive(Clone)]
@@ -187,14 +208,18 @@ impl AppState {
         })))
     }
 
-    fn mint_session(&self) -> String {
+    fn mint_session(&self, role: Role, patient_id: Option<String>, actor: String) -> String {
         let seq = self.0.session_seq.fetch_add(1, Ordering::Relaxed);
         let id = format!("s{:04}-{}", seq, unix_now());
-        self.0
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(id.clone(), Instant::now());
+        self.0.sessions.lock().unwrap().insert(
+            id.clone(),
+            Session {
+                last_seen: Instant::now(),
+                role,
+                patient_id,
+                actor,
+            },
+        );
         id
     }
 }
@@ -216,56 +241,114 @@ fn session_from_headers(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-/// Auto-logoff (gate `auto-logoff`): every session cookie carries an idle
-/// clock; a request after the timeout is refused, its session destroyed,
-/// and the cookie cleared. `/health` is exempt — probes are not sessions.
+/// Explicit auth boundary. Health and login are public; every app route
+/// requires a role-bearing session created by a successful demo login.
 async fn auto_logoff(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if request.uri().path() == "/health" {
+    if matches!(request.uri().path(), "/health" | "/login") {
         return next.run(request).await;
     }
     if let Some(id) = session_from_headers(request.headers()) {
-        let expired = {
+        let auth = {
             let mut sessions = state.0.sessions.lock().unwrap();
-            match sessions.get(&id) {
-                Some(last_seen) if last_seen.elapsed() > state.0.idle_timeout => {
+            match sessions.get_mut(&id) {
+                Some(session) if session.last_seen.elapsed() > state.0.idle_timeout => {
                     sessions.remove(&id);
-                    true
+                    None
                 }
-                Some(_) => {
-                    sessions.insert(id, Instant::now());
-                    false
+                Some(session) => {
+                    session.last_seen = Instant::now();
+                    Some(AuthSession {
+                        role: session.role.clone(),
+                        patient_id: session.patient_id.clone(),
+                        actor: session.actor.clone(),
+                    })
                 }
-                // Unknown or stale cookie (e.g. the process restarted):
-                // same treatment as idle — a fresh session must be minted.
-                None => true,
+                None => None,
             }
         };
-        if expired {
-            return logged_off();
+        if let Some(auth) = auth {
+            let mut request = request;
+            request.extensions_mut().insert(auth);
+            return next.run(request).await;
         }
-        return next.run(request).await;
+        return logged_off();
     }
-    // First touch: mint a session so the idle clock starts now.
-    let id = state.mint_session();
-    let mut response = next.run(request).await;
-    let cookie = format!("session={id}; Path=/; HttpOnly; SameSite=Lax");
-    if let Ok(value) = HeaderValue::from_str(&cookie) {
-        response.headers_mut().insert(header::SET_COOKIE, value);
-    }
-    response
+    login_required()
+}
+
+fn login_required() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Html(page("sign in", login_form("Sign in is required."))),
+    )
+        .into_response()
 }
 
 fn logged_off() -> Response {
     let body = page(
         "logged off",
         "<div class=\"sk pad\"><b>You were logged off after inactivity.</b>\
-         <p>The auto-logoff control ended this session (idle timeout). Reload the page to start a new one.</p></div>"
+         <p>The auto-logoff control ended this session. Sign in again; expired sessions never revive automatically.</p><a href=\"/login\">sign in</a></div>"
             .to_string(),
     );
     let mut response = (StatusCode::UNAUTHORIZED, Html(body)).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
         HeaderValue::from_static("session=; Path=/; Max-Age=0"),
+    );
+    response
+}
+
+fn login_form(message: &str) -> String {
+    format!("<div class=\"sk pad\"><b>{}</b><p>Demo learning credentials (not real secrets): patient <code>demo-patient / learn-patient</code>; clinician <code>demo-clinician / learn-clinician</code>.</p><form method=\"post\" action=\"/login\" class=\"col\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input type=\"password\" name=\"password\" autocomplete=\"current-password\"></label><button class=\"b bp\">sign in</button></form></div>", esc(message))
+}
+
+#[derive(Deserialize)]
+struct LoginForm {
+    username: String,
+    password: String,
+}
+
+async fn login_page() -> Html<String> {
+    Html(page("demo sign in", login_form("Authentication boundary")))
+}
+
+async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
+    let identity = match (form.username.as_str(), form.password.as_str()) {
+        ("demo-patient", "learn-patient") => Some((
+            Role::Patient,
+            Some("pt-001".to_string()),
+            "demo-patient".to_string(),
+            "/",
+        )),
+        ("demo-clinician", "learn-clinician") => Some((
+            Role::Clinician,
+            None,
+            "demo-clinician".to_string(),
+            "/clinician",
+        )),
+        _ => None,
+    };
+    let Some((role, patient_id, actor, destination)) = identity else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html(page(
+                "sign in failed",
+                login_form("Invalid demo credentials."),
+            )),
+        )
+            .into_response();
+    };
+    let id = state.mint_session(role, patient_id, actor);
+    let mut response = (
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, destination)],
+        "signed in",
+    )
+        .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!("session={id}; Path=/; HttpOnly; SameSite=Lax")).unwrap(),
     );
     response
 }
@@ -281,7 +364,17 @@ async fn audit_jsonl(State(state): State<AppState>, request: Request, next: Next
         return next.run(request).await;
     }
     let method = request.method().to_string();
-    let actor = session_from_headers(request.headers()).unwrap_or_else(|| "anonymous".to_string());
+    let actor = session_from_headers(request.headers())
+        .and_then(|id| {
+            state
+                .0
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|s| s.actor.clone())
+        })
+        .unwrap_or_else(|| "anonymous".to_string());
     let response = next.run(request).await;
     let line = serde_json::json!({
         "at": unix_now(),
@@ -303,28 +396,26 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok", "app": "post-op-monitor-scaffold" }))
 }
 
-async fn home(State(state): State<AppState>) -> Html<String> {
+async fn home(State(state): State<AppState>, Extension(auth): Extension<AuthSession>) -> Response {
+    if auth.role != Role::Patient {
+        return (StatusCode::FORBIDDEN, "patient role required").into_response();
+    }
+    let patient_id = auth.patient_id.as_deref().unwrap_or_default();
+    let patient = state
+        .0
+        .patients
+        .iter()
+        .find(|p| p.id == patient_id)
+        .expect("demo patient exists");
     let mut body = String::new();
     body.push_str(&format!(
         "<div class=\"sk pad\"><b>recovery check-in</b> <span class=\"muted\">seeded from {} — synthetic data only</span>\
          <form method=\"post\" action=\"/checkin\" class=\"col\">\
-         <label>patient <select name=\"patient_id\">",
-        esc(&state.0.dataset_name)
+         <input type=\"hidden\" name=\"patient_id\" value=\"{}\"><p>Signed in as <b>{}</b> ({})</p><p class=\"muted\">{} on {} · {}</p>",
+        esc(&state.0.dataset_name), esc(&patient.id), esc(&patient.name), esc(&auth.actor), esc(&patient.procedure), esc(&patient.surgery_date), esc(&patient.surgeon)
     ));
-    for patient in &state.0.patients {
-        body.push_str(&format!(
-            "<option value=\"{}\">{}, {} — {} ({}, {})</option>",
-            esc(&patient.id),
-            esc(&patient.name),
-            patient.age,
-            esc(&patient.procedure),
-            esc(&patient.surgery_date),
-            esc(&patient.surgeon)
-        ));
-    }
     body.push_str(
-        "</select></label>\
-         <label>pain (0–10) <input type=\"number\" name=\"pain\" min=\"0\" max=\"10\" value=\"3\"></label>\
+        "<label>pain (0–10) <input type=\"number\" name=\"pain\" min=\"0\" max=\"10\" value=\"3\"></label>\
          <label>wound looks <select name=\"wound\">",
     );
     for status in KNOWN_WOUND_STATUSES {
@@ -349,7 +440,12 @@ async fn home(State(state): State<AppState>) -> Html<String> {
         "<div class=\"sk pad\"><b>check-ins this session</b> <span class=\"muted\">{}</span><ul>",
         checkins.len()
     ));
-    for checkin in checkins.iter().rev().take(10) {
+    for checkin in checkins
+        .iter()
+        .filter(|c| c.patient_id == patient_id)
+        .rev()
+        .take(10)
+    {
         body.push_str(&format!(
             "<li>{} — pain {}/10, wound {} — {} <span class=\"muted\">at {}</span></li>",
             esc(&checkin.patient_id),
@@ -362,34 +458,16 @@ async fn home(State(state): State<AppState>) -> Html<String> {
     drop(checkins);
     body.push_str("</ul></div>");
 
-    let inbox = state.0.inbox.lock().unwrap();
-    body.push_str(&format!(
-        "<div class=\"sk pad\"><b>practice inbox — escalation flags</b> <span class=\"muted\">{}</span><ul>",
-        inbox.len()
-    ));
-    for flag in inbox.iter().rev().take(10) {
+    body.push_str("<div class=\"sk pad\"><b>your recovery history (synthetic seed)</b><ul>");
+    if let Some(latest) = patient.checkins.last() {
         body.push_str(&format!(
-            "<li class=\"note\">{} — {} <span class=\"muted\">at {}</span></li>",
-            esc(&flag.patient_id),
-            esc(&flag.reason),
-            flag.at
+            "<li>{} — day {}: pain {}/10, wound {} — {}</li>",
+            esc(&patient.name),
+            latest.day,
+            latest.pain,
+            esc(&latest.wound),
+            esc(&latest.note)
         ));
-    }
-    drop(inbox);
-    body.push_str("</ul></div>");
-
-    body.push_str("<div class=\"sk pad\"><b>recovery histories (synthetic seed)</b><ul>");
-    for patient in &state.0.patients {
-        if let Some(latest) = patient.checkins.last() {
-            body.push_str(&format!(
-                "<li>{} — day {}: pain {}/10, wound {} — {}</li>",
-                esc(&patient.name),
-                latest.day,
-                latest.pain,
-                esc(&latest.wound),
-                esc(&latest.note)
-            ));
-        }
     }
     body.push_str("</ul></div>");
 
@@ -397,7 +475,28 @@ async fn home(State(state): State<AppState>) -> Html<String> {
         "<div class=\"sk pad muted\">{} synthetic patients seeded · every request above lands in the stdout audit log (JSONL) · sessions auto-logoff after idle</div>",
         state.0.patients.len()
     ));
-    Html(page("post-op monitor", body))
+    Html(page("post-op monitor", body)).into_response()
+}
+
+async fn clinician(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSession>,
+) -> Response {
+    if auth.role != Role::Clinician {
+        return (StatusCode::FORBIDDEN, "clinician role required").into_response();
+    }
+    let inbox = state.0.inbox.lock().unwrap();
+    let mut body = format!("<div class=\"sk pad\"><b>practice inbox</b><p>Signed in as {}. Patients cannot access this route.</p><ul>", esc(&auth.actor));
+    for flag in inbox.iter().rev() {
+        body.push_str(&format!(
+            "<li class=\"note\">{} — {} at {}</li>",
+            esc(&flag.patient_id),
+            esc(&flag.reason),
+            flag.at
+        ));
+    }
+    body.push_str("</ul></div>");
+    Html(page("clinician inbox", body)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -409,7 +508,18 @@ struct CheckinForm {
     note: String,
 }
 
-async fn checkin(State(state): State<AppState>, Form(form): Form<CheckinForm>) -> Response {
+async fn checkin(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSession>,
+    Form(form): Form<CheckinForm>,
+) -> Response {
+    if auth.role != Role::Patient || auth.patient_id.as_deref() != Some(form.patient_id.as_str()) {
+        return (
+            StatusCode::FORBIDDEN,
+            "patient may only mutate their own synthetic record",
+        )
+            .into_response();
+    }
     let Some(patient) = state.0.patients.iter().find(|p| p.id == form.patient_id) else {
         return (
             StatusCode::NOT_FOUND,
@@ -493,7 +603,14 @@ async fn checkin(State(state): State<AppState>, Form(form): Form<CheckinForm>) -
 /// in memory, and the record says plainly that encryption at rest has not
 /// happened yet. The real path is hipaa-core encryptField via Vault transit
 /// (../policies/vault-policy.hcl) before any storage backend is wired.
-async fn photos(State(state): State<AppState>, mut multipart: Multipart) -> Response {
+async fn photos(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSession>,
+    mut multipart: Multipart,
+) -> Response {
+    if auth.role != Role::Patient {
+        return (StatusCode::FORBIDDEN, "patient role required").into_response();
+    }
     let mut patient_id = "unspecified".to_string();
     let mut stored: Option<PhotoStub> = None;
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -523,6 +640,13 @@ async fn photos(State(state): State<AppState>, mut multipart: Multipart) -> Resp
         )
             .into_response();
     };
+    if auth.patient_id.as_deref() != Some(patient_id.as_str()) {
+        return (
+            StatusCode::FORBIDDEN,
+            "patient may only upload to their own synthetic record",
+        )
+            .into_response();
+    }
     photo.patient_id = patient_id;
     // The label is computed from the record, so the UI can never claim a
     // control the stored object doesn't carry.
@@ -594,6 +718,8 @@ fn page(title: &str, body: String) -> String {
 fn app(state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
+        .route("/login", get(login_page).post(login))
+        .route("/clinician", get(clinician))
         .route("/checkin", post(checkin))
         .route("/photos", post(photos))
         .route("/health", get(health))
@@ -669,6 +795,16 @@ mod tests {
         String::from_utf8_lossy(&bytes).to_string()
     }
 
+    fn patient_cookie(state: &AppState) -> String {
+        let id = state.mint_session(Role::Patient, Some("pt-001".into()), "demo-patient".into());
+        format!("session={id}")
+    }
+
+    fn clinician_cookie(state: &AppState) -> String {
+        let id = state.mint_session(Role::Clinician, None, "demo-clinician".into());
+        format!("session={id}")
+    }
+
     #[tokio::test]
     async fn health_is_up_and_exempt_from_audit_and_sessions() {
         let state = test_state(Duration::from_secs(900));
@@ -710,7 +846,9 @@ mod tests {
     #[tokio::test]
     async fn checkin_over_threshold_flags_inbox_and_writes_an_audit_jsonl_line() {
         let state = test_state(Duration::from_secs(900));
+        let cookie = patient_cookie(&state);
         let request = HttpRequest::post("/checkin")
+            .header(header::COOKIE, cookie)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(
                 "patient_id=pt-001&pain=8&wound=drainage&note=dressing+soaked+through",
@@ -747,10 +885,12 @@ mod tests {
     #[tokio::test]
     async fn in_range_checkin_does_not_flag() {
         let state = test_state(Duration::from_secs(900));
+        let cookie = patient_cookie(&state);
         let request = HttpRequest::post("/checkin")
+            .header(header::COOKIE, cookie)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from(
-                "patient_id=pt-003&pain=2&wound=clean&note=all+good",
+                "patient_id=pt-001&pain=2&wound=clean&note=all+good",
             ))
             .unwrap();
         let response = app(state.clone()).oneshot(request).await.unwrap();
@@ -763,24 +903,8 @@ mod tests {
         // Zero idle timeout: any second touch is past the deadline.
         let state = test_state(Duration::ZERO);
 
-        let first = app(state.clone())
-            .oneshot(HttpRequest::get("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(first.status(), StatusCode::OK);
-        let cookie = first
-            .headers()
-            .get(header::SET_COOKIE)
-            .expect("first touch mints a session")
-            .to_str()
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string();
-        assert!(cookie.starts_with("session="));
-
-        let second = app(state.clone())
+        let cookie = patient_cookie(&state);
+        let response = app(state.clone())
             .oneshot(
                 HttpRequest::get("/")
                     .header(header::COOKIE, &cookie)
@@ -789,27 +913,28 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(second.status(), StatusCode::UNAUTHORIZED);
-        let body = body_text(second).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = body_text(response).await;
         assert!(body.contains("logged off after inactivity"));
         assert!(
             state.0.sessions.lock().unwrap().is_empty(),
             "the idle session is destroyed, not just refused"
         );
-        // Even the refused attempt is audited (two lines: mint + refusal).
-        assert_eq!(audit_lines(&state).len(), 2);
+        assert_eq!(audit_lines(&state).len(), 1);
     }
 
     #[tokio::test]
     async fn photo_upload_stub_accepts_multipart_and_labels_the_encryption_todo() {
         let state = test_state(Duration::from_secs(900));
+        let cookie = patient_cookie(&state);
         let boundary = "X-SCAFFOLD-TEST";
         let payload = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"patient_id\"\r\n\r\npt-002\r\n\
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"patient_id\"\r\n\r\npt-001\r\n\
              --{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"wound-day4.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nnot-really-a-jpeg\r\n\
              --{boundary}--\r\n"
         );
         let request = HttpRequest::post("/photos")
+            .header(header::COOKIE, cookie)
             .header(
                 header::CONTENT_TYPE,
                 format!("multipart/form-data; boundary={boundary}"),
@@ -826,8 +951,83 @@ mod tests {
 
         let photos = state.0.photos.lock().unwrap();
         assert_eq!(photos.len(), 1);
-        assert_eq!(photos[0].patient_id, "pt-002");
+        assert_eq!(photos[0].patient_id, "pt-001");
         assert_eq!(photos[0].filename, "wound-day4.jpg");
         assert!(!photos[0].encrypted_at_rest);
+    }
+
+    #[tokio::test]
+    async fn anonymous_access_is_denied_and_demo_login_scopes_roles() {
+        let state = test_state(Duration::from_secs(900));
+        let anonymous = app(state.clone())
+            .oneshot(HttpRequest::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+        assert!(body_text(anonymous)
+            .await
+            .contains("Demo learning credentials"));
+
+        let login = app(state.clone())
+            .oneshot(
+                HttpRequest::post("/login")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("username=demo-patient&password=learn-patient"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::SEE_OTHER);
+        let cookie = login
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let forbidden = app(state.clone())
+            .oneshot(
+                HttpRequest::get("/clinician")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+        let clinician = app(state.clone())
+            .oneshot(
+                HttpRequest::get("/clinician")
+                    .header(header::COOKIE, clinician_cookie(&state))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(clinician.status(), StatusCode::OK);
+        assert!(body_text(clinician)
+            .await
+            .contains("Patients cannot access"));
+    }
+
+    #[tokio::test]
+    async fn patient_cannot_mutate_another_patient() {
+        let state = test_state(Duration::from_secs(900));
+        let response = app(state.clone())
+            .oneshot(
+                HttpRequest::post("/checkin")
+                    .header(header::COOKIE, patient_cookie(&state))
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("patient_id=pt-002&pain=2&wound=clean&note=nope"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(state.0.checkins.lock().unwrap().is_empty());
     }
 }

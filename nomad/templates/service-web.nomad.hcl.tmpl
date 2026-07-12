@@ -1,0 +1,131 @@
+# Rendered by the deploy service on promotion. Never hand-edited:
+# a config change is a new render + new allocation, not a patch in place.
+#
+# {{app_id}}-style tokens are filled by the deploy service; the
+# {{ with secret … }} blocks are consul-template syntax, passed through
+# verbatim for the Nomad client to resolve against Vault at runtime.
+job "{{app_id}}" {
+  type        = "service"
+  region      = "global"
+  datacenters = ["{{region}}"]
+  namespace   = "tenant-{{tenant}}"
+
+  constraint {
+    attribute = "${meta.role}"
+    value     = "{{pool}}"
+  }
+
+  group "app" {
+    count = 1
+
+    update {
+      max_parallel      = 1
+      min_healthy_time  = "10s"
+      healthy_deadline  = "3m"
+      progress_deadline = "5m"
+      auto_revert       = true
+    }
+
+    restart {
+      attempts = 3
+      interval = "5m"
+      delay    = "15s"
+      mode     = "fail"
+    }
+
+    reschedule {
+      attempts       = 2
+      interval       = "1h"
+      delay          = "30s"
+      delay_function = "exponential"
+      max_delay      = "5m"
+      unlimited      = false
+    }
+
+    ephemeral_disk {
+      size    = 300
+      sticky  = false
+      migrate = false
+    }
+
+    network {
+      port "http" { to = 8080 }
+    }
+
+    service {
+      name     = "{{app_id}}"
+      port     = "http"
+      provider = "nomad"
+      tags     = ["urlprefix-{{url}}", "gate-{{gate_summary}}"]
+      check {
+        type     = "http"
+        path     = "/health"
+        interval = "10s"
+        timeout  = "2s"
+        check_restart {
+          limit = 3
+          grace = "30s"
+        }
+      }
+    }
+
+    task "web" {
+      driver = "docker" # isolation swap point: firecracker/gvisor is a driver change only
+      user         = "65532"
+      kill_signal  = "SIGTERM"
+      kill_timeout = "30s"
+
+      config {
+        image            = "{{image}}"
+        ports            = ["http"]
+        readonly_rootfs  = true
+        cap_drop         = ["ALL"]
+        pids_limit       = 128
+        security_opt     = ["no-new-privileges:true"]
+        mount {
+          type     = "tmpfs"
+          target   = "/tmp"
+          readonly = false
+          tmpfs_options {
+            size = 67108864
+          }
+        }
+      }
+
+      resources {
+        cpu        = 500
+        memory     = 512
+        memory_max = 768
+      }
+
+      # BEGIN_TENANT_SECRETS — removed entirely for synthetic-demo jobs.
+      vault {
+        # The policy the deploy service really mounts at first promote (#9):
+        # sys/policies/acl/tenant-{{tenant}} — transit + database paths.
+        policies = ["tenant-{{tenant}}"]
+      }
+
+      template {
+        # Dynamic Postgres creds, 1h TTL, revoked when the allocation stops.
+        # tenant-app is the shared staging DB role (#9); per-tenant roles
+        # are a Phase 1 (cloud) item.
+        data        = <<EOT
+{{ with secret "database/creds/tenant-app" }}
+DATABASE_URL=postgres://{{ .Data.username }}:{{ .Data.password }}@postgres.internal:5432/{{database}}
+{{ end }}
+EOT
+        destination = "secrets/db.env"
+        env         = true
+        perms       = "0400"
+      }
+      # END_TENANT_SECRETS
+
+      env {
+        APP_BIND    = "0.0.0.0:8080"
+        APP_VERSION  = "{{app_version}}"
+        HIPAA_CORE   = "enabled"
+        AUDIT_STREAM = "https://audit.internal/ingest"
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "nemt-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "nemt-logistics",
+  "must_pass": true,
+  "prompt": "coordinate non-emergency medical rides and escalate missed pickups to staff",
+  "app_name": "ride coordinator",
+  "iterate": [
+    {
+      "instruction": "wire staff roles so only authorized staff can use this workflow",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    },
+    {
+      "instruction": "escalate exceptions to a human for follow-up",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 8,
+    "initially_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path",
+      "human-review"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable owned-artifact evaluation for nemt-logistics."
+}

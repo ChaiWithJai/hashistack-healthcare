@@ -1,0 +1,62 @@
+{
+  "id": "post-op-01-precise-physician",
+  "category": "pack",
+  "persona": "precise-physician",
+  "pack": "post-op-monitor",
+  "must_pass": true,
+  "prompt": "A post-operative recovery monitoring tool for my total knee arthroplasty patients: daily pain scores and wound checks, with escalation to the practice inbox.",
+  "app_name": "knee recovery monitor",
+  "iterate": [
+    {
+      "instruction": "flag anything over 7 to my nurse's inbox",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "escalation-path"
+      ]
+    },
+    {
+      "instruction": "add a printable discharge summary for patients",
+      "vocabulary": "off",
+      "expect_wired": []
+    }
+  ],
+  "workflow": {
+    "gate_total": 6,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 1,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "artifact": {
+    "expected": "playwright",
+    "checks": [
+      "renders",
+      "does-the-job",
+      "honesty-markers"
+    ]
+  },
+  "notes": "The GOAL.md storyboard prompt, stated the way a surgeon writes an order."
+}

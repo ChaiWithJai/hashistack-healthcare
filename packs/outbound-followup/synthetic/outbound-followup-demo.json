@@ -1,0 +1,10 @@
+{
+  "dataset": "outbound-followup-demo-v1",
+  "notice": "SYNTHETIC DATA ONLY — fictional patients and contact details",
+  "patients": [
+    {"id":"fu-001","name":"Maya Chen","contact":"***-***-0101","consented":true,"purpose":"post-discharge check-in"},
+    {"id":"fu-002","name":"Luis Rivera","contact":"***-***-0102","consented":true,"purpose":"medication follow-up"},
+    {"id":"fu-003","name":"Amina Yusuf","contact":"***-***-0103","consented":false,"purpose":"appointment reminder"},
+    {"id":"fu-004","name":"Noah Williams","contact":"***-***-0104","consented":true,"purpose":"care-plan follow-up"}
+  ]
+}

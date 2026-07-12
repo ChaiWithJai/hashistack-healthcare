@@ -1,0 +1,59 @@
+{
+  "id": "insurance-02-colloquial-physician",
+  "category": "pack",
+  "persona": "colloquial-physician",
+  "pack": "insurance-verification",
+  "must_pass": true,
+  "prompt": "check folks' insurance before they show up so we stop eating denied claims",
+  "app_name": "denied claim stopper",
+  "iterate": [
+    {
+      "instruction": "give the front desk queue proper roles",
+      "vocabulary": "rules",
+      "expect_wired": [
+        "access-roles"
+      ]
+    }
+  ],
+  "workflow": {
+    "gate_total": 9,
+    "initially_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path",
+      "human-review"
+    ],
+    "fixable_failing": [
+      "auto-logoff",
+      "access-roles",
+      "escalation-path"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff",
+      "escalation-path"
+    ],
+    "review": true,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": false
+  },
+  "artifact": {
+    "expected": "no-artifact",
+    "reason": "pack not yet converted to a runnable scaffold (#5) \u2014 the ejected bundle ships the honest placeholder runtime"
+  },
+  "notes": "Colloquial; two gates left for one-click fixes after the conversation."
+}

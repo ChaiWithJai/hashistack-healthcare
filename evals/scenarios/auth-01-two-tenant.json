@@ -1,0 +1,11 @@
+{
+  "id": "auth-01-two-tenant",
+  "category": "auth",
+  "auth_flow": "two-tenant",
+  "persona": "second-practice-clinician",
+  "pack": "hypertension-tracker",
+  "must_pass": true,
+  "prompt": "home BP log with out-of-range alerts for my lakeside clinic",
+  "app_name": "lakeside bp log",
+  "notes": "Identity (#10): dr-park (clinician, tenant lakeside) builds their own tool while dr-osei's meridian app exists on the same platform. A cross-tenant fetch of the meridian app must answer 404 (existence undisclosed — the same answer a nonexistent id gets), the tenant-scoped list must never leak, the denial must land on the OWNING tenant's audit stream with the denied principal as actor (review-log P12), and a present-but-wrong bearer token is 401 even in dev mode (P9)."
+}

@@ -1,0 +1,10 @@
+{
+  "dataset": "insurance verification demo",
+  "notice": "SYNTHETIC DATA — every patient, member identifier, payer, and referral below is invented.",
+  "cases": [
+    {"id":"iv-101","patient":"Maya Chen","visit":"2026-07-15","payer":"Northstar Health","member_id":"NS-001992","referral_required":false,"referral_on_file":false,"status":"pending"},
+    {"id":"iv-102","patient":"Elijah Brooks","visit":"2026-07-16","payer":"Cedar Community Plan","member_id":"CC-882014","referral_required":true,"referral_on_file":false,"status":"needs-referral"},
+    {"id":"iv-103","patient":"Sofia Alvarez","visit":"2026-07-17","payer":"Harbor Mutual","member_id":"HM-742110","referral_required":true,"referral_on_file":true,"status":"pending"},
+    {"id":"iv-104","patient":"Noah Williams","visit":"2026-07-18","payer":"Northstar Health","member_id":"NS-553821","referral_required":false,"referral_on_file":false,"status":"verified"}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "auth-02-staff-denial",
+  "category": "auth",
+  "auth_flow": "staff-denial",
+  "persona": "practice-staff",
+  "pack": "post-op-monitor",
+  "must_pass": true,
+  "prompt": "post-op check-ins with escalation to our practice inbox",
+  "app_name": "post-op check-ins",
+  "workflow": {
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "cosigner": "Dr. A. Osei"
+  },
+  "notes": "Identity (#10): releasing to real patients is a clinical act. ms-rivera (staff, same tenant meridian) shares the practice view of the app, but promoting a GREEN app answers 403 + auth.role_denied with the denied principal as actor — and the same green gate then promotes for dr-osei with an attestation binding the authenticated principal id and the frozen report digest, proving the 403 was the role, not the app."
+}

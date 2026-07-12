@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "sample_size": 12,
+  "rubric": {
+    "job": "Observed browser-driven user outcome, 0-5",
+    "continue": "Discoverability and safety of the next customization, 0-5",
+    "export": "Self-contained ownership, deploy targets, and re-import path, 0-5"
+  },
+  "baseline": {
+    "scenarios": 78,
+    "layer1": "458/458",
+    "layer2": "432/432"
+  },
+  "profiles": [
+    {"pack":"post-op-monitor","profile":"web","job":5,"continue":4,"export":5,"journey":"authenticated-high-pain-routes-practice-flag","next":"durable encrypted photo storage and real identity"},
+    {"pack":"hypertension-tracker","profile":"web","job":5,"continue":4,"export":5,"journey":"urgent-reading-routes-alert","next":"patient identity, persistence, configurable thresholds"},
+    {"pack":"patient-intake","profile":"web","job":5,"continue":4,"export":5,"journey":"intake-becomes-chart-summary","next":"durable form schema, staff auth, EHR handoff"},
+    {"pack":"insurance-verification","profile":"web","job":4,"continue":4,"export":5,"journey":"eligibility-result-enters-reviewed-queue","next":"payer connector, durable queue, staff authorization"},
+    {"pack":"patient-portal","profile":"web","job":4,"continue":4,"export":5,"journey":"patient-scope-and-message","next":"OIDC/session management and durable messaging"},
+    {"pack":"inbound-scheduling","profile":"web","job":4,"continue":4,"export":5,"journey":"urgent-language-manual-review","next":"calendar connector, staff auth, persistent requests"},
+    {"pack":"outbound-followup","profile":"web","job":4,"continue":4,"export":5,"journey":"consented-followup-and-escalation","next":"messaging provider and durable consent/STOP ledger"},
+    {"pack":"rpm-wearables","profile":"stream","job":4,"continue":4,"export":5,"journey":"device-review","next":"durable event broker, device identity, policy editor"},
+    {"pack":"visit-notes","profile":"stream","job":4,"continue":4,"export":5,"journey":"unsigned-note","next":"consent/audio driver, clinician auth, structured export"},
+    {"pack":"deid-local","profile":"local","job":4,"continue":4,"export":5,"journey":"redact-and-review","next":"evaluated recognizer/model bundle and redaction corpus"},
+    {"pack":"airgapped-support","profile":"local","job":4,"continue":4,"export":5,"journey":"offline-search","next":"signed content updates and durable ticket export"},
+    {"pack":"hybrid-pipeline","profile":"local","job":4,"continue":4,"export":5,"journey":"preview-before-release","next":"enforced network boundary and approved non-PHI sidecar"}
+  ]
+}

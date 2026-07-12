@@ -1,0 +1,41 @@
+{
+  "id": "dashboard-02-colloquial-physician",
+  "category": "pack",
+  "persona": "colloquial-physician",
+  "pack": "clinical-dashboard",
+  "must_pass": true,
+  "prompt": "show staff a dashboard of visits and wait times by department",
+  "app_name": "clinical dashboard",
+  "iterate": [],
+  "workflow": {
+    "gate_total": 4,
+    "initially_failing": [
+      "auto-logoff"
+    ],
+    "fixable_failing": [
+      "auto-logoff"
+    ],
+    "stubbed": 0,
+    "assert_false_pass_guard": true,
+    "fix_gates": [
+      "auto-logoff"
+    ],
+    "review": false,
+    "cosigner": "Dr. A. Osei",
+    "promote": true,
+    "eject": true,
+    "eject_core_files": [
+      "README.md",
+      "docs/RUNBOOK.md",
+      "docs/COMPLIANCE.md",
+      "Dockerfile",
+      "render.yaml",
+      "fly.toml",
+      "config/deploy.yml",
+      "nomad/job.nomad.hcl",
+      "pack.hcl"
+    ],
+    "eject_scaffold_source": true
+  },
+  "notes": "Runnable owned-artifact evaluation for clinical-dashboard."
+}

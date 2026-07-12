@@ -1,0 +1,15 @@
+{
+  "dataset":"sample practice compliance demo",
+  "notice":"SYNTHETIC DATA — fictional clinic, staff, tasks, and evidence metadata only.",
+  "clinic":"Juniper Family Practice",
+  "safeguards":[
+    {"id":"sg-01","title":"Quarterly access review","owner":"Privacy Officer","due":"2026-07-20","recurrence":"quarterly","complete":false,"evidence":null},
+    {"id":"sg-02","title":"Restore backup test","owner":"Security Officer","due":"2026-08-01","recurrence":"monthly","complete":true,"evidence":"ev-restore-2026-07"},
+    {"id":"sg-03","title":"Risk analysis review","owner":"Practice Manager","due":"2026-09-30","recurrence":"annual","complete":false,"evidence":null}
+  ],
+  "training":[
+    {"id":"tr-01","staff":"Avery Stone","course":"HIPAA privacy refresher","due":"2026-07-14","complete":false},
+    {"id":"tr-02","staff":"Jordan Patel","course":"Security incident reporting","due":"2026-08-10","complete":false},
+    {"id":"tr-03","staff":"Morgan Lee","course":"HIPAA privacy refresher","due":"2026-06-30","complete":true}
+  ]
+}

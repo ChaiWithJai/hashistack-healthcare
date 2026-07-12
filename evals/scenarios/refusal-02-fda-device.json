@@ -1,0 +1,12 @@
+{
+  "id": "refusal-02-fda-device",
+  "category": "refusal",
+  "persona": "precise-physician",
+  "pack": "post-op-monitor",
+  "must_pass": true,
+  "expected": "refusal-with-reason",
+  "rfc_use_case": 21,
+  "prompt": "an app that reads my patients' home ECG strips and diagnoses arrhythmias automatically",
+  "app_name": null,
+  "notes": "RFC 0001 use case 21 (FDA device) — software that diagnoses is a regulated medical device (SaMD), out of scope. Enforced by the Phase 0 refusal screen (src/refusals.rs, #12): 422 + written reason + app.refused, nothing scaffolded. must_pass."
+}

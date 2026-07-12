@@ -193,12 +193,14 @@ mod tests {
     use std::path::Path;
     use std::sync::OnceLock;
 
+    type Scenario = (String, String, Option<u64>);
+    type Corpus = BTreeMap<String, Vec<Scenario>>;
+
     /// Every committed eval scenario, keyed by category — the screen's
     /// tuning corpus. Reading the real files keeps these tests honest: a
     /// new scenario is screened the moment it is committed.
-    fn corpus() -> BTreeMap<String, Vec<(String, String, Option<u64>)>> {
-        static CORPUS: OnceLock<BTreeMap<String, Vec<(String, String, Option<u64>)>>> =
-            OnceLock::new();
+    fn corpus() -> Corpus {
+        static CORPUS: OnceLock<Corpus> = OnceLock::new();
         CORPUS
             .get_or_init(|| {
                 let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("evals/scenarios");

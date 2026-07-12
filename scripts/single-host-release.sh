@@ -24,4 +24,4 @@ REMOTE
 
 base="${STAGING_BASE_URL:-http://${host#*@}:3000}"
 "$(dirname "$0")/single-host-remote-proof.sh" "$base"
-printf 'released %s to %s and remote proof passed\n' "$ref" "$host"
+printf 'released %s to %s and remote checks passed\n' "$ref" "$host"

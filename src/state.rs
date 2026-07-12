@@ -335,6 +335,7 @@ pub struct Platform {
     /// principal. Defaults to the embedded dev registry (dr-osei fallback);
     /// `app_from_env` swaps in `IDENTITIES_FILE` / `SESSION_IDLE_SECS`.
     pub identity: Arc<crate::identity::Registry>,
+    pub clerk: Option<Arc<crate::clerk::ClerkVerifier>>,
     /// Operation rows upserted since the last write-through — tracked only
     /// when a store is attached, drained by [`Platform::take_dirty_operations`].
     dirty_ops: BTreeSet<String>,
@@ -359,6 +360,7 @@ impl Platform {
             broker: Arc::new(crate::audit::Broker::new()),
             cleanup_driver: Arc::new(crate::deploy::HashiCleanupDriver),
             identity: Arc::new(crate::identity::Registry::dev_default()),
+            clerk: None,
             dirty_ops: BTreeSet::new(),
             app_locks: HashMap::new(),
             pending_app_ids: BTreeSet::new(),

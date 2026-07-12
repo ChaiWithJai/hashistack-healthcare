@@ -293,6 +293,10 @@ impl Registry {
         self.principals.iter().find(|p| p.token == token)
     }
 
+    pub fn by_id(&self, id: &str) -> Option<&Principal> {
+        self.principals.iter().find(|principal| principal.id == id)
+    }
+
     /// The dev-mode fallback for a MISSING Authorization header. `None` in
     /// strict mode — the caller answers 401.
     pub fn fallback(&self) -> Option<&Principal> {

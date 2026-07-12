@@ -40,6 +40,7 @@ const EJECT_TARGET_DIR = process.env.JOURNEY_EJECT_TARGET_DIR || path.join(ROOT,
 const CP_PORT = Number(process.env.JOURNEY_CP_PORT || 39400);
 const APP_PORT = Number(process.env.JOURNEY_APP_PORT || 39450);
 const SHOT_BUDGET_BYTES = 900 * 1024; // committed-screenshot budget, total
+const BUNDLE_BUDGET_BYTES = 512 * 1024; // portable source bundle, before compression
 
 // The canonical prompt — GOAL.md's storyboard sentence, verbatim.
 const PROMPT = 'a post-op recovery tracker for my knee replacement patients';
@@ -303,6 +304,8 @@ async function main() {
   const fileSizes = Object.fromEntries(
     Object.entries(files).map(([p, c]) => [p, Buffer.byteLength(c, 'utf8')]));
   const bundleBytes = Object.values(fileSizes).reduce((a, b) => a + b, 0);
+  assert(bundleBytes <= BUNDLE_BUDGET_BYTES,
+    `ejected bundle is ${bundleBytes} bytes; budget is ${BUNDLE_BUDGET_BYTES} bytes`);
   const readmeOpening = files['README.md'].split('\n').slice(0, 6).join('\n');
   assert(files['README.md'].includes(PROMPT), 'the ejected README must open with the doctor\'s own prompt');
   const compliance = files['docs/COMPLIANCE.md'];

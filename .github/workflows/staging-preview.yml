@@ -27,9 +27,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pull_request }}
         run: |
-          state=$(gh pr view "$PR" --json state --jq .state)
+          state=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json state --jq .state)
           test "$state" = OPEN
-          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          sha=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
           test "$(printf '%s' "$sha" | wc -c)" -eq 40
           printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
 

@@ -188,10 +188,29 @@ async fn verified_identity_can_claim_its_guest_app_then_export_it() {
         "POST",
         "/api/apps",
         &cookie,
-        Some(json!({"prompt":"a synthetic intake helper","pack":"patient-intake"})),
+        Some(json!({"prompt":"a synthetic compliance helper","pack":"compliance-checklist"})),
     )
     .await;
     let id = created["app"]["id"].as_str().unwrap();
+    let (status, _) = guest_call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
+        &cookie,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, preview) = guest_call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        &cookie,
+        Some(json!({"synthetic_demo":true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["app"]["allocation"]["pool"], "synthetic-demo");
 
     let claim = Request::builder()
         .method("POST")

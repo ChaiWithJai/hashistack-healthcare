@@ -768,10 +768,16 @@ async fn claim_app(
         if app.tenant != guest_tenant {
             return Err(not_found("app"));
         }
-        if app.stage != Stage::Sandbox || !matches!(app.data_source, DataSource::Synthetic(_)) {
+        let claimable_stage = app.stage == Stage::Sandbox
+            || (app.stage == Stage::Live
+                && app
+                    .allocation
+                    .as_ref()
+                    .is_some_and(|allocation| allocation.pool == "synthetic-demo"));
+        if !claimable_stage || !matches!(app.data_source, DataSource::Synthetic(_)) {
             return Err(ApiError(
                 StatusCode::CONFLICT,
-                "only a synthetic sandbox app can be claimed".into(),
+                "only a synthetic sandbox or isolated synthetic demo can be claimed".into(),
             ));
         }
         let snapshot = app.clone();

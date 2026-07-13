@@ -8,6 +8,10 @@ locals {
       name      = "*.preview.${var.zone_name}"
       tunnel_id = var.staging_tunnel_id
     }
+    staging_ssh = {
+      name      = "ssh.staging.${var.zone_name}"
+      tunnel_id = var.staging_tunnel_id
+    }
     production = {
       name      = "app.${var.zone_name}"
       tunnel_id = var.production_tunnel_id

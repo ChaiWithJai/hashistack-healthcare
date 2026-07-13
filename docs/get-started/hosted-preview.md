@@ -18,7 +18,7 @@ synthetic preview after the release checks pass.
 | Environment | URL | Source | Status |
 |---|---|---|---|
 | Staging | [138-197-27-225.sslip.io](https://138-197-27-225.sslip.io) | DigitalOcean Droplet | Active |
-| Pull request | See the bot comment on the pull request | Exact pull request commit on staging | Active after approval |
+| Pull request | See the proof comment on the pull request | Exact pull request commit on staging | Operator deploy until Tunnel cutover |
 | Production | Not published | None | Pending |
 
 ## Test the main flow
@@ -41,6 +41,14 @@ token, or Clerk subject in an issue.
 
 The production smoke account is created only for an approved test window. It
 uses a synthetic tenant and is removed after the test.
+
+## Current delivery limit
+
+The DigitalOcean firewall limits public SSH to the operator address. The
+Cloudflare pipeline uses an Access-protected SSH hostname and does not open port
+22 to GitHub runner addresses. Until the owned zone, tunnel, and service token
+are configured, an authorized operator deploys the exact pull request commit
+and posts the proof comment.
 
 ## Report a problem
 

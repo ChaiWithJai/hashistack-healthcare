@@ -17,6 +17,11 @@ Before deployment, choose a domain in a Cloudflare-managed zone and create two
 tunnels. The staging tunnel serves the staging name and wildcard preview name.
 The production tunnel serves only the production name.
 
+The staging tunnel also serves `ssh.staging.<domain>` to the host's loopback
+SSH service. Cloudflare Access protects that hostname. GitHub Actions uses a
+service token and `cloudflared access ssh`. Port 22 stays closed to GitHub
+runner addresses.
+
 Copy `terraform/cloudflare/terraform.tfvars.example`, fill in non-secret IDs
 and names, then provide `CLOUDFLARE_API_TOKEN` through the environment:
 
@@ -50,6 +55,20 @@ apply from an Actions runner with local state.
 Staging and production each use their own SSH host, key, known-host entry,
 Clerk values, Postgres password, audit HMAC key, and anonymous-session HMAC
 key. Do not copy staging secrets into production.
+
+The `staging` GitHub environment uses:
+
+- variable `DO_STAGING_SSH_HOST=ssh.staging.<domain>`;
+- variable `DO_STAGING_URL=https://staging.<domain>`;
+- secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`;
+- secrets `DO_STAGING_SSH_KEY` and `DO_STAGING_KNOWN_HOSTS`.
+
+The known-host entry must use the tunnel hostname, not the Droplet IP. Limit
+the Cloudflare service token to the staging SSH application.
+
+Copy `deploy/cloudflared/staging.yml.example` to the host. Replace the example
+domain and tunnel UUID, then install it as a `cloudflared` service. Keep the
+final catch-all rule last.
 
 ## Release rule
 

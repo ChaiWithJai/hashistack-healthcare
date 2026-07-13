@@ -23,11 +23,14 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::{Builder, TempDir};
 use tokio::process::Command;
+use tokio::sync::Semaphore;
 
 pub const CHECK_IDS: [&str; 5] = EXECUTABLE_CHECK_IDS;
 const MAX_REPORT_BYTES: u64 = 64 * 1024;
 const DEFAULT_TIMEOUT_SECS: u64 = 180;
 const MAX_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_MAX_CONCURRENCY: usize = 2;
+const MAX_CONCURRENCY: usize = 16;
 const DETERMINISTIC_PROFILE: &str = "practice-studio-deterministic-verifier-v1";
 
 #[derive(Clone)]
@@ -141,6 +144,7 @@ pub struct OciWorkspaceVerifier {
     image: String,
     timeout: Duration,
     profile_digest: String,
+    admission: Arc<Semaphore>,
 }
 
 impl OciWorkspaceVerifier {
@@ -166,12 +170,22 @@ impl OciWorkspaceVerifier {
         if !(1..=MAX_TIMEOUT_SECS).contains(&timeout_secs) {
             bail!("WORKSPACE_VERIFIER_TIMEOUT_SECS must be between 1 and {MAX_TIMEOUT_SECS}");
         }
+        let max_concurrency = std::env::var("WORKSPACE_VERIFIER_MAX_CONCURRENCY")
+            .ok()
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .context("WORKSPACE_VERIFIER_MAX_CONCURRENCY is not an integer")?
+            .unwrap_or(DEFAULT_MAX_CONCURRENCY);
+        if !(1..=MAX_CONCURRENCY).contains(&max_concurrency) {
+            bail!("WORKSPACE_VERIFIER_MAX_CONCURRENCY must be between 1 and {MAX_CONCURRENCY}");
+        }
         let profile_digest = digest(format!("oci-v1\0{image}").as_bytes());
         Ok(Self {
             runtime,
             image,
             timeout: Duration::from_secs(timeout_secs),
             profile_digest,
+            admission: Arc::new(Semaphore::new(max_concurrency)),
         })
     }
 }
@@ -184,6 +198,16 @@ impl WorkspaceVerifier for OciWorkspaceVerifier {
     fn verify<'a>(&'a self, request: VerifyRequest) -> VerifyFuture<'a> {
         Box::pin(async move {
             let (files, workspace_digest) = merged_files(&request);
+            let _permit = match self.admission.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return failed_report(
+                        self.profile_digest.clone(),
+                        workspace_digest,
+                        "verifier capacity is busy; retry after another verification finishes",
+                    )
+                }
+            };
             let materialized = match materialize(&files) {
                 Ok(value) => value,
                 Err(_) => {
@@ -571,6 +595,24 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn oci_verifier_rejects_work_when_aggregate_capacity_is_busy() {
+        let verifier = OciWorkspaceVerifier {
+            runtime: "runtime-must-not-start".into(),
+            image: "example.invalid/verifier@sha256:test".into(),
+            timeout: Duration::from_secs(1),
+            profile_digest: "sha256:profile".into(),
+            admission: Arc::new(Semaphore::new(0)),
+        };
+        let report = verifier.verify(request("ignored")).await;
+        assert!(!report.passed);
+        assert!(report.checks[0].detail.contains("capacity is busy"));
+        assert!(report
+            .checks
+            .iter()
+            .all(|check| check.status == CheckStatus::Fail));
+    }
+
     #[test]
     fn only_the_oci_profile_claims_to_execute_source() {
         let deterministic = DeterministicWorkspaceVerifier;
@@ -581,6 +623,7 @@ mod tests {
             image: "registry.example/practice-verifier@sha256:deadbeef".into(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             profile_digest: "sha256:test-profile".into(),
+            admission: Arc::new(Semaphore::new(DEFAULT_MAX_CONCURRENCY)),
         };
         assert!(oci.executes_source());
     }

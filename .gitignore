@@ -21,6 +21,7 @@ __pycache__/
 /docs/evidence/screenshots
 /artifacts/screenshots
 /docs/evals/journey/*.png
+/docs/evals/screenshots
 /artifacts/bundles
 /output/bundles
 *.trace.zip

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-12T15:34:34.001Z",
-  "commit": "b2f4975",
-  "runtime_seconds": 579,
+  "generated_at": "2026-07-13T00:48:47.386Z",
+  "commit": "f58d08d",
+  "runtime_seconds": 137,
   "counts": {
     "pack": 70,
     "refusal": 4,
@@ -713,12 +713,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -737,7 +737,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -796,12 +796,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -820,7 +820,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -879,12 +879,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -903,7 +903,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -962,12 +962,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created offline-support (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -986,7 +986,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1142,12 +1142,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created safeguard-checklist (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created safeguard-checklist (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1166,7 +1166,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1227,12 +1227,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hipaa-todo-catcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hipaa-todo-catcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1251,7 +1251,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1311,12 +1311,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created clinic-audit-readiness (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created clinic-audit-readiness (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1335,7 +1335,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1396,12 +1396,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hipaa-checklist (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hipaa-checklist (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1420,7 +1420,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1480,12 +1480,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1504,7 +1504,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1564,12 +1564,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1588,7 +1588,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1648,12 +1648,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1672,7 +1672,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1732,12 +1732,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created clinical-dashboard (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1756,7 +1756,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1816,12 +1816,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1840,7 +1840,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1899,12 +1899,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -1923,7 +1923,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -1982,12 +1982,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2006,7 +2006,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2065,12 +2065,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-deidentifier (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2089,7 +2089,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2153,7 +2153,7 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []"
+            "evidence": "24 files; core missing: []"
           },
           {
             "name": "workflow_completed",
@@ -2182,7 +2182,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2247,12 +2247,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created bp-log-with-restore (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → restored checkpoint v2 → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created bp-log-with-restore (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → restored checkpoint v2 → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2271,7 +2271,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2332,12 +2332,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2356,7 +2356,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2415,12 +2415,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2439,7 +2439,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2498,12 +2498,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2522,7 +2522,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2581,12 +2581,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created local-extractor (sandbox, synthetic) → platform review attached (co-sign card) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2605,7 +2605,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2664,12 +2664,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2688,7 +2688,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2749,12 +2749,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2773,7 +2773,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2834,12 +2834,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2858,7 +2858,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -2919,12 +2919,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created follow-up-queue (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -2943,7 +2943,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3004,12 +3004,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created htn-home-log (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created htn-home-log (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3028,7 +3028,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3089,12 +3089,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created bp-drift-watcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created bp-drift-watcher (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3113,7 +3113,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3174,12 +3174,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created visit-bp-notebook (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created visit-bp-notebook (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3198,7 +3198,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3259,12 +3259,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created bp-trakcer (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created bp-trakcer (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → fixed escalation-path (one click) → promoted to live (gate 7/7 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3283,7 +3283,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3344,12 +3344,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3368,7 +3368,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3428,12 +3428,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3452,7 +3452,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3512,12 +3512,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3536,7 +3536,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3596,12 +3596,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created hybrid-pipeline (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → platform review attached (co-sign card) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3620,7 +3620,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3680,12 +3680,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created eligibility-checker (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created eligibility-checker (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3704,7 +3704,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3765,12 +3765,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created denied-claim-stopper (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created denied-claim-stopper (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3789,7 +3789,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3850,12 +3850,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created coverage-check-before-visit (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → fixed access-roles (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created coverage-check-before-visit (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → fixed access-roles (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3874,7 +3874,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -3935,12 +3935,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created insurence-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created insurence-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → fixed escalation-path (one click) → platform review attached (co-sign card) → promoted to live (gate 9/9 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -3959,7 +3959,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4020,12 +4020,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created previsit-intake (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created previsit-intake (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4044,7 +4044,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4105,12 +4105,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created no-more-clipboards (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created no-more-clipboards (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4129,7 +4129,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4189,12 +4189,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created home-intake-helper (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created home-intake-helper (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → iterated (rules-vocabulary): wired [auto-logoff], feature added → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4213,7 +4213,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4273,12 +4273,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created intake-b4-visit (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created intake-b4-visit (sandbox, synthetic) → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → promoted to live (gate 6/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4297,7 +4297,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4358,12 +4358,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4382,7 +4382,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4443,12 +4443,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4467,7 +4467,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4528,12 +4528,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4552,7 +4552,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4613,12 +4613,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ride-coordinator (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4637,7 +4637,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4698,12 +4698,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4722,7 +4722,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4782,12 +4782,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4806,7 +4806,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4866,12 +4866,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4890,7 +4890,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -4950,12 +4950,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created patient-portal (sandbox, synthetic) → fixed auto-logoff (one click) → promoted to live (gate 4/4 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -4974,7 +4974,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5034,12 +5034,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created knee-recovery-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created knee-recovery-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5058,7 +5058,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5119,12 +5119,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created keeping-tabs-on-knees (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created keeping-tabs-on-knees (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → iterated (off-vocabulary): wired [nothing], feature added → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5143,7 +5143,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5203,12 +5203,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created home-visit-wound-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created home-visit-wound-check (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5227,7 +5227,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5288,12 +5288,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created post-op-painn-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created post-op-painn-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [auto-logoff], feature added → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5312,7 +5312,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5372,12 +5372,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created navigator-checkin-board (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created navigator-checkin-board (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5396,7 +5396,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5457,12 +5457,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created eras-protocol-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created eras-protocol-tracker (sandbox, synthetic) → iterated (rules-vocabulary): wired [escalation-path], feature added → iterated (off-vocabulary): wired [nothing], feature added → fixed auto-logoff (one click) → published to synthetic demo (gate 5/6 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5481,7 +5481,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5686,12 +5686,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5710,7 +5710,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5771,12 +5771,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5795,7 +5795,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5856,12 +5856,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5880,7 +5880,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -5941,12 +5941,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created wearable-monitor (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -5965,7 +5965,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6026,12 +6026,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6050,7 +6050,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6111,12 +6111,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6135,7 +6135,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6196,12 +6196,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6220,7 +6220,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6281,12 +6281,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created scheduling-inbox (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → iterated (rules-vocabulary): wired [escalation-path], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6305,7 +6305,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "9/9 required owned files present; missing []"
+            "evidence": "10/10 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6366,12 +6366,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6390,7 +6390,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6451,12 +6451,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6475,7 +6475,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6536,12 +6536,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6560,7 +6560,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6621,12 +6621,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created ambient-scribe (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6645,7 +6645,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6706,12 +6706,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6730,7 +6730,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6791,12 +6791,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6815,7 +6815,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6876,12 +6876,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6900,7 +6900,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",
@@ -6961,12 +6961,12 @@
           {
             "name": "eject_bundle_complete",
             "status": "pass",
-            "evidence": "14 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
+            "evidence": "24 files; core missing: []; scaffold source + quality contract: present; README carries the doctor's prompt: true"
           },
           {
             "name": "workflow_completed",
             "status": "pass",
-            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 14-file bundle"
+            "evidence": "created visit-notes (sandbox, synthetic) → iterated (rules-vocabulary): wired [access-roles], feature added → fixed auto-logoff (one click) → platform review attached (co-sign card) → promoted to live (gate 8/8 green, co-signed Dr. A. Osei) → ejected 24-file bundle"
           }
         ]
       },
@@ -6985,7 +6985,7 @@
           {
             "name": "artifact_ownership",
             "status": "pass",
-            "evidence": "8/8 required owned files present; missing []"
+            "evidence": "9/9 required owned files present; missing []"
           },
           {
             "name": "artifact_safety_honesty",

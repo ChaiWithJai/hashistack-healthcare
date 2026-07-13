@@ -504,15 +504,15 @@ function unpackBundle(bundle, dir) {
 const builtApps = new Map();
 function buildEjectedApp(bundleDir, scenarioId, contract) {
   const hash = createHash('sha256')
-    .update(fs.readFileSync(path.join(bundleDir, 'app', 'src', 'main.rs')))
-    .update(fs.readFileSync(path.join(bundleDir, 'app', 'Cargo.toml')))
+    .update(fs.readFileSync(path.join(bundleDir, 'server', 'src', 'main.rs')))
+    .update(fs.readFileSync(path.join(bundleDir, 'server', 'Cargo.toml')))
     .digest('hex');
   const targetDir = path.join(EJECT_TARGET_DIR, contract.pack);
   const bin = path.join(targetDir, 'debug', 'app');
   if (builtApps.get(contract.pack) === hash && fs.existsSync(bin)) return bin;
   console.log(`    [layer2] building the ejected app (${scenarioId}) …`);
   execFileSync('cargo', ['build', '--quiet'], {
-    cwd: path.join(bundleDir, 'app'),
+    cwd: path.join(bundleDir, 'server'),
     env: { ...process.env, CARGO_TARGET_DIR: targetDir },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -593,7 +593,7 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
   const child = spawnServer(bin, {
     APP_BIND: `127.0.0.1:${port}`,
     SYNTHETIC_DATA: path.join(bundleDir, contract.runtime.synthetic),
-  }, logPath, path.join(bundleDir, 'app'));
+  }, logPath, path.join(bundleDir, 'server'));
 
   const shot = (name) => path.join(SHOTS_DIR, `${scenario.id}-${name}.png`);
   const context = await browser.newContext({ viewport: { width: 960, height: 720 } });

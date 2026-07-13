@@ -3,6 +3,7 @@ FROM mcr.microsoft.com/playwright:v1.55.1-noble
 ARG RUST_TOOLCHAIN=1.88.0
 ENV RUSTUP_HOME=/opt/rust/rustup \
     CARGO_HOME=/opt/rust/cargo \
+    RUSTUP_TOOLCHAIN=${RUST_TOOLCHAIN} \
     PATH=/opt/rust/cargo/bin:/opt/practice-studio/node_modules/.bin:$PATH
 
 RUN apt-get update \

@@ -48,6 +48,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         .scaffold_path
         .as_deref()
         .and_then(|_| crate::packs::scaffold_sources(&pack.id));
+    let clinical_entry = clinical_entry_path(scaffold);
     let mut files = BTreeMap::new();
     if let Some(sources) = scaffold {
         for (path, content) in sources {
@@ -96,7 +97,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     );
     files.insert(
         "web/src/routes/+page.svelte".to_string(),
-        svelte_page(app, pack),
+        svelte_page(app, pack, &clinical_entry),
     );
     if has_local_media {
         files.insert(
@@ -179,7 +180,10 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     }
     files.insert("README.md".to_string(), readme);
     files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
-    files.insert("config/nginx.conf".to_string(), nginx_config());
+    files.insert(
+        "config/nginx.conf".to_string(),
+        nginx_config(&clinical_entry),
+    );
     files.insert("config/start.sh".to_string(), runtime_start_script());
     files.insert("render.yaml".to_string(), render_yaml(app));
     files.insert("fly.toml".to_string(), fly_toml(app));
@@ -338,7 +342,7 @@ fn svelte_layout_options() -> String {
     "export const ssr = false;\n".to_string()
 }
 
-fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
+fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
     let features = app
         .features
         .iter()
@@ -404,7 +408,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
       <h1>{name}</h1>
       <p>{description}</p>
       <div class="hc-actions">
-        <a class="hc-button hc-link" href="/">Open the clinical workflow</a>
+        <a class="hc-button hc-link" href="{clinical_entry}">Open the clinical workflow</a>
         <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
       </div>
     </header>
@@ -428,6 +432,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
         description = pack.description,
         media_import = local_media.0,
         media_control = local_media.1,
+        clinical_entry = clinical_entry,
     )
 }
 
@@ -1014,13 +1019,48 @@ fn dockerfile(
     )
 }
 
-fn nginx_config() -> String {
+fn clinical_entry_path(scaffold: Option<&[crate::packs::PackSourceFile]>) -> String {
+    let path = scaffold
+        .and_then(|files| {
+            files
+                .iter()
+                .find(|(path, _)| *path == "artifact-quality.json")
+        })
+        .and_then(|(_, content)| serde_json::from_str::<serde_json::Value>(content).ok())
+        .and_then(|contract| {
+            contract
+                .pointer("/quality/job/journeys/0/steps")?
+                .as_array()?
+                .iter()
+                .find(|step| step.get("do").and_then(serde_json::Value::as_str) == Some("goto"))?
+                .get("path")?
+                .as_str()
+                .map(str::to_string)
+        });
+    path.filter(|path| {
+        path.starts_with('/')
+            && !path.starts_with("//")
+            && path
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+    })
+    .unwrap_or_else(|| "/".to_string())
+}
+
+fn nginx_config(clinical_entry: &str) -> String {
+    let clinical_root = if clinical_entry == "/" {
+        String::new()
+    } else {
+        format!("    location = / {{\n      return 302 {clinical_entry};\n    }}\n\n")
+    };
     r#"pid /tmp/nginx.pid;
 error_log /dev/stderr info;
 
 events {}
 
 http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
   access_log /dev/stdout;
   client_body_temp_path /tmp/client-body;
   proxy_temp_path /tmp/proxy;
@@ -1030,6 +1070,7 @@ http {
     listen 8080;
     server_name _;
 
+    # CLINICAL_ROOT
     location = /workspace {
       return 308 /workspace/;
     }
@@ -1059,7 +1100,7 @@ http {
   }
 }
 "#
-    .to_string()
+    .replace("    # CLINICAL_ROOT\n", &clinical_root)
 }
 
 fn runtime_start_script() -> String {
@@ -1390,6 +1431,9 @@ mod tests {
             .contains("COPY --from=web-build /src/web/build /usr/share/nginx/html/workspace"));
         assert!(dockerfile.contains("SYNTHETIC_DATA=/srv/synthetic/post-op-demo.json"));
         assert!(!dockerfile.contains("python3"));
+        assert!(bundle.files["config/nginx.conf"].contains("include /etc/nginx/mime.types"));
+        assert!(bundle.files["config/nginx.conf"].contains("return 302 /login"));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("href=\"/login\""));
     }
 
     #[test]

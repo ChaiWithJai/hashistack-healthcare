@@ -655,6 +655,17 @@ async fn import_owned_app(
             "owned pack scaffold must contain 1 to 64 bounded feature names".into(),
         ));
     }
+    let import_verifier_ready = {
+        let plat = platform.read().unwrap();
+        let hosted = plat.identity.fallback().is_none() || plat.store.is_some();
+        !hosted || plat.workspace_verifier.executes_source()
+    };
+    if !import_verifier_ready {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "owned source import requires the executable OCI verifier in hosted mode".into(),
+        ));
+    }
     let (base_pack, id, verifier) = {
         let mut plat = platform.write().unwrap();
         let base_id = owned

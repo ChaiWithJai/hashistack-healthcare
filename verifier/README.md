@@ -11,6 +11,11 @@ plane with the resulting immutable reference, including its digest:
 WORKSPACE_VERIFIER_IMAGE=registry.example/practice-studio-verifier@sha256:...
 ```
 
+Strict-identity or durable control-plane deployments fail closed for owned
+source imports when this image is not configured. The deterministic verifier
+supports local synthetic treatment iteration, but it is not authoritative for
+an externally supplied repository.
+
 The control plane refuses a tag-only image reference. It also supplies the
 runtime limits, read-only root, disabled network, dropped capabilities, and
 single writable workspace mount. The image writes one bounded JSON report with

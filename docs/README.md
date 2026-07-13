@@ -27,6 +27,7 @@ Start with one path. Use the reference only when you need a detail.
 - [Understand access control](reference/access-control.md)
 - [Use the command reference](reference/commands.md)
 - [Review architecture decisions](decisions/)
+- [Understand the hosted builder and model routing](decisions/0009-agent-workspace-and-model-routing.md)
 
 ## Verify
 

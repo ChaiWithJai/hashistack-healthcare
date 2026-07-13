@@ -34,13 +34,34 @@ synthetic preview after the release checks pass.
 
 ## Test accounts
 
-Staging and production use separate Clerk instances and separate users. Ask the
-project owner for the credential manager record named "Practice Studio staging
-test owner." Do not put an email address, password, verification code, session
-token, or Clerk subject in an issue.
+The Practice Studio Clerk application has two isolated environments:
+`development` for staging and `production` for production. Create one test
+owner in each environment. Give both users the `superadmin` application role
+and a synthetic tenant. A staging session cannot be used in production.
 
-The production smoke account is created only for an approved test window. It
-uses a synthetic tenant and is removed after the test.
+Store the sign-in addresses and recovery method in the credential manager as:
+
+- `Practice Studio staging superadmin`
+- `Practice Studio production superadmin`
+
+Do not commit passwords, verification codes, session tokens, Clerk subjects,
+secret keys, or a subject map. The repository records the role and procedure;
+the credential manager records the identities.
+
+To provision or rotate an account:
+
+1. In Clerk, open Practice Studio and switch to the target environment.
+2. Create or invite the test user.
+3. Set public metadata `{"role":"superadmin","tenant":"synthetic-test"}`.
+4. Add the Clerk subject to that environment's secret `CLERK_SUBJECT_MAP` as a
+   clinician principal for `synthetic-test`. The current Rust capability model
+   treats that principal as the test superadmin; it does not trust browser
+   metadata for authorization.
+5. Sign in through the deployed site, claim a guest workspace, and export it.
+6. Remove the production account after the approved smoke-test window. The
+   staging account may remain for pull-request verification.
+
+The test identity is never used with patient data.
 
 ## Current delivery limit
 

@@ -17,6 +17,16 @@ Deletion was verified by DigitalOcean `404 Not Found` responses, Netlify site
 removal, failed DNS resolution for the staging hostname, and `404` responses
 from the former Netlify subdomains.
 
+## Provider-retained backup
+
+DigitalOcean backup image `236768887` remains visible after droplet deletion.
+DigitalOcean does not permit direct deletion of an automatic backup through the
+image API; the request returned `422` with “Only Snapshot and Custom Image
+deletion is supported.” The provider retains automatic backups until their
+scheduled expiry. This weekly backup was created on 2026-07-13 and should expire
+within four weeks. It cannot run compute or accept traffic, but its final backup
+charge can still appear on the account.
+
 ## Billing statement
 
 The last available DigitalOcean invoice preview attributed $0.28 to the project
@@ -30,6 +40,9 @@ The project Netlify sites were not marked premium. The Netlify account itself is
 a paid account with unrelated sites. The `gethoursback.com` registration
 predates this project and was preserved because deleting or canceling a domain
 is broader than tearing down this runtime.
+
+The project-added `gethoursback.com` A record was removed. The domain’s
+pre-existing verification and certificate records were preserved.
 
 ## Preserved unrelated resources
 

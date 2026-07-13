@@ -732,7 +732,9 @@ async fn create_app(
         stage: Stage::Sandbox,
         data_source: DataSource::Synthetic(pack.synthetic_dataset.clone()),
         controls,
-        external_calls: vec!["api.anthropic.com".to_string()],
+        // Exported apps do not call a model. Gemma planning stays behind the
+        // Rust control-plane boundary and is never inherited as app egress.
+        external_calls: vec![],
         features: pack.scaffold.clone(),
         routes: pack.scaffold.len() as u32,
         addenda: vec![Addendum {

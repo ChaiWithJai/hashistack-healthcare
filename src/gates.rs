@@ -563,11 +563,7 @@ struct AiAllowlistGate;
 
 /// Control-basis fallback for packs without a scaffold (their manifests
 /// have no allowlist policy file to check literals against).
-const ENDPOINT_ALLOWLIST: &[&str] = &[
-    "vault.internal",
-    "postgres.internal",
-    "api.anthropic.com", // platform LLM key, scoped per environment, under BAA
-];
+const ENDPOINT_ALLOWLIST: &[&str] = &["vault.internal", "postgres.internal"];
 
 const LOCAL_HOSTS: &[&str] = &["127.0.0.1", "0.0.0.0", "localhost"];
 
@@ -888,7 +884,7 @@ mod tests {
             stage: Stage::Sandbox,
             data_source: DataSource::Synthetic(pack.synthetic_dataset.clone()),
             controls: pack.gates.iter().cloned().collect::<BTreeSet<_>>(),
-            external_calls: vec!["api.anthropic.com".to_string()],
+            external_calls: vec![],
             features: vec![],
             routes: 0,
             addenda: vec![],

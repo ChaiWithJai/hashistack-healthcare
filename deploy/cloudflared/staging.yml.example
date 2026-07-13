@@ -1,0 +1,11 @@
+tunnel: replace-with-staging-tunnel-uuid
+credentials-file: /etc/cloudflared/staging.json
+
+ingress:
+  - hostname: staging.example.com
+    service: http://127.0.0.1:3000
+  - hostname: ssh.staging.example.com
+    service: ssh://127.0.0.1:22
+  - hostname: "*.preview.example.com"
+    service: http://127.0.0.1:8080
+  - service: http_status:404

@@ -7,6 +7,7 @@ Start with one path. Use the reference only when you need a detail.
 
 ## Get started
 
+- [Run Practice Studio locally](get-started/local.md)
 - [Run the complete stack locally](../terraform/single-host/README.md)
 - [Try the hosted staging site](get-started/hosted-preview.md)
 - [Understand the product boundary](product-use-case.md)
@@ -14,6 +15,7 @@ Start with one path. Use the reference only when you need a detail.
 ## Operate
 
 - [Run staging and production](deployment.md)
+- [Troubleshoot setup and previews](troubleshooting.md)
 - [Configure Clerk](operations/clerk.md)
 - [Respond to an operational problem](ops-runbook.md)
 - [Provision the DigitalOcean host](digitalocean-runbook.md)
@@ -23,6 +25,7 @@ Start with one path. Use the reference only when you need a detail.
 - [Read the platform RFC](rfc/0001-clinician-platform.md)
 - [Add packs, gates, and agent providers](hashicorp-steering.md)
 - [Understand access control](reference/access-control.md)
+- [Use the command reference](reference/commands.md)
 - [Review architecture decisions](decisions/)
 
 ## Verify
@@ -31,6 +34,7 @@ Start with one path. Use the reference only when you need a detail.
 - [Run the clinician journey](../scripts/journey.sh)
 - [Review the app sample](evals/sample-artifact-profiles.md)
 - [Follow the merge standard](process/merge-standard.md)
+- [Apply the documentation standard](documentation-standard.md)
 
 ## Historical material
 

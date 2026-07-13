@@ -1,7 +1,7 @@
 # Decision 0001 — Agent routing architecture (#4, treatment round 1)
 
-Status: decided · Inputs: treatments 4a/4b/4c (branches `claude/issue-4-treatment-{a,b,c}`,
-self-reports in [docs/treatments/](../treatments/) on those branches) ·
+Status: decided · Inputs: treatments 4a/4b/4c on the historical
+`claude/issue-4-treatment-{a,b,c}` branches ·
 Rubric: [investigation 0001](../investigations/0001-enable-all-use-cases.md) ·
 Framing: [investigation 0002](../investigations/0002-local-model-simplifiers.md) D1.
 

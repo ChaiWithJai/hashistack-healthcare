@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 /// Signature roots the registry accepts. Phase 0: the platform key only.
 /// Open question 2 in the RFC — clinician identity in the chain — lands here.
 const TRUSTED_SIGNERS: &[&str] = &["platform-root-v1"];
+pub const TREATMENT_RECIPE_IDS: [&str; 3] = ["guided-worklist", "event-timeline", "focused-task"];
 
 /// Historical routing values retained so existing signed packs still parse.
 /// Production resolves every application edit to deterministic rules. Gemma
@@ -149,6 +150,10 @@ pub struct PackManifest {
     /// repository and interpreted by the generic artifact eval harness.
     #[serde(default)]
     pub quality_contract: Option<String>,
+    /// Signed, bounded presentation recipes that Gemma may rank. Rust owns
+    /// their behavior and refuses recipe ids outside this allowlist.
+    #[serde(default)]
+    pub treatment_recipes: Vec<String>,
     /// Whether the pack's scaffold follows the source annotations consumed
     /// by the Phase 0 static gate inspectors. Runnable does not imply that
     /// every compliance verdict can be inferred from source.
@@ -178,6 +183,20 @@ impl PackManifest {
         } else {
             format!("platform default routing (pack {} declares none)", self.id)
         }
+    }
+
+    pub fn validate_treatment_recipes(&self) -> Result<()> {
+        let expected = TREATMENT_RECIPE_IDS
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>();
+        if self.treatment_recipes != expected {
+            bail!(
+                "pack {} must declare the three supported treatment recipes in order",
+                self.id
+            );
+        }
+        Ok(())
     }
 }
 
@@ -510,6 +529,7 @@ pub fn parse_pack(source: &str) -> Result<PackManifest> {
             manifest.signed_by
         );
     }
+    manifest.validate_treatment_recipes()?;
     Ok(manifest)
 }
 
@@ -553,6 +573,9 @@ mod tests {
         let packs = builtin_packs();
         assert_eq!(packs.len(), 17);
         assert!(packs.iter().any(|p| p.id == "post-op-monitor"));
+        for pack in &packs {
+            assert_eq!(pack.treatment_recipes, TREATMENT_RECIPE_IDS, "{}", pack.id);
+        }
         let iv = packs
             .iter()
             .find(|p| p.id == "insurance-verification")

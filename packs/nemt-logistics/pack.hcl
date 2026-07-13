@@ -7,6 +7,7 @@ pack "nemt-logistics" {
   signed_by = "platform-root-v1"
   scaffold_path = "scaffold"
   quality_contract = "artifact-quality.json"
+  treatment_recipes = ["guided-worklist", "event-timeline", "focused-task"]
   scaffold = ["ride coordination queue", "status updates", "missed-ride escalation", "audit log wired to every route"]
   prewired = ["phi-encryption", "audit-log", "dependency-scan", "synthetic-only"]
   gates = ["phi-encryption", "audit-log", "dependency-scan", "synthetic-only", "auto-logoff", "access-roles", "escalation-path", "human-review"]

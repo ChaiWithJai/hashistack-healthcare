@@ -14,6 +14,7 @@ pack "post-op-monitor" {
   # standalone axum crate seeded from synthetic/, ejected as the app source.
   scaffold_path = "scaffold"
   quality_contract = "artifact-quality.json"
+  treatment_recipes = ["guided-worklist", "event-timeline", "focused-task"]
   static_evidence = true
 
   # What the agent scaffolds before the doctor's first edit, hipaa-core pre-wired.

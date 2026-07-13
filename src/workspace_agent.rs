@@ -15,6 +15,7 @@ use anyhow::{bail, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
+use crate::packs::PackManifest;
 use crate::workspace::{
     CandidateFile, CandidatePatch, Checkpoint, Treatment, TreatmentPlan, TreatmentSelection,
 };
@@ -36,6 +37,125 @@ pub struct PlanRequest {
     pub task: String,
     pub pack: String,
     pub workspace_summary: String,
+    pub pack_context: PackPlanningContext,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackPlanningContext {
+    pub name: String,
+    pub description: String,
+    pub profile: String,
+    pub existing_capabilities: Vec<String>,
+    pub treatment_recipes: Vec<Treatment>,
+    pub acceptance_checks: Vec<String>,
+}
+
+impl PackPlanningContext {
+    pub fn from_pack(pack: &PackManifest) -> Self {
+        let recipe = |id: &str, label: &str, outcome: String, screen: Vec<&str>| {
+            Treatment {
+            id: id.into(),
+            label: label.into(),
+            user_outcome: outcome,
+            screen_changes: screen.into_iter().map(str::to_string).collect(),
+            data_changes: vec![
+                "Reuse the signed pack's existing synthetic fields; do not invent a new clinical schema"
+                    .into(),
+            ],
+            safety_notes: vec![
+                "Keep the synthetic-data boundary and the required human review visible".into(),
+            ],
+        }
+        };
+        let recipes = pack
+            .treatment_recipes
+            .iter()
+            .map(|id| match id.as_str() {
+                "guided-worklist" => recipe(
+                    id,
+                    "Guided worklist",
+                    format!(
+                        "See the next safe action in {} without scanning every synthetic record",
+                        pack.name
+                    ),
+                    vec![
+                        "A priority worklist built from the pack's existing capabilities",
+                        "A visible reason and next action for every synthetic item",
+                    ],
+                ),
+                "event-timeline" => recipe(
+                    id,
+                    "Event timeline",
+                    format!(
+                        "Understand what changed in {} before choosing the next action",
+                        pack.name
+                    ),
+                    vec![
+                        "A chronological view of the pack's existing synthetic events",
+                        "Filters for unresolved and reviewed events",
+                    ],
+                ),
+                "focused-task" => recipe(
+                    id,
+                    "Focused task",
+                    format!("Complete one {} task with a clear review step", pack.name),
+                    vec![
+                        "One focused task using the pack's existing workflow",
+                        "A review screen before the synthetic action is saved",
+                    ],
+                ),
+                _ => unreachable!("trusted pack recipe ids are validated at registry load"),
+            })
+            .collect();
+        Self {
+            name: pack.name.clone(),
+            description: pack.description.clone(),
+            profile: pack.profile.clone(),
+            existing_capabilities: pack.scaffold.clone(),
+            treatment_recipes: recipes,
+            acceptance_checks: vec![
+                "The selected recipe is visible in the Svelte workspace".into(),
+                "The signed pack browser journey still passes".into(),
+                "Synthetic-data and safety limits remain visible".into(),
+            ],
+        }
+    }
+
+    fn plan(&self, task: &str, recommended_treatment_id: &str) -> Result<TreatmentPlan> {
+        if !self
+            .treatment_recipes
+            .iter()
+            .any(|recipe| recipe.id == recommended_treatment_id)
+        {
+            bail!("recommended treatment is not a signed pack recipe");
+        }
+        let plan = TreatmentPlan {
+            problem: bounded_problem(task),
+            recommended_treatment_id: recommended_treatment_id.into(),
+            treatments: self.treatment_recipes.clone(),
+            acceptance_checks: self.acceptance_checks.clone(),
+        };
+        plan.validate().map_err(anyhow::Error::msg)?;
+        Ok(plan)
+    }
+
+    fn ground_legacy(&self, task: &str, proposed: &TreatmentPlan) -> Result<TreatmentPlan> {
+        let proposed_ids = proposed
+            .treatments
+            .iter()
+            .map(|treatment| treatment.id.as_str())
+            .collect::<Vec<_>>();
+        let allowed_ids = self
+            .treatment_recipes
+            .iter()
+            .map(|treatment| treatment.id.as_str())
+            .collect::<Vec<_>>();
+        if proposed_ids != allowed_ids {
+            bail!("treatments do not match the signed pack recipes");
+        }
+        self.plan(task, &proposed.recommended_treatment_id)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +220,22 @@ pub struct DeterministicWorkspaceAgent;
 impl WorkspaceAgent for DeterministicWorkspaceAgent {
     fn plan<'a>(&'a self, request: PlanRequest) -> AgentFuture<'a, TreatmentPlan> {
         Box::pin(async move {
-            let plan = deterministic_plan(&request.task);
+            let recommended = request
+                .pack_context
+                .treatment_recipes
+                .first()
+                .map(|recipe| recipe.id.as_str())
+                .ok_or(AgentError {
+                    kind: AgentErrorKind::InvalidPlan,
+                    status: None,
+                })?;
+            let plan = request
+                .pack_context
+                .plan(&request.task, recommended)
+                .map_err(|_| AgentError {
+                    kind: AgentErrorKind::InvalidPlan,
+                    status: None,
+                })?;
             plan.validate().map_err(|_| AgentError {
                 kind: AgentErrorKind::InvalidPlan,
                 status: None,
@@ -313,6 +448,7 @@ impl WorkspaceAgent for DigitalOceanWorkspaceAgent {
                 task: &request.task,
                 pack: &request.pack,
                 workspace_summary: &request.workspace_summary,
+                pack_context: &request.pack_context,
                 selected_treatment_id: None,
             };
             let user_content = serde_json::to_string(&wire).map_err(|_| schema_error())?;
@@ -346,11 +482,25 @@ impl WorkspaceAgent for DigitalOceanWorkspaceAgent {
                 .ok_or_else(schema_error)?;
             let envelope: PlanEnvelope =
                 serde_json::from_str(content).map_err(|_| schema_error())?;
-            if envelope.schema_version != SCHEMA_VERSION {
-                return Err(schema_error());
+            let plan = match envelope {
+                PlanEnvelope::Decision(decision) => {
+                    if decision.schema_version != SCHEMA_VERSION {
+                        return Err(schema_error());
+                    }
+                    request
+                        .pack_context
+                        .plan(&request.task, &decision.recommended_treatment_id)
+                }
+                PlanEnvelope::Legacy(legacy) => {
+                    if legacy.schema_version != SCHEMA_VERSION {
+                        return Err(schema_error());
+                    }
+                    request
+                        .pack_context
+                        .ground_legacy(&request.task, &legacy.treatment_plan)
+                }
             }
-            let plan = envelope.treatment_plan;
-            plan.validate().map_err(|_| AgentError {
+            .map_err(|_| AgentError {
                 kind: AgentErrorKind::InvalidPlan,
                 status: None,
             })?;
@@ -398,8 +548,22 @@ struct ChatAssistantMessage {
 }
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum PlanEnvelope {
+    Decision(PlanDecisionEnvelope),
+    Legacy(LegacyPlanEnvelope),
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PlanEnvelope {
+struct PlanDecisionEnvelope {
+    schema_version: u8,
+    recommended_treatment_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyPlanEnvelope {
     schema_version: u8,
     treatment_plan: TreatmentPlan,
 }
@@ -413,6 +577,7 @@ struct WireRequest<'a> {
     task: &'a str,
     pack: &'a str,
     workspace_summary: &'a str,
+    pack_context: &'a PackPlanningContext,
     #[serde(skip_serializing_if = "Option::is_none")]
     selected_treatment_id: Option<&'a str>,
 }
@@ -498,53 +663,6 @@ pub fn workspace_summary(checkpoint: &Checkpoint) -> String {
     )
 }
 
-fn deterministic_plan(task: &str) -> TreatmentPlan {
-    TreatmentPlan {
-        problem: bounded_problem(task),
-        recommended_treatment_id: "guided-worklist".into(),
-        treatments: vec![
-            Treatment {
-                id: "guided-worklist".into(),
-                label: "Guided worklist".into(),
-                user_outcome: "See the next safe action without scanning the whole record".into(),
-                screen_changes: vec![
-                    "A calm priority list with one clear next action".into(),
-                    "A visible reason for every flagged item".into(),
-                ],
-                data_changes: vec!["Keep status and review notes with each synthetic item".into()],
-                safety_notes: vec!["Keep escalation and synthetic-data labels visible".into()],
-            },
-            Treatment {
-                id: "patient-timeline".into(),
-                label: "Patient timeline".into(),
-                user_outcome: "Understand what changed before deciding what to do next".into(),
-                screen_changes: vec![
-                    "A chronological event view".into(),
-                    "Filters for unresolved and reviewed events".into(),
-                ],
-                data_changes: vec!["Record events as append-only synthetic entries".into()],
-                safety_notes: vec!["Do not turn the timeline into clinical advice".into()],
-            },
-            Treatment {
-                id: "focused-form".into(),
-                label: "Focused form".into(),
-                user_outcome: "Complete one task with fewer fields and a clear confirmation".into(),
-                screen_changes: vec![
-                    "A short step-by-step form".into(),
-                    "A review screen before saving".into(),
-                ],
-                data_changes: vec!["Save only the fields needed for this synthetic workflow".into()],
-                safety_notes: vec!["Show what is saved and who must review it".into()],
-            },
-        ],
-        acceptance_checks: vec![
-            "The chosen workflow is usable with a keyboard".into(),
-            "Synthetic-data and safety limits remain visible".into(),
-            "The Svelte client and Rust server remain independently testable".into(),
-        ],
-    }
-}
-
 fn bounded_problem(task: &str) -> String {
     let normalized = task.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut end = normalized.len().min(500);
@@ -603,8 +721,16 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::mpsc;
 
+    fn planning_context() -> PackPlanningContext {
+        let pack = crate::packs::builtin_packs()
+            .into_iter()
+            .find(|pack| pack.id == "post-op-monitor")
+            .unwrap();
+        PackPlanningContext::from_pack(&pack)
+    }
+
     fn selected(treatment_id: &str) -> TreatmentSelection {
-        let plan = deterministic_plan("queue");
+        let plan = planning_context().plan("queue", treatment_id).unwrap();
         TreatmentSelection {
             treatment: plan
                 .treatments
@@ -701,7 +827,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_is_v1_bearer_request_without_selected_treatment() {
-        let plan = r#"{"schema_version":1,"treatment_plan":{"problem":"queue","recommended_treatment_id":"a","treatments":[{"id":"a","label":"A","user_outcome":"A","screen_changes":["A"]},{"id":"b","label":"B","user_outcome":"B","screen_changes":["B"]}],"acceptance_checks":["works"]}}"#;
+        let plan = r#"{"schema_version":1,"recommended_treatment_id":"event-timeline"}"#;
         let body = serde_json::json!({
             "id": "completion-1",
             "model": "gemma-4-31B-it",
@@ -723,6 +849,7 @@ mod tests {
                 task: "queue".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
+                pack_context: planning_context(),
             })
             .await
             .unwrap();
@@ -745,6 +872,14 @@ mod tests {
         assert_eq!(inner["schema_version"], 1);
         assert_eq!(inner["action"], "plan");
         assert!(inner.get("selected_treatment_id").is_none());
+        assert_eq!(
+            inner["pack_context"]["treatment_recipes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(output.value.recommended_treatment_id, "event-timeline");
         assert!(raw.starts_with("POST /api/v1/chat/completions "));
     }
 
@@ -763,7 +898,7 @@ mod tests {
                 thread_id: "app-1".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
-                selected_treatment: selected("patient-timeline"),
+                selected_treatment: selected("event-timeline"),
                 accepted_files: BTreeMap::from([(
                     "web/src/lib/treatment.json".into(),
                     "{}".into(),
@@ -774,8 +909,8 @@ mod tests {
         assert_eq!(output.provider, "rust");
         assert_eq!(output.model, DETERMINISTIC_MATERIALIZER);
         assert!(output.deployment_version.is_none());
-        assert!(output.value.files[0].content.contains("Patient timeline"));
-        assert!(output.value.files[0].content.contains("patient-timeline"));
+        assert!(output.value.files[0].content.contains("Event timeline"));
+        assert!(output.value.files[0].content.contains("event-timeline"));
     }
 
     #[test]
@@ -815,12 +950,12 @@ mod tests {
         assert_eq!(config["materializer"], DETERMINISTIC_MATERIALIZER);
 
         let second = GenerateRequest {
-            selected_treatment: selected("patient-timeline"),
+            selected_treatment: selected("event-timeline"),
             ..first
         };
         let second_patch = deterministic_patch(&second).unwrap();
         assert_ne!(first_patch.files[0].content, second_patch.files[0].content);
-        assert!(second_patch.files[0].content.contains("Patient timeline"));
+        assert!(second_patch.files[0].content.contains("Event timeline"));
         assert!(!second_patch.files[0].content.contains("Guided worklist"));
         assert_eq!(
             accepted_files["server/src/main.rs"],
@@ -831,7 +966,7 @@ mod tests {
     #[test]
     fn deterministic_fallback_normalizes_and_bounds_the_problem() {
         let task = format!("First line\n\n{}", "é".repeat(400));
-        let plan = deterministic_plan(&task);
+        let plan = planning_context().plan(&task, "guided-worklist").unwrap();
         assert!(plan.validate().is_ok());
         assert!(!plan.problem.contains('\n'));
         assert!(plan.problem.len() <= 500);
@@ -840,7 +975,7 @@ mod tests {
 
     #[tokio::test]
     async fn strict_envelope_rejects_unknown_fields() {
-        let invalid_plan = r#"{"schema_version":1,"treatment_plan":{"problem":"queue","unexpected":true,"recommended_treatment_id":"a","treatments":[{"id":"a","label":"A","user_outcome":"A","screen_changes":["A"]},{"id":"b","label":"B","user_outcome":"B","screen_changes":["B"]}],"acceptance_checks":["works"]}}"#;
+        let invalid_plan = r#"{"schema_version":1,"recommended_treatment_id":"guided-worklist","unexpected":true}"#;
         let body = serde_json::json!({
             "model": "gemma-4-31B-it",
             "choices": [{"message": {"content": invalid_plan}}]
@@ -861,6 +996,7 @@ mod tests {
                 task: "queue".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
+                pack_context: planning_context(),
             })
             .await
             .unwrap_err();
@@ -873,15 +1009,7 @@ mod tests {
         let unsafe_id = "x');globalThis.__planner_xss=1;//";
         let plan = serde_json::json!({
             "schema_version": 1,
-            "treatment_plan": {
-                "problem": "queue",
-                "recommended_treatment_id": unsafe_id,
-                "treatments": [
-                    {"id": unsafe_id, "label": "Unsafe", "user_outcome": "A", "screen_changes": ["A"]},
-                    {"id": "safe-option", "label": "Safe", "user_outcome": "B", "screen_changes": ["B"]}
-                ],
-                "acceptance_checks": ["works"]
-            }
+            "recommended_treatment_id": unsafe_id
         })
         .to_string();
         let body = serde_json::json!({
@@ -904,6 +1032,7 @@ mod tests {
                 task: "queue".into(),
                 pack: "post-op-monitor".into(),
                 workspace_summary: "checkpoint=0".into(),
+                pack_context: planning_context(),
             })
             .await
             .unwrap_err();
@@ -915,15 +1044,7 @@ mod tests {
         let unsafe_id = "x');globalThis.__planner_xss=1;//";
         let plan = serde_json::json!({
             "schema_version": 1,
-            "treatment_plan": {
-                "problem": "queue",
-                "recommended_treatment_id": unsafe_id,
-                "treatments": [
-                    {"id": unsafe_id, "label": "Unsafe", "user_outcome": "A", "screen_changes": ["A"]},
-                    {"id": "safe-option", "label": "Safe", "user_outcome": "B", "screen_changes": ["B"]}
-                ],
-                "acceptance_checks": ["works"]
-            }
+            "recommended_treatment_id": unsafe_id
         })
         .to_string();
         let body = serde_json::json!({
@@ -949,6 +1070,7 @@ mod tests {
                 task: "queue".into(),
                 pack: "post-op-monitor".into(),
                 workspace_summary: "checkpoint=0".into(),
+                pack_context: planning_context(),
             })
             .await
             .unwrap();

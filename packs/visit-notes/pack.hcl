@@ -7,6 +7,7 @@ pack "visit-notes" {
   signed_by = "platform-root-v1"
   scaffold_path = "scaffold"
   quality_contract = "artifact-quality.json"
+  treatment_recipes = ["guided-worklist", "event-timeline", "focused-task"]
   scaffold = ["SSE transcript stream", "speaker timeline", "draft note", "clinician review"]
   prewired = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "synthetic-only"]
   gates = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "auto-logoff", "synthetic-only", "human-review", "access-roles"]

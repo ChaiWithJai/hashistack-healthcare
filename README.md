@@ -91,16 +91,18 @@ browser
   -> Rust API
      -> workspace planner and source generator
      -> signed clinical packs
-     -> fixed verification checks
-     -> Nomad, Vault, and Postgres adapters
-     -> audit log
+     -> one network-disabled verifier container
+     -> Postgres and audit log
+     -> synthetic preview and owned export
 ```
 
 The default local setup uses deterministic planning and source generation. A
 hosted setup can use the private DigitalOcean Gemma planner. The Rust service
 checks every hosted response before it changes a workspace.
 
-Read the [platform RFC](docs/rfc/0001-clinician-platform.md) for the full design.
+Read the [minimum lovable runtime decision](docs/decisions/0010-minimum-lovable-runtime.md)
+for the current design. The [platform RFC](docs/rfc/0001-clinician-platform.md)
+explains the later reference architecture.
 
 ## Run the checks
 
@@ -117,18 +119,9 @@ Run the browser journey and exported application proof.
 scripts/journey.sh
 ```
 
-Run Nomad, Vault, and Postgres on your machine.
-
-```bash
-scripts/staging-docker-up.sh
-```
-
-Run the command printed by the script in a second terminal. Stop the services
-when the proof is complete.
-
-```bash
-scripts/staging-docker-up.sh down
-```
+Nomad and Vault are not part of the supported local runtime. The repository
+keeps an older integration proof for architecture research, but you do not
+need it to build, test, preview, or export an application.
 
 See the [command reference](docs/reference/commands.md) for each command and the
 state it changes.

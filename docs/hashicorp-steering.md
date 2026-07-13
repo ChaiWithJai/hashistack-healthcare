@@ -121,10 +121,13 @@ lives in its own SDK crate so third parties never import the control plane.
 ```hcl
 app "sinatra" {
   build   { use "pack" {} registry { use "docker" { image = "..." } } }
-  deploy  { use "kubernetes" { probe_path = "/" } }
-  release { use "kubernetes" { load_balancer = false } }
+  deploy  { use "target" { probe_path = "/" } }
+  release { use "target" { public = false } }
 }
 ```
+
+This is interface shape, not a supported scheduler instruction. The minimum
+lovable runtime uses Docker Compose and does not run Kubernetes or Nomad.
 
 → **pack.hcl stage blocks** (`generate {}`, `gate {}`, `deploy {}`, `audit {}`) each
 containing `use "<plugin>" { ... }`: stage semantics belong to the platform,

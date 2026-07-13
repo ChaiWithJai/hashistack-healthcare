@@ -1,10 +1,20 @@
 # DigitalOcean deployment runbook
 
-This runbook turns the portable synthetic studio into a repeatable DigitalOcean proof. It is not authorization to process PHI. Keep all prompts, fixtures, logs, and exports synthetic until a BAA is executed and every service in the data path is confirmed eligible.
+This runbook turns the portable synthetic studio into a repeatable
+DigitalOcean proof. It is not authorization to process patient data. Keep all
+prompts, fixtures, logs, and exports synthetic until every required production
+control is implemented and proved.
+
+Docker Compose is the application runtime. Nomad, Vault, and Kubernetes are
+not part of this deployment. See
+[decision 0010](decisions/0010-minimum-lovable-runtime.md).
 
 ## Proven baseline
 
-On 2026-07-12 the `single-host` module provisioned Ubuntu 24.04 in `nyc3` on `s-2vcpu-4gb` (2 vCPU, 4 GiB, 80 GiB; $24/month before backups). The module enabled backups, IPv6, DigitalOcean monitoring, and a cloud firewall restricted to the operator's `/32` for SSH and port 3000.
+The current resource inventory and price basis are recorded in
+[the 2026-07-13 inventory](evidence/minimum-lovable-inventory-2026-07-13.md).
+
+On 2026-07-12 the `single-host` module provisioned Ubuntu 24.04 in `nyc3` on `s-2vcpu-4gb`. The host has 2 vCPU, 4 GB of memory, and 80 GB of disk. The base price is $24 per month. The weekly backup plan adds $4.80, so the fixed host cost is $28.80 per month before transfer or other usage charges. The module also enabled IPv6, DigitalOcean monitoring, and a cloud firewall restricted to the operator's `/32` for SSH and port 3000.
 
 Measured from the operator's machine after boot:
 
@@ -20,7 +30,16 @@ Measured from the operator's machine after boot:
 | Authenticated app-list latency | p50 33.7 ms, p95 38.6 ms over 30 requests |
 | Idle memory | studio 1.2 MiB, Postgres 72 MiB |
 
-The source build is acceptable as a portability fallback, but too slow for a production recovery path. Builder and runtime bases are digest-pinned and BuildKit caches Cargo dependencies between host builds; production must still publish the reviewed image once in CI and deploy that result by immutable digest before treating recovery time as production-ready.
+The source build is a portability fallback, but it is too slow for a recovery
+path. Builder and runtime bases are pinned by digest. BuildKit caches Cargo
+dependencies between host builds. CI must still publish the reviewed image
+once and deploy that image by immutable digest before the team can treat
+recovery time as proved.
+
+Packer is the selected host image tool, but the minimum lovable version does
+not yet have an observed Packer replacement proof. Add the Packer image only
+when the release gate measures how long a new host takes to replace the old
+one. Until then, cloud init remains the observed provisioning path.
 
 Cloud-init is intentionally first-boot only. Updating `release_ref` does not
 replace the Droplet or erase its volumes. Advance an existing host with the
@@ -69,9 +88,14 @@ docker inspect hashistack-healthcare-studio-studio-1 \
 
 Restart the studio container, rerun the remote proof, and confirm earlier apps and audit events remain. A successful `terraform apply` alone is not deployment proof.
 
-## One Droplet for staging and production
+## One Droplet for staging and a production candidate
 
-A shared Droplet is an explicit hobby-MVP cost trade-off, not high availability. Run two Compose projects (`staging` and `prod`) with separate networks, Postgres databases, volumes, identity files, audit keys, environment files, resource limits, and loopback ports. Put one TLS proxy in front and route distinct hostnames. Never mount the Docker socket into either application.
+A shared Droplet is an explicit hobby cost choice. It does not provide high
+availability. Run two Compose projects named `staging` and `prod` with separate
+networks, Postgres databases, volumes, identity files, audit keys, environment
+files, resource limits, and loopback ports. Put one TLS proxy in front and
+route distinct hostnames. Never mount the Docker socket into either
+application.
 
 This isolates ordinary configuration and data mistakes, but both environments still share a kernel, disk, network, maintenance window, and failure domain. The promotion path is an immutable image digest: staging proves the digest, then production adopts that exact digest. Do not rebuild between environments.
 
@@ -111,7 +135,7 @@ The DigitalOcean agent must receive synthetic data only. Do not send patient
 data to the agent until DigitalOcean confirms the required health care terms
 and the full data retention path in writing.
 
-The MVP uses one small CPU Droplet for the application services and the private
+The minimum lovable version uses one small CPU Droplet for the application services and the private
 DigitalOcean Gemma agent for planning. It does not need Kubernetes. Add more
 hosts only when the measured load or the required isolation calls for them.
 

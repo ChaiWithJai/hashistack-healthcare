@@ -8,8 +8,8 @@ Run commands from the repository root unless the entry says otherwise.
 |---|---|---|
 | `scripts/single-host-smoke.sh` | Start Compose and prove the synthetic studio flow | yes |
 | `scripts/journey.sh` | Drive the clinician flow and exported app in a browser | writes ignored proof |
-| `scripts/staging-docker-up.sh` | Start Nomad, Vault, and Postgres | yes |
-| `scripts/staging-docker-up.sh down` | Stop the local HashiStack | yes |
+| `scripts/staging-docker-up.sh` | Reproduce the historical Nomad and Vault integration proof | yes |
+| `scripts/staging-docker-up.sh down` | Stop the historical integration proof | yes |
 | `scripts/pressure-test.sh <url>` | Test the control plane and configured infrastructure | yes |
 | `scripts/single-host-remote-proof.sh <url>` | Prove a running remote synthetic deployment | yes |
 

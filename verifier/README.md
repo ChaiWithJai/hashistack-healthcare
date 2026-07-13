@@ -22,7 +22,7 @@ single writable workspace mount. The image writes one bounded JSON report with
 the fixed check IDs. Rust validates their order and computes the evidence
 digests.
 
-The control plane admits at most two verifier containers at once by default.
-Set `WORKSPACE_VERIFIER_MAX_CONCURRENCY` from 1 to 16 only after measuring host
-memory and CPU. Excess work fails immediately and can be retried; it is not
-queued into an unbounded container backlog.
+The control plane admits one verifier container at a time by default. Increase
+`WORKSPACE_VERIFIER_MAX_CONCURRENCY` only after measuring host memory and CPU.
+Excess work fails immediately and can be retried. The control plane does not
+queue an unlimited container backlog.

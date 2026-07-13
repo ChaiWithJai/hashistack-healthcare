@@ -1,4 +1,14 @@
-# Ops Runbook
+# Operations and historical integration runbook
+
+Use [Deploy Practice Studio](deployment.md) and the
+[DigitalOcean runbook](digitalocean-runbook.md) for the supported minimum
+lovable runtime. That runtime uses Docker Compose, Postgres, and one verifier
+container. It does not run Nomad or Vault.
+
+This file also keeps the older Nomad and Vault integration procedure so the
+team can reproduce past evidence. Sections that require `NOMAD_ADDR` or
+`VAULT_ADDR` are historical research. They are not current deployment steps or
+claims about the minimum lovable runtime.
 
 ## Start
 ```bash

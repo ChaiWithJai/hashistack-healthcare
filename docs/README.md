@@ -11,6 +11,7 @@ Start with one path. Use the reference only when you need a detail.
 - [Run the complete stack locally](../terraform/single-host/README.md)
 - [Try the hosted staging site](get-started/hosted-preview.md)
 - [Understand the product boundary](product-use-case.md)
+- [Understand the minimum lovable runtime](decisions/0010-minimum-lovable-runtime.md)
 
 ## Operate
 
@@ -22,7 +23,8 @@ Start with one path. Use the reference only when you need a detail.
 
 ## Extend
 
-- [Read the platform RFC](rfc/0001-clinician-platform.md)
+- [Read the current product goal](GOAL.md)
+- [Read the platform graduation reference](rfc/0001-clinician-platform.md)
 - [Add packs, gates, and agent providers](hashicorp-steering.md)
 - [Understand access control](reference/access-control.md)
 - [Use the command reference](reference/commands.md)

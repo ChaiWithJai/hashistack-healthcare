@@ -65,15 +65,20 @@ docker compose down --volumes
 
 The second command is destructive.
 
-## Run the full HashiStack proof
+## Historical Nomad and Vault proof
+
+Nomad and Vault are not part of the minimum lovable runtime. You do not need
+them to build, test, preview, or export an application. The repository keeps
+the following command so maintainers can reproduce earlier integration
+research:
 
 ```bash
 scripts/staging-docker-up.sh
 ```
 
-The script prints the control plane command for a second terminal. That proof
-requires Nomad to run a generated application, Vault to issue credentials, and
-Postgres to preserve state. Stop it with:
+The script prints the control plane command for a second terminal. It starts
+Nomad, Vault, and Postgres. This is a research proof and not a supported
+deployment path. Stop it with:
 
 ```bash
 scripts/staging-docker-up.sh down

@@ -1,99 +1,108 @@
 # Deploy Practice Studio
 
-The supported hosted shape is Cloudflare in front of DigitalOcean. See
-[decision 0008](decisions/0008-cloudflare-delivery-boundary.md) for the tradeoffs.
+The minimum lovable version has one supported application runtime. Docker
+Compose runs the Rust Studio service and Postgres on one DigitalOcean Droplet.
+Caddy provides TLS and routing. A verifier container starts only when source
+verification is requested.
+
+Practice Studio is a synthetic learning environment. This deployment is not
+approved for patient data or clinical care.
 
 ## Environments
 
-| Environment | Workload | Login | Data |
+| Environment | Frontend | API | Data |
 |---|---|---|---|
-| Pull request | isolated container on staging host | none | synthetic only |
-| Staging | fixed service on staging host | Clerk development instance | synthetic only |
-| Production | separate host and tunnel | Clerk production instance | production remains blocked until its release gate is met |
+| Local | Rust serves the checked out client | Local Docker Compose | Synthetic only |
+| Pull request | Netlify builds the exact pull request frontend | DigitalOcean staging | Synthetic only |
+| Staging | Staging frontend | DigitalOcean staging Compose project | Synthetic only |
+| Production candidate | Owned frontend | Separate Compose project or host | Synthetic only until every production control is proved |
 
-## DNS and tunnels
+The pull request preview is for product review. It must report the exact
+frontend commit. The staging proof must report the exact Rust commit. A green
+frontend preview does not prove the backend, and a green backend proof does not
+prove the browser flow.
 
-Before deployment, choose a domain in a Cloudflare-managed zone and create two
-tunnels. The staging tunnel serves the staging name and wildcard preview name.
-The production tunnel serves only the production name.
+## One host boundary
 
-The staging tunnel also serves `ssh.staging.<domain>` to the host's loopback
-SSH service. Cloudflare Access protects that hostname. GitHub Actions uses a
-service token and `cloudflared access ssh`. Port 22 stays closed to GitHub
-runner addresses.
+A hobby deployment may run staging and a production candidate on one Droplet.
+Use separate Compose project names, networks, Postgres databases, volumes,
+environment files, audit keys, and loopback ports. Both environments still
+share a kernel, disk, network, and maintenance window.
 
-Copy `terraform/cloudflare/terraform.tfvars.example`, fill in non-secret IDs
-and names, then provide `CLOUDFLARE_API_TOKEN` through the environment:
+Use separate hosts before accepting an uptime goal or any workload that can
+receive patient data.
 
-```bash
-terraform -chdir=terraform/cloudflare init
-terraform -chdir=terraform/cloudflare plan
-```
+## Build and release
 
-The token needs DNS edit access for one zone. Tunnel credentials do not belong
-in Terraform state. Install each tunnel token directly on its host.
-
-## GitHub environments
-
-Create protected `infrastructure`, `staging`, and `production`
+GitHub checks the exact source commit. CI builds the Studio image and the
+executable verifier image. Record each image by SHA 256 digest. Staging proves
+the digest before another environment can use it. Do not rebuild between
 environments.
 
-Infrastructure uses:
+The verifier image must be executable. The verifier runs with networking
+disabled and with fixed limits. Set its concurrency to one on the 4 GB host. A
+concurrent request must fail without starting a second container.
 
-- secret `CLOUDFLARE_API_TOKEN`;
-- variable `CLOUDFLARE_ZONE_ID`;
-- variable `CLOUDFLARE_ZONE_NAME`;
-- variable `STAGING_TUNNEL_ID`;
-- variable `PRODUCTION_TUNNEL_ID`.
-- secrets `TERRAFORM_STATE_ACCESS_KEY` and
-  `TERRAFORM_STATE_SECRET_KEY` for one DigitalOcean Spaces bucket;
-- variables `TERRAFORM_STATE_BUCKET` and `TERRAFORM_STATE_REGION`.
+Packer will create a versioned DigitalOcean host image when the release gate
+includes a measured host replacement time. Until that work is proved, the
+current cloud init source build is a portability fallback and not an immutable
+recovery path.
 
-The DNS workflow keeps Terraform state in that Spaces bucket. Do not run an
-apply from an Actions runner with local state.
+## Identity
 
-Staging and production each use their own SSH host, key, known-host entry,
-Clerk values, Postgres password, audit HMAC key, and anonymous-session HMAC
-key. Do not copy staging secrets into production.
+The build flow works without login. Configure separate Clerk development and
+production instances. Ask for identity only when a doctor claims or exports a
+workspace. A Netlify preview host cannot claim or export a workspace unless it
+is an authorized Clerk party.
 
-The `staging` GitHub environment uses:
+## Required configuration
 
-- variable `DO_STAGING_SSH_HOST=ssh.staging.<domain>`;
-- variable `DO_STAGING_URL=https://staging.<domain>`;
-- secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`;
-- secrets `DO_STAGING_SSH_KEY` and `DO_STAGING_KNOWN_HOSTS`.
+The protected `staging` GitHub environment needs:
 
-The known-host entry must use the tunnel hostname, not the Droplet IP. Limit
-the Cloudflare service token to the staging SSH application.
+- `DO_STAGING_HOST`;
+- `DO_STAGING_URL`;
+- `DO_STAGING_SSH_KEY`;
+- `DO_STAGING_KNOWN_HOSTS`;
+- `DIGITALOCEAN_PLANNER_ENDPOINT`;
+- `DIGITALOCEAN_PLANNER_VERSION`;
+- `DIGITALOCEAN_PLANNER_ACCESS_KEY`;
+- the Clerk development values;
+- the Postgres password and audit keys;
+- the verifier image digest.
 
-Copy `deploy/cloudflared/staging.yml.example` to the host. Replace the example
-domain and tunnel UUID, then install it as a `cloudflared` service. Keep the
-final catch-all rule last.
-
-## Release rule
-
-CI builds once and records the commit and image digest. A preview or staging
-deploy must report both values. Production may accept only a digest that
-already passed staging. Rollback selects an earlier proved digest.
-
-Until digest-based deployment replaces the current source-over-SSH workflow,
-the existing DigitalOcean job remains a staging portability proof. It is not a
-production promotion path.
-
-## Clerk cutover
-
-The production Clerk instance needs an owned application domain. Complete its
-DNS checks only after `app.<domain>` resolves through Cloudflare. Preview
-hosts are not Clerk authorized parties and cannot claim or export a workspace.
+Use a firewall rule that grants the GitHub runner access for the deployment
+and removes that access when the job ends. Keep ports 80 and 443 as the public
+application path.
 
 ## Verify
 
-For each environment:
+Run the provider neutral proof against the exact deployed commit:
 
 ```bash
 curl -fsS https://<host>/health
 scripts/single-host-remote-proof.sh https://<host>
 ```
 
-The proof must create an anonymous workspace, change a synthetic app, reject a
-real release, publish a synthetic preview, and reject anonymous export.
+The proof must create an anonymous workspace, accept a bounded treatment,
+reject a patient data release, publish a synthetic preview, preserve state
+after restart, and reject anonymous export.
+
+Then complete the browser checklist from
+[Try the hosted preview](get-started/hosted-preview.md).
+
+## Rollback and teardown
+
+Rollback selects an earlier image digest that already passed staging. A
+database rollback restores a tested backup into a new database. Do not
+overwrite the only copy.
+
+Destroy a disposable host with:
+
+```bash
+terraform -chdir=terraform/single-host/digitalocean destroy
+```
+
+Read the [DigitalOcean runbook](digitalocean-runbook.md) for the measured cost,
+provisioning steps, and limits. Read
+[decision 0010](decisions/0010-minimum-lovable-runtime.md) for the architecture
+boundary.

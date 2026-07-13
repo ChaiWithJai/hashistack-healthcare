@@ -5,11 +5,11 @@ DigitalOcean droplet, or a GCP VM: describe, customize, publish with synthetic
 data, restart, and export an owned bundle. Both providers render the same
 cloud-init template and run the root Compose file.
 
-It is intentionally **not** the managed PHI profile. It has one host, static
-Phase-0 identities, no TLS, and no Nomad/Vault workload identity. Never place
-patient data in it. `terraform/prod/` remains the future multi-node managed
-substrate; `scripts/staging-docker-up.sh` is the local HashiStack integration
-proof.
+It is not approved for patient data. It has one host and one failure domain.
+Never place patient data in it. Nomad and Vault are not part of this runtime.
+The `terraform/prod/` directory and `scripts/staging-docker-up.sh` remain as
+reference material from earlier architecture work. They are not supported
+deployment paths for the minimum lovable version.
 
 See [`docs/digitalocean-runbook.md`](../../docs/digitalocean-runbook.md) for
 the measured live-provider baseline, shared staging/production trade-offs,

@@ -2,58 +2,100 @@
 
 ## The goal
 
-**The end user is a doctor or community health professional (CHP) who can
-vibe-code one of the healthcare use cases we described — and then walk away
-owning it.**
+Practice Studio helps a doctor turn a small practice problem into an owned
+prototype. The doctor uses synthetic data and does not need an account while
+building. Clerk asks for identity only when the doctor claims or exports the
+workspace.
 
-Concretely, two moments have to work:
+Two moments must work.
 
-1. **Vibe-code it.** A clinician with no engineering background describes one
-   of the seeded use cases in natural language ("a post-op recovery tracker
-   for my knee replacement patients"), picks a pack, and gets a running,
-   HIPAA-scaffolded app in a sandbox. They iterate conversationally, the
-   compliance gate is cleared as part of building (not as a wall at the end),
-   they co-sign, and it goes in front of real patients under the BAA
-   boundary.
+### Build something useful
 
-2. **Own and extend it.** What they built is *theirs* — like they just made
-   their own customizable template that they like and now want to extend.
-   They can eject at any time and receive a self-contained, documented
-   repository: their app's source, **their documentation generated from
-   their own record** (prompt, addenda history, gate report, attestation,
-   audit excerpt, the pack's clinical evidence citations), and deploy
-   manifests for Nomad/Render/Fly/Kamal. No hostage code, no hostage docs.
-   The ejected app is itself a pack-shaped template: re-importable,
-   shareable with their practice, submittable to the registry.
+The doctor chooses a signed clinical starter and describes the job in plain
+language. Gemma proposes bounded treatments. The doctor compares them, accepts
+one, inspects the source change, and runs fixed checks. The doctor can repair a
+named failure and publish a synthetic preview.
 
-The platform's job is the loop between those two moments. Tracked as the
-ejection ticket (#11) and the use-case enablement investigation (#12).
+Gemma is the only application model. It cannot use tools, read files, access
+secrets, deploy code, or receive patient data. Rust checks every proposal and
+owns source creation and release decisions.
 
-## The bar
+### Own the result
 
-Each seeded use case counts as **enabled** only when all of these hold in the
-staging environment (#2) — verified by the pressure test, not by manual smoke
-testing:
+The doctor can export the exact source that was reviewed. The export contains:
 
-| # | Bar | Verified by |
-|---|-----|-------------|
-| 1 | Natural-language description + pack → running sandbox app on synthetic data, no hand-edits | staging pressure test (#2), agent driver (#4), runnable scaffolds for all 17 in-scope packs, and eval harness layer 1 across 4+ personas per pack (`scripts/evals.sh` → [evals/scorecard.md](evals/scorecard.md)); profile-native stream/local infrastructure remains a production milestone |
-| 2 | The app cannot reach real data while any gate fails; the failure is named and, where safe, one-click fixable | false-pass guard (tested today), evidence-based gates (#3) |
-| 3 | Promotion requires a clinician co-signature and produces an attestation bound to the gate report | tested today; cryptographic binding in #10 |
-| 4 | Every action lands in one append-only audit stream, exportable for a security review | tested today; durable + load-bearing in #8 |
-| 5 | Eject produces a repo a stranger can run from the included docs alone | all 17 in-scope bundles carry real Rust source, are unpacked, built, run, and driven by Playwright through their pack-owned artifact quality contracts ([evals/scorecard.md](evals/scorecard.md)) |
-| 6 | The ejected app works as the clinician's own template: re-import, extend, share | every bundle carries the derived `pack.hcl`, `artifact-quality.json`, the doctor's prompt/history, source, docs, synthetic fixture, and deploy manifests ([evals/scorecard.md](evals/scorecard.md)) |
-| 7 | Out-of-scope use cases (RFC: 9, 10, 15, 21) are refused **with a written reason** in the product | refusal surface (`src/refusals.rs`, #12): describe answers 422 quoting the RFC rationale + an `app.refused` audit event, nothing scaffolded; eval refusal scenarios are must_pass and assert the full contract ([evals/scorecard.md](evals/scorecard.md)); Phase 0 keyword screen tuned against the whole corpus — a model screen slots behind the same seam |
+- a Svelte client;
+- a Rust server;
+- tests and synthetic fixtures;
+- the accepted checkpoint digest;
+- the verification report;
+- three editable diagrams;
+- one README with local Docker Compose instructions.
 
-The demo in this repo proves bars 2–4 as *contracts* over a simulated
-platform. The ticket chain (#2–#11) makes each contract true of real
-infrastructure without changing the workflow the clinician sees — that
-invariance is the point of the Tao's "workflows, not technologies."
+A developer should be able to use only that README to build, change, and run
+the application. The README must explain which controls are missing before the
+prototype can use patient data.
 
-## Non-goals (for now)
+The export is the product handoff. It must not depend on Practice Studio,
+DigitalOcean, Nomad, Vault, or another infrastructure vendor after download.
 
-- Building for engineers. The CLI and hospital integrations are API clients
-  we get for free (principle 5); the design target stays the clinician.
-- The four refused use cases (enterprise outcomes, ONC interoperability,
-  triage, FDA device). Refusal with a reason is a trust feature.
-- Multi-region, marketplace economics, and colo math — RFC Phase 3.
+## The minimum lovable bar
+
+The minimum lovable version is complete when all of these results are
+observed:
+
+| Result | Proof |
+|---|---|
+| The core synthetic workflow works without login | Browser journey starts in a clean browser and reaches preview |
+| Identity appears only at claim or export | Browser journey proves Clerk is absent from the build flow and required at export |
+| A pull request has a shareable preview | Netlify reports the exact pull request frontend commit |
+| The preview uses DigitalOcean staging | The preview calls the staging API and reports its exact Rust commit |
+| Gemma stays bounded | Provider profile and adversarial contract tests prove signed treatment selection and invalid response rejection |
+| Rust creates and checks source | Checkpoint and verifier contracts bind the accepted source digest to the report |
+| Verification is contained | The hosted verifier has no network and admits one container at a time on the 4 GB host |
+| Failures help the doctor continue | Browser proof shows the failed check, its reason, and the repair path |
+| The export belongs to the doctor | Reimport and reexport preserve the reviewed source map and digest |
+| A stranger can continue the work | A person completes the README only build, change, and run proof |
+| The result works across the sample | At least 10 exports record build time, bundle size, startup time, memory, task completion, customization, and export success |
+
+## Supported runtime
+
+Docker Compose is the application runtime on a laptop and on one DigitalOcean
+Droplet. The host runs Caddy, the Rust Studio service, Postgres, and at most one
+verifier container. Netlify serves pull request frontends. Terraform may create
+the host, firewall, and DNS. Packer will create a versioned host image when the
+team adds host replacement time to the release gate.
+
+Nomad, Vault, and Kubernetes are not part of the minimum lovable runtime. The
+repository keeps older Nomad and Vault work as research and as a possible
+reference for a later system. See
+[decision 0010](decisions/0010-minimum-lovable-runtime.md).
+
+## Product boundary
+
+Practice Studio is a learning environment for synthetic data. It is not
+approved for patient data, clinical care, or production use.
+
+The minimum lovable version does not claim to provide:
+
+- tenant isolation for patient data;
+- verified clinician identity;
+- short lived workload credentials;
+- owned encryption keys and rotation;
+- durable off host audit retention;
+- production backups and tested restore;
+- a patient facing workload boundary;
+- high availability.
+
+We add a separate sandbox worker before generated code can run outside fixed
+verification. We add a separate production workload boundary and the controls
+above before any patient data can enter the system.
+
+## Non goals
+
+- We do not support two schedulers.
+- We do not add another application model.
+- We do not turn the minimum lovable version into a broad infrastructure
+  platform.
+- We refuse use cases that need enterprise outcomes analysis, regulated
+  interoperability, clinical triage, or medical device behavior.

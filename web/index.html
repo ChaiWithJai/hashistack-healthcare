@@ -258,11 +258,12 @@ async function signIn() {
 function authView() {
   if (S.authMode === "clerk") {
     queueMicrotask(mountClerkAuth);
-    return `<section class="scr" style="max-width:560px;margin:6vh auto;padding:28px">
-      <div class="generic">Practice identity</div>
-      <h2>Sign in to Practice Studio</h2>
-      <p class="muted">Use your verified practice account. This learning environment accepts synthetic examples only.</p>
+    return `<section class="scr" data-testid="auth-screen" style="max-width:560px;margin:6vh auto;padding:28px">
+      <div class="flow-eyebrow">Claim your work</div>
+      <h2>Your preview is safe. Sign in only to take it with you.</h2>
+      <p class="muted">Building, reviewing, and publishing a synthetic preview never requires an account. A verified practice account is required now so this workspace and its source bundle have an owner.</p>
       <div id="clerk-sign-in"></div>
+      <button class="b primary-wide" onclick="cancelOwnership()">Return to preview</button>
       ${S.err ? `<p class="note">${esc(S.err)}</p>` : ""}
     </section>`;
   }
@@ -309,8 +310,38 @@ async function initAuth() {
   S.clerkReady = true;
   if (Clerk.isSignedIn) S.token = await Clerk.session.getToken();
   S.owned = Clerk.isSignedIn && sessionStorage.getItem("studio-owned") === "true";
-  if (S.owned) await loadHome(); else render();
+  Clerk.addListener(async ({session}) => {
+    if (!session) return;
+    S.token = await session.getToken();
+    S.authRequired = false;
+    await resumePendingEject();
+  });
+  if (Clerk.isSignedIn && sessionStorage.getItem("studio-pending-eject")) {
+    await resumePendingEject();
+  } else if (S.owned) await loadHome(); else render();
   mountClerkUser();
+}
+
+let pendingEjectResume = null;
+async function resumePendingEject() {
+  if (pendingEjectResume) return pendingEjectResume;
+  pendingEjectResume = (async () => {
+    const pendingId = sessionStorage.getItem("studio-pending-eject");
+    if (!pendingId) { render(); return; }
+    S.appId = pendingId;
+    S.scaffold = []; S.generating = false; S.review = null;
+    await refreshApp();
+    S.stage = S.app.stage === "live" ? "operate" : "preview";
+    render();
+  })();
+  try { await pendingEjectResume; }
+  finally { pendingEjectResume = null; }
+}
+
+function cancelOwnership() {
+  S.authRequired = false;
+  sessionStorage.removeItem("studio-pending-eject");
+  render();
 }
 
 function mountClerkAuth() {
@@ -445,6 +476,7 @@ async function ejectApp() {
   link.download = `${S.app.id}.bundle.json`;
   link.click();
   URL.revokeObjectURL(link.href);
+  sessionStorage.removeItem("studio-pending-eject");
 }
 
 async function exportAudit() {

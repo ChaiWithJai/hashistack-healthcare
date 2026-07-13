@@ -28,6 +28,14 @@ The service reads these settings:
 
 The service does not need a Clerk secret key at runtime.
 
+Use these operator names in the credential manager:
+
+- `Practice Studio staging test owner`
+- `Practice Studio production smoke owner`
+
+The repository stores no email address, password, verification code, session
+token, Clerk subject, or subject map value.
+
 ## Create the staging test owner
 
 1. Use a Clerk development instance.

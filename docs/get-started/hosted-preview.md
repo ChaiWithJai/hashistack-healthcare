@@ -34,10 +34,15 @@ synthetic preview after the release checks pass.
 
 ## Test accounts
 
-The Practice Studio Clerk application has two isolated environments:
-`development` for staging and `production` for production. Create one test
-owner in each environment. Give both users the `superadmin` application role
-and a synthetic tenant. A staging session cannot be used in production.
+The Practice Studio Clerk application has two isolated environments.
+Development is for staging and production is for production. Create one test
+owner in each environment. Map both users to the Rust `clinician` role and a
+synthetic tenant. That role can claim and export an app. A staging session
+cannot be used in production.
+
+Clerk administrator access does not grant an application role. Practice Studio
+does not have a cross tenant superadmin role. This keeps a test account from
+reading another tenant by mistake.
 
 Store the sign-in addresses and recovery method in the credential manager as:
 
@@ -52,11 +57,10 @@ To provision or rotate an account:
 
 1. In Clerk, open Practice Studio and switch to the target environment.
 2. Create or invite the test user.
-3. Set public metadata `{"role":"superadmin","tenant":"synthetic-test"}`.
-4. Add the Clerk subject to that environment's secret `CLERK_SUBJECT_MAP` as a
-   clinician principal for `synthetic-test`. The current Rust capability model
-   treats that principal as the test superadmin; it does not trust browser
-   metadata for authorization.
+3. Create a Rust principal with role `clinician` and tenant `synthetic-test`.
+4. Add the Clerk subject to that environment's secret `CLERK_SUBJECT_MAP` and
+   map it to that principal. The service does not trust browser metadata for
+   authorization.
 5. Sign in through the deployed site, claim a guest workspace, and export it.
 6. Remove the production account after the approved smoke-test window. The
    staging account may remain for pull-request verification.

@@ -1,6 +1,16 @@
 [build]
   publish = "web"
 
+# Netlify builds every pull request from its exact head commit. The resulting
+# deploy-preview URL is reported on the pull request and never replaces the
+# production site.
+[context.deploy-preview]
+  publish = "web"
+
+# Named branch deploys stay separate from pull request previews and production.
+[context.branch-deploy]
+  publish = "web"
+
 # The browser stays on the Netlify origin while the Rust control plane remains
 # on the DigitalOcean droplet. Replace this target when production receives a
 # dedicated backend.

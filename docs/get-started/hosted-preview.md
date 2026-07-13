@@ -18,8 +18,15 @@ synthetic preview after the release checks pass.
 | Environment | URL | Source | Status |
 |---|---|---|---|
 | Staging | [138-197-27-225.sslip.io](https://138-197-27-225.sslip.io) | DigitalOcean Droplet | Active |
-| Pull request | See the proof comment on the pull request | Exact pull request commit on staging | Operator deploy until Tunnel cutover |
+| Pull request | Open the Netlify `Deploy Preview` check | Exact pull request frontend commit | Automatic |
 | Production | Not published | None | Pending |
+
+Netlify gives each pull request its own frontend URL. The static studio uses
+the same-origin proxy rules in `netlify.toml` to reach the Rust API on
+DigitalOcean. A deploy preview does not replace staging or production.
+The DigitalOcean service must set `ANON_NETLIFY_PREVIEW_SITE=gethoursback` so
+numbered previews can create anonymous synthetic workspaces. This setting does
+not authorize Clerk claim or export on a preview host.
 
 ## Test the main flow
 
@@ -78,8 +85,9 @@ label, not a cross-tenant application capability.
 The DigitalOcean firewall limits public SSH to the operator address. The
 Cloudflare pipeline uses an Access-protected SSH hostname and does not open port
 22 to GitHub runner addresses. Until the owned zone, tunnel, and service token
-are configured, an authorized operator deploys the exact pull request commit
-and posts the proof comment.
+are configured, Netlify proves the pull request frontend automatically. An
+authorized operator still deploys the exact Rust commit to DigitalOcean and
+posts the backend proof comment.
 
 ## Report a problem
 

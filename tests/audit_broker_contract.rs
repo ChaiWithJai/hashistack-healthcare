@@ -951,6 +951,42 @@ async fn a_dead_sink_blocks_every_load_bearing_operation_not_just_promote() {
 // ---------- the HMAC boundary, end to end over a real durable sink ----------
 
 #[tokio::test]
+async fn audit_file_without_postgres_keeps_the_in_memory_treatment_flow_working() {
+    let path = std::env::temp_dir().join(format!(
+        "audit-only-workspace-contract-{}.jsonl",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+    let sink = Arc::new(FileSink::open(&path, 0).expect("open"));
+    let (platform, router) = platform_with_sink(sink).await;
+    assert!(platform.read().unwrap().store.is_none());
+
+    let id = create_app(&router).await;
+    let (status, planned) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/workspace/treatments"),
+        Some(json!({"task": "make the next follow-up action obvious"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{planned}");
+    let selected = planned["treatment_plan"]["recommended_treatment_id"]
+        .as_str()
+        .expect("recommended treatment");
+    let (status, selected_workspace) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/workspace/select"),
+        Some(json!({"treatment_id": selected})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{selected_workspace}");
+    assert_eq!(selected_workspace["selected_treatment_id"], selected);
+
+    std::fs::remove_file(path).expect("remove audit contract archive");
+}
+
+#[tokio::test]
 async fn file_sink_archives_hmac_form_while_the_doctor_keeps_their_words() {
     let path = std::env::temp_dir().join(format!(
         "audit-broker-contract-{}.jsonl",

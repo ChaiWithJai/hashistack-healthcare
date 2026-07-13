@@ -175,7 +175,8 @@ as before. Set it and the control plane becomes restart-survivable:
 # staging-up.sh boots a portable postgres on 127.0.0.1:5433 (host auth
 # scram-sha-256, fixed dev credential like VAULT_TOKEN) and exports this:
 CONTROL_DB_URL=postgres://staging:staging-pg@127.0.0.1:5433/control cargo run
-# boot log: "control DB attached — restored N apps, N operations, N audit events"
+# boot log: "control DB attached — restored N apps, N source workspaces,
+# N operations, N audit events"
 ```
 
 What the database enforces (migrations/0001_init.sql, applied idempotently
@@ -193,6 +194,12 @@ at every boot — Boundary's pattern, steering §5):
 - `operations` — Waypoint upsert-first rows (§4): `running` is written
   before any driver runs, so a `kill -9` leaves the interrupted operation
   visible after restart, never invisible.
+- `source_workspaces` — the current treatment plan, selected treatment,
+  verified candidate, diff, and accepted source checkpoint. These records
+  are written in the same transaction as their app. Boot recomputes source
+  digests and refuses a corrupt or contradictory record. Apps created before
+  this table receive a fresh v0 scaffold on first boot; edits that existed
+  only in memory before the migration cannot be recovered.
 - `audit_events` — append-only by trigger, same numbering as the in-memory
   stream.
 
@@ -200,6 +207,8 @@ Semantics when attached:
 
 - In-memory state stays the read path; Postgres is durability. Every
   mutation writes through AFTER its platform lock is released.
+- A treatment, candidate decision, or ownership claim that Postgres did not
+  confirm is reverted and returns 503.
 - **A stage transition the DB did not confirm did not happen**: if the
   write-through for promote/rollback fails, the in-memory record reverts
   and the API returns 503 (`app.promotion_reverted` /

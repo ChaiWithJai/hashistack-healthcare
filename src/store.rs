@@ -4,7 +4,7 @@
 //! platform is byte-identical to the pre-#7 in-memory demo. Set, every
 //! mutation writes through AFTER its platform lock is released (write
 //! locks stay short — F4), and boot loads the whole state back: apps,
-//! operations, audit stream, and the id-minting counter all survive a
+//! editable source workspaces, operations, audit stream, and the id-minting counter all survive a
 //! `kill -9`.
 //!
 //! Enforcement lives in the database, not only in this code
@@ -49,6 +49,7 @@ pub struct StageTransition {
 /// lock and written with no lock held.
 struct PersistBatch {
     apps: Vec<AppRecord>,
+    workspaces: Vec<crate::workspace::WorkspaceRecord>,
     transition: Option<StageTransition>,
     operations: Vec<Operation>,
     audit: Vec<AuditEvent>,
@@ -86,9 +87,9 @@ impl PgStore {
     }
 
     /// Load the durable state back into a fresh platform at boot. Returns
-    /// (apps, operations, audit events) restored, for the boot log.
-    pub async fn load(&self, plat: &mut Platform) -> Result<(usize, usize, usize)> {
-        let client = self.client.lock().await;
+    /// (apps, workspaces, operations, audit events) restored, for the boot log.
+    pub async fn load(&self, plat: &mut Platform) -> Result<(usize, usize, usize, usize)> {
+        let mut client = self.client.lock().await;
 
         for row in client.query("SELECT record FROM apps", &[]).await? {
             let record: serde_json::Value = row.get(0);
@@ -101,6 +102,75 @@ impl PgStore {
                     .context("apps.record has contradictory cleanup state")?;
             }
             plat.apps.insert(app.id.clone(), app);
+        }
+
+        for row in client
+            .query("SELECT app_id, record FROM source_workspaces", &[])
+            .await?
+        {
+            let app_id: String = row.get(0);
+            let record: serde_json::Value = row.get(1);
+            let workspace: crate::workspace::WorkspaceRecord = serde_json::from_value(record)
+                .with_context(|| format!("source_workspaces.record does not parse for {app_id}"))?;
+            if workspace.app_id != app_id || !plat.apps.contains_key(&app_id) {
+                anyhow::bail!("source workspace {app_id} does not match a durable app");
+            }
+            workspace
+                .validate_restored()
+                .map_err(anyhow::Error::msg)
+                .with_context(|| format!("source workspace {app_id} failed integrity checks"))?;
+            plat.workspaces.insert(app_id, workspace);
+        }
+
+        // One-time compatibility path for apps written before source workspace
+        // durability existed. We can faithfully reconstruct the pack scaffold,
+        // but never pretend to recover edits that were only held in memory.
+        // Persist the v0 record before serving so the migration happens once.
+        let missing: Vec<String> = plat
+            .apps
+            .keys()
+            .filter(|id| !plat.workspaces.contains_key(*id))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            let tx = client.transaction().await?;
+            for app_id in missing {
+                let app = plat.apps.get(&app_id).expect("missing id came from apps");
+                let pack = plat
+                    .packs
+                    .iter()
+                    .find(|pack| pack.id == app.pack)
+                    .with_context(|| {
+                        format!(
+                            "cannot reconstruct workspace {app_id}: pack {} is unavailable",
+                            app.pack
+                        )
+                    })?;
+                let workspace = crate::workspace::WorkspaceRecord::new(
+                    app_id.clone(),
+                    crate::eject::bundle(app, pack, &[]).files,
+                    crate::state::now_unix(),
+                );
+                workspace
+                    .validate_restored()
+                    .map_err(anyhow::Error::msg)
+                    .with_context(|| format!("reconstructed workspace {app_id} is invalid"))?;
+                let record = serde_json::to_value(&workspace)
+                    .context("reconstructed workspace serializes")?;
+                tx.execute(
+                    "INSERT INTO source_workspaces (app_id, record, updated_at) VALUES ($1, $2, $3)",
+                    &[&app_id, &record, &(workspace.updated_at as i64)],
+                )
+                .await
+                .with_context(|| format!("persisting reconstructed workspace {app_id}"))?;
+                tracing::warn!(
+                    "reconstructed v0 source workspace for legacy app {app_id}; pre-migration in-memory edits were not recoverable"
+                );
+                plat.workspaces.insert(app_id, workspace);
+            }
+            tx.commit()
+                .await
+                .context("committing legacy workspace reconstruction")?;
         }
 
         for row in client
@@ -149,7 +219,12 @@ impl PgStore {
             });
         }
         let max_seq = events.last().map(|e| e.seq).unwrap_or(0);
-        let counts = (plat.apps.len(), plat.operations.len(), events.len());
+        let counts = (
+            plat.apps.len(),
+            plat.workspaces.len(),
+            plat.operations.len(),
+            events.len(),
+        );
         plat.audit.restore(events);
         self.persisted_seq.store(max_seq, Ordering::SeqCst);
 
@@ -186,6 +261,19 @@ impl PgStore {
             )
             .await
             .with_context(|| format!("upserting app {}", app.id))?;
+        }
+
+        for workspace in &batch.workspaces {
+            let record = serde_json::to_value(workspace).context("workspace record serializes")?;
+            tx.execute(
+                "INSERT INTO source_workspaces (app_id, record, updated_at) \
+                 VALUES ($1, $2, $3) \
+                 ON CONFLICT (app_id) DO UPDATE SET \
+                   record = EXCLUDED.record, updated_at = EXCLUDED.updated_at",
+                &[&workspace.app_id, &record, &(workspace.updated_at as i64)],
+            )
+            .await
+            .with_context(|| format!("upserting source workspace {}", workspace.app_id))?;
         }
 
         if let Some(t) = &batch.transition {
@@ -387,6 +475,10 @@ pub async fn write_through(
             }
         }
         let operations = plat.take_dirty_operations();
+        let workspaces = app_ids
+            .iter()
+            .filter_map(|id| plat.workspaces.get(*id).cloned())
+            .collect();
         let since = store.persisted_seq.load(Ordering::SeqCst);
         let audit: Vec<AuditEvent> = plat
             .audit
@@ -400,6 +492,7 @@ pub async fn write_through(
             store,
             PersistBatch {
                 apps,
+                workspaces,
                 transition,
                 operations,
                 audit,

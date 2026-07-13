@@ -25,6 +25,17 @@ CREATE TABLE IF NOT EXISTS apps (
   updated_at BIGINT NOT NULL
 );
 
+-- The editable source workspace is deliberately separate from apps.record:
+-- ordinary lifecycle reads stay small, while every accepted checkpoint,
+-- treatment choice, candidate, diff, and verification report survives a
+-- control-plane restart. The FK prevents an orphan workspace from becoming
+-- durable before its owning app exists.
+CREATE TABLE IF NOT EXISTS source_workspaces (
+  app_id     TEXT PRIMARY KEY REFERENCES apps(app_id) ON DELETE CASCADE,
+  record     JSONB NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+
 -- Boundary's session_valid_state, for the app lifecycle. Seeded below from
 -- the SAME transition set as src/state.rs::VALID_STAGE_TRANSITIONS — a test
 -- (tests/store_contract.rs) asserts the seed and the Rust const match.

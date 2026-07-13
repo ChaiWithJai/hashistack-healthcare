@@ -98,22 +98,18 @@ trap removes the same rule whether deployment passes or fails. The token needs
 only firewall update access. SSH still requires the staging private key and a
 pinned known-host entry; ports 80 and 443 remain the public application path.
 
-The source-generation worker remains separate. It has distinct endpoint,
-key, and version settings because an ADK worker must never reuse the planner
-credential. Set `DIGITALOCEAN_GENERATOR_REQUIRED=1` only after the deployed
-Deep Agents worker passes the remote generation proof. On 2026-07-13 the
-account rejected `gradient agent deploy` because the ADK public preview was
-not enabled for the team. Until DigitalOcean enables it, the UI labels
-generation as the deterministic safe floor and does not claim GPT-5.6 Sol ran.
+Gemma 4 is the only application model. It plans treatments. Rust creates the
+candidate source with checked pack rules. Rust also runs the checks, stores the
+accepted checkpoint, and creates the export. The repository does not deploy a
+second model worker or an agent framework.
 
-Keep inference outside the trusted control plane:
+The DigitalOcean agent must receive synthetic data only. Do not send patient
+data to the agent until DigitalOcean confirms the required health care terms
+and the full data retention path in writing.
 
-- `llama.cpp` on the CPU Droplet is useful only as a tiny route/canary; 2 vCPU/4 GiB is not a credible coding-model host.
-- Hermes can run as an operator/agent client against an OpenAI-compatible endpoint; it does not create inference capacity.
-- A separate GPU Droplet or DigitalOcean Inference endpoint is the credible coding tier. Measure quality, latency, and cost with synthetic prompts before adopting it.
-- Do not send PHI to Gradient, an agent, or a model endpoint until its BAA eligibility and complete data-retention path are confirmed in writing.
-
-The parsimonious MVP is therefore: one small CPU Droplet for isolated staging/prod application services, an external model endpoint selected by configuration, and no Kubernetes. Kubernetes becomes justified only when multi-host scheduling, independent scaling, and rolling workload operations are actual constraints.
+The MVP uses one small CPU Droplet for the application services and the private
+DigitalOcean Gemma agent for planning. It does not need Kubernetes. Add more
+hosts only when the measured load or the required isolation calls for them.
 
 ## Rollback and teardown
 

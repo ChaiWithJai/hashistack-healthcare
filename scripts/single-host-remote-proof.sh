@@ -58,9 +58,7 @@ printf '%s' "$candidate" | python3 -c 'import json,sys; value=json.load(sys.stdi
 generation_provider=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"]["provider"])')
 generation_fallback=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"].get("fallback_reason", ""))')
 test -z "$generation_fallback"
-if [ "${REQUIRE_DIGITALOCEAN_GENERATOR:-0}" = 1 ]; then
-  test "$generation_provider" = digitalocean
-fi
+test "$generation_provider" = deterministic
 candidate_id=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["candidate"]["id"])')
 curl -fsS "${auth[@]}" "${json[@]}" \
   -d "{\"candidate_id\":\"$candidate_id\"}" \

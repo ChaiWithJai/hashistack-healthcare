@@ -1,7 +1,7 @@
-//! Typed provider boundary for source-workspace planning and generation.
+//! Typed provider boundary for source-workspace planning.
 //!
 //! Remote agents only propose data. The Rust workspace validates every plan
-//! and patch again and remains the sole authority that verifies, checkpoints,
+//! and remains the sole authority that generates, verifies, checkpoints,
 //! accepts, exports, or deploys source.
 
 use std::collections::BTreeMap;
@@ -23,7 +23,6 @@ const DEFAULT_MAX_RESPONSE_BYTES: usize = 600_000;
 const MAX_CONFIGURED_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const DETERMINISTIC_MODEL: &str = "convention-floor-v1";
 const DIGITALOCEAN_PLANNER_MODEL: &str = "gemma-4-31B-it";
-const DIGITALOCEAN_GENERATOR_MODEL: &str = "openai-gpt-5.6-sol";
 
 pub type AgentFuture<'a, T> =
     Pin<Box<dyn Future<Output = std::result::Result<AgentOutput<T>, AgentError>> + Send + 'a>>;
@@ -185,43 +184,23 @@ impl fmt::Debug for AccessKey {
 pub struct DigitalOceanWorkspaceAgent {
     client: Client,
     planner_endpoint: Url,
-    generator_endpoint: Option<Url>,
     planner_access_key: AccessKey,
-    generator_access_key: Option<AccessKey>,
     planner_version: Option<String>,
-    generator_version: Option<String>,
     max_response_bytes: usize,
 }
 
 impl DigitalOceanWorkspaceAgent {
     pub fn new(
         planner_endpoint: &str,
-        generator_endpoint: Option<&str>,
         planner_access_key: String,
-        generator_access_key: Option<String>,
-        deployment_versions: (Option<String>, Option<String>),
+        planner_version: Option<String>,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Result<Self> {
         let planner_endpoint = planner_chat_url(planner_endpoint)?;
         validate_private_endpoint(&planner_endpoint, "DIGITALOCEAN_PLANNER_ENDPOINT")?;
-        let generator_endpoint = generator_endpoint
-            .map(|value| {
-                let url =
-                    Url::parse(value).context("DIGITALOCEAN_GENERATOR_ENDPOINT is not a URL")?;
-                validate_private_endpoint(&url, "DIGITALOCEAN_GENERATOR_ENDPOINT")?;
-                Ok::<_, anyhow::Error>(url)
-            })
-            .transpose()?;
         if planner_access_key.trim().is_empty() {
             bail!("DIGITALOCEAN_PLANNER_ACCESS_KEY is required");
-        }
-        if generator_endpoint.is_some()
-            && generator_access_key
-                .as_deref()
-                .is_none_or(|key| key.trim().is_empty())
-        {
-            bail!("DIGITALOCEAN_GENERATOR_ACCESS_KEY is required when a generator endpoint is configured");
         }
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
             bail!("WORKSPACE_AGENT_TIMEOUT_SECS must be between 1 and 120");
@@ -239,11 +218,8 @@ impl DigitalOceanWorkspaceAgent {
         Ok(Self {
             client,
             planner_endpoint,
-            generator_endpoint,
             planner_access_key: AccessKey(planner_access_key),
-            generator_access_key: generator_access_key.map(AccessKey),
-            planner_version: deployment_versions.0,
-            generator_version: deployment_versions.1,
+            planner_version,
             max_response_bytes,
         })
     }
@@ -302,19 +278,6 @@ impl DigitalOceanWorkspaceAgent {
             body.extend_from_slice(&chunk);
         }
         Ok(body)
-    }
-
-    async fn invoke_generator<T: for<'de> Deserialize<'de>>(
-        &self,
-        endpoint: Url,
-        access_key: &AccessKey,
-        request: &WireRequest<'_>,
-    ) -> std::result::Result<T, AgentError> {
-        let body = self.post_json(endpoint, access_key, request).await?;
-        serde_json::from_slice(&body).map_err(|_| AgentError {
-            kind: AgentErrorKind::Schema,
-            status: Some(200),
-        })
     }
 }
 
@@ -400,45 +363,7 @@ impl WorkspaceAgent for DigitalOceanWorkspaceAgent {
     }
 
     fn generate<'a>(&'a self, request: GenerateRequest) -> AgentFuture<'a, CandidatePatch> {
-        Box::pin(async move {
-            let Some(endpoint) = self.generator_endpoint.clone() else {
-                let mut output = DeterministicWorkspaceAgent.generate(request).await?;
-                output.provider = "deterministic";
-                return Ok(output);
-            };
-            let wire = WireRequest {
-                schema_version: SCHEMA_VERSION,
-                action: "generate",
-                thread_id: &request.thread_id,
-                task: &request.task,
-                pack: &request.pack,
-                workspace_summary: &request.workspace_summary,
-                selected_treatment_id: Some(&request.selected_treatment_id),
-            };
-            let access_key = self.generator_access_key.as_ref().ok_or(AgentError {
-                kind: AgentErrorKind::Unauthorized,
-                status: None,
-            })?;
-            let envelope: GenerateEnvelope =
-                self.invoke_generator(endpoint, access_key, &wire).await?;
-            if envelope.schema_version != SCHEMA_VERSION {
-                return Err(schema_error());
-            }
-            envelope
-                .candidate_patch
-                .validate()
-                .map_err(|_| AgentError {
-                    kind: AgentErrorKind::InvalidCandidate,
-                    status: None,
-                })?;
-            Ok(AgentOutput {
-                value: envelope.candidate_patch,
-                provider: "digitalocean",
-                model: DIGITALOCEAN_GENERATOR_MODEL,
-                deployment_version: self.generator_version.clone(),
-                fallback: None,
-            })
-        })
+        DeterministicWorkspaceAgent.generate(request)
     }
 }
 
@@ -490,13 +415,6 @@ struct WireRequest<'a> {
     selected_treatment_id: Option<&'a str>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GenerateEnvelope {
-    schema_version: u8,
-    candidate_patch: CandidatePatch,
-}
-
 fn schema_error() -> AgentError {
     AgentError {
         kind: AgentErrorKind::Schema,
@@ -525,16 +443,7 @@ pub fn from_env() -> Result<Arc<dyn WorkspaceAgent>> {
                 .context("DIGITALOCEAN_PLANNER_ENDPOINT is required")?;
             let access_key = std::env::var("DIGITALOCEAN_PLANNER_ACCESS_KEY")
                 .context("DIGITALOCEAN_PLANNER_ACCESS_KEY is required")?;
-            let generator_endpoint = std::env::var("DIGITALOCEAN_GENERATOR_ENDPOINT")
-                .ok()
-                .filter(|value| !value.trim().is_empty());
-            let generator_access_key = std::env::var("DIGITALOCEAN_GENERATOR_ACCESS_KEY")
-                .ok()
-                .filter(|value| !value.trim().is_empty());
             let planner_version = std::env::var("DIGITALOCEAN_PLANNER_VERSION")
-                .ok()
-                .filter(|value| !value.trim().is_empty());
-            let generator_version = std::env::var("DIGITALOCEAN_GENERATOR_VERSION")
                 .ok()
                 .filter(|value| !value.trim().is_empty());
             let timeout =
@@ -547,10 +456,8 @@ pub fn from_env() -> Result<Arc<dyn WorkspaceAgent>> {
             )? as usize;
             let primary = Arc::new(DigitalOceanWorkspaceAgent::new(
                 &planner_endpoint,
-                generator_endpoint.as_deref(),
                 access_key,
-                generator_access_key,
-                (planner_version, generator_version),
+                planner_version,
                 Duration::from_secs(timeout),
                 max,
             )?);
@@ -724,10 +631,8 @@ mod tests {
     fn rejects_public_plain_http() {
         let error = DigitalOceanWorkspaceAgent::new(
             "http://example.com/agent",
-            None,
             "key".into(),
             None,
-            (None, None),
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -760,10 +665,8 @@ mod tests {
         let (endpoint, request) = serve_once(body);
         let agent = DigitalOceanWorkspaceAgent::new(
             &endpoint,
-            None,
             "private-key".into(),
-            None,
-            (Some("planner-test-v1".into()), None),
+            Some("planner-test-v1".into()),
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -800,16 +703,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_sends_selected_treatment_but_not_local_files() {
-        let body = r#"{"schema_version":1,"candidate_patch":{"summary":"change","files":[{"path":"web/src/routes/+page.svelte","content":"<p>safe</p>","reason":"screen"}],"verification_commands":["npm run check"]}}"#.to_string();
-        let (endpoint, request) = serve_once(body);
+    async fn generation_is_always_local_and_deterministic() {
         let agent = DigitalOceanWorkspaceAgent::new(
-            &endpoint,
-            Some(&endpoint),
+            "http://127.0.0.1:9",
             "private-key".into(),
-            Some("generator-key".into()),
-            (None, Some("generator-test-v1".into())),
-            Duration::from_secs(5),
+            Some("planner-test-v1".into()),
+            Duration::from_secs(1),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
         .unwrap();
@@ -821,26 +720,17 @@ mod tests {
                 workspace_summary: "checkpoint=0".into(),
                 selected_treatment_id: "timeline".into(),
                 accepted_files: BTreeMap::from([(
-                    "web/private".into(),
-                    "sentinel-source-secret".into(),
+                    "web/src/routes/+page.svelte".into(),
+                    "<main><h1>Practice</h1></main>".into(),
                 )]),
             })
             .await
             .unwrap();
-        assert_eq!(output.model, "openai-gpt-5.6-sol");
-        assert_eq!(
-            output.deployment_version.as_deref(),
-            Some("generator-test-v1")
-        );
-        let raw = request.recv().unwrap();
-        assert!(raw
-            .to_ascii_lowercase()
-            .contains("authorization: bearer generator-key"));
-        let json = raw.split("\r\n\r\n").nth(1).unwrap();
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert_eq!(value["selected_treatment_id"], "timeline");
-        assert!(!json.contains("sentinel-source-secret"));
-        assert!(value.get("accepted_files").is_none());
+        assert_eq!(output.provider, "deterministic");
+        assert_eq!(output.model, "convention-floor-v1");
+        assert!(output.deployment_version.is_none());
+        assert!(output.value.files[0].content.contains("queue"));
+        assert!(output.value.files[0].content.contains("timeline"));
     }
 
     #[tokio::test]
@@ -854,10 +744,8 @@ mod tests {
         let (endpoint, _) = serve_once(body);
         let agent = DigitalOceanWorkspaceAgent::new(
             &endpoint,
-            None,
             "private-key".into(),
             None,
-            (None, None),
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -879,10 +767,8 @@ mod tests {
     async fn generate_is_deterministic_when_no_worker_endpoint_is_configured() {
         let agent = DigitalOceanWorkspaceAgent::new(
             "http://127.0.0.1:9",
-            None,
             "private-key".into(),
             None,
-            (None, None),
             Duration::from_secs(1),
             DEFAULT_MAX_RESPONSE_BYTES,
         )

@@ -41,8 +41,11 @@ const DOCS_SHOTS_DIR = path.join(DOCS_DIR, 'screenshots');
 const CONTROL_PLANE_BIN = path.join(
   process.env.CARGO_TARGET_DIR || path.join(ROOT, 'target'), 'debug', 'rust-proof-service');
 const EJECT_TARGET_DIR = process.env.EVALS_EJECT_TARGET_DIR || path.join(EVALS_DIR, 'target');
-const CP_PORT_BASE = 39200; // control-plane instances (siblings use 39000/39100)
-const APP_PORT_BASE = 39300; // ejected apps
+// Stay below Linux's default ephemeral range (32768-60999). Playwright opens
+// many outbound sockets, so ports in that range can be claimed between
+// scenarios even when every prior child process has exited cleanly.
+const CP_PORT_BASE = 24000;
+const APP_PORT_BASE = 24100;
 
 // ---------- playwright resolution (preinstalled path first, then normal) ----------
 

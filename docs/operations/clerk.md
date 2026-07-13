@@ -30,13 +30,59 @@ The service does not need a Clerk secret key at runtime.
 
 Use these operator names in the credential manager:
 
-- `Practice Studio staging test owner`
-- `Practice Studio production smoke owner`
+- `Practice Studio staging superadmin`
+- `Practice Studio production superadmin`
+
+“Superadmin” is the operator-facing name for these test identities. It is not
+an application role. Both map to the existing tenant-scoped `clinician` role,
+which is sufficient to claim and export. Neither can list another tenant.
 
 The repository stores no email address, password, verification code, session
 token, Clerk subject, or subject map value.
 
-## Create the staging test owner
+## Environment configuration
+
+Keep these as protected deployment settings. Replace every angle-bracketed
+placeholder in the deployment secret store. Do not put the resolved values in
+this repository or a pull request.
+
+| Setting | Staging | Production |
+|---|---|---|
+| Clerk environment | Development instance | Production instance |
+| Credential-manager record | `Practice Studio staging superadmin` | `Practice Studio production superadmin` |
+| Test mailbox | `<STAGING_SUPERADMIN_EMAIL>` | `<PRODUCTION_SUPERADMIN_EMAIL>` |
+| Rust principal | `staging-test-owner` | `production-smoke-owner` |
+| Application role | `clinician` | `clinician` |
+| Tenant | `staging-test` | `production-test` |
+| Subject map | `<STAGING_CLERK_SUBJECT>=staging-test-owner` | `<PRODUCTION_CLERK_SUBJECT>=production-smoke-owner` |
+| Allowed browser origin | `<STAGING_HTTPS_ORIGIN>` | `<PRODUCTION_HTTPS_ORIGIN>` |
+
+The protected staging deployment receives:
+
+```text
+CLERK_PUBLISHABLE_KEY=<STAGING_CLERK_PUBLISHABLE_KEY>
+CLERK_ISSUER=<STAGING_CLERK_HTTPS_ISSUER>
+CLERK_JWKS_URL=<STAGING_CLERK_HTTPS_JWKS_URL>
+CLERK_AUTHORIZED_PARTIES=<STAGING_HTTPS_ORIGIN>
+CLERK_SUBJECT_MAP=<STAGING_CLERK_SUBJECT>=staging-test-owner
+ANON_SESSION_HMAC_KEY=<STAGING_RANDOM_VALUE_AT_LEAST_32_BYTES>
+```
+
+The protected production deployment receives a different set:
+
+```text
+CLERK_PUBLISHABLE_KEY=<PRODUCTION_CLERK_PUBLISHABLE_KEY>
+CLERK_ISSUER=<PRODUCTION_CLERK_HTTPS_ISSUER>
+CLERK_JWKS_URL=<PRODUCTION_CLERK_HTTPS_JWKS_URL>
+CLERK_AUTHORIZED_PARTIES=<PRODUCTION_HTTPS_ORIGIN>
+CLERK_SUBJECT_MAP=<PRODUCTION_CLERK_SUBJECT>=production-smoke-owner
+ANON_SESSION_HMAC_KEY=<PRODUCTION_RANDOM_VALUE_AT_LEAST_32_BYTES>
+```
+
+Never reuse an issuer, subject, browser origin, session-HMAC key, or test
+mailbox across the two environments.
+
+## Create the staging superadmin test user
 
 1. Use a Clerk development instance.
 2. Create a dedicated Clerk test user. Use a test address that your team owns.
@@ -54,7 +100,7 @@ Clerk development test addresses can use the reserved `+clerk_test` form and
 the Clerk test verification code. Use this only in the staging development
 instance.
 
-## Create the production smoke owner
+## Create the production superadmin test user
 
 Do not enable Clerk test mode in production. Create a temporary user with a
 real team mailbox and multifactor authentication. Map that user to a synthetic

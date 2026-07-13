@@ -25,18 +25,20 @@ synthetic preview after the release checks pass.
 
 1. Describe a small practice tool.
 2. Choose a signed clinical starter.
-3. Ask for one change.
-4. Open the release gate.
-5. Apply the suggested fix when a check fails.
-6. Publish the isolated synthetic preview.
-7. Select "Make this mine."
-8. Sign in and export the app.
+3. Compare the proposed treatments and select one.
+4. Review the generated source diff and executable verification results.
+5. Accept the candidate, then ask for another change if needed.
+6. Open the release gate and apply a suggested fix when a check fails.
+7. Publish the isolated synthetic preview.
+8. Select "Make this mine." This is the first step that asks for sign in.
+9. Sign in and export the app.
 
 ## Test accounts
 
 The Practice Studio Clerk application has two isolated environments.
-Development is for staging and production is for production. Create one test
-owner in each environment. Map both users to the Rust `clinician` role and a
+Development is for staging and Production is for production. Create one
+superadmin test user in each environment. Map both users to the Rust
+`clinician` role and a
 synthetic tenant. That role can claim and export an app. A staging session
 cannot be used in production.
 
@@ -66,6 +68,10 @@ To provision or rotate an account:
    staging account may remain for pull-request verification.
 
 The test identity is never used with patient data.
+
+The exact placeholder configuration and rotation procedure are in
+[Operate Clerk sign in](../operations/clerk.md). “Superadmin” is the test-user
+label, not a cross-tenant application capability.
 
 ## Current delivery limit
 

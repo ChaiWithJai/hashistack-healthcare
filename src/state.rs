@@ -325,6 +325,9 @@ pub struct Platform {
     /// Source-planning provider. Deterministic by default; hosted output is
     /// untrusted and revalidated by the Rust workspace boundary.
     pub workspace_agent: Arc<dyn crate::workspace_agent::WorkspaceAgent>,
+    /// Platform-owned executable verification. Model-proposed commands never
+    /// cross this boundary; tests inject a deterministic verifier.
+    pub workspace_verifier: Arc<dyn crate::workspace_verifier::WorkspaceVerifier>,
     /// The Postgres control store (#7). `None` (no `CONTROL_DB_URL`) keeps
     /// the platform purely in-memory; `Some` makes every mutation write
     /// through after its lock is released.
@@ -365,6 +368,7 @@ impl Platform {
             operations: Vec::new(),
             ladder: Arc::new(EscalationLadder::from_env()),
             workspace_agent: Arc::new(crate::workspace_agent::DeterministicWorkspaceAgent),
+            workspace_verifier: Arc::new(crate::workspace_verifier::DeterministicWorkspaceVerifier),
             store: None,
             broker: Arc::new(crate::audit::Broker::new()),
             cleanup_driver: Arc::new(crate::deploy::HashiCleanupDriver),

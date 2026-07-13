@@ -16,8 +16,10 @@ A workspace route accepts a verified Clerk user or a valid anonymous workspace
 cookie. The service derives a private tenant from the signed cookie. It does
 not store the raw cookie in the app record or audit log.
 
-Workspace routes cover app creation, app changes, restore, review, release
-checks, app audit, synthetic preview publication, preview status, and rollback.
+Workspace routes cover app creation, treatment planning and selection,
+candidate generation, executable verification, diff review, candidate
+acceptance or rejection, restore, release checks, app audit, synthetic preview
+publication, preview status, and rollback. None of those steps requires Clerk.
 Guests can use synthetic data only. A guest cannot publish to the production
 pool.
 

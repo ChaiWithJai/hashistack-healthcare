@@ -29,6 +29,7 @@ pub mod packs;
 pub mod refusals;
 pub mod state;
 pub mod store;
+pub mod workspace;
 
 use axum::{extract::Path, Json, Router};
 use serde::Serialize;

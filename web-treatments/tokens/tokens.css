@@ -1,0 +1,49 @@
+/* Shared design tokens extracted from the shakti-ui archive per ADR 0008
+   written clearance. Values only — hand-extracted from the archive's
+   `_ds_manifest.json` token list and `_ds_bundle.css` custom-property
+   declarations. No vendored component markup, JS, or fonts — see
+   web-treatments/tokens/README.md for provenance and usage rules. */
+:root {
+  /* Ink / neutral surfaces — shakti-ui's warm-tinted zinc scale */
+  --st-ink: oklch(0.15 0.022 18); /* --color-zinc-950 */
+  --st-muted: oklch(0.552 0.05 30); /* --color-zinc-500 */
+  --st-line: oklch(0.925 0.02 36); /* --color-zinc-200 */
+  --st-panel: #fff; /* --color-white */
+  --st-canvas: oklch(0.97 0.012 38); /* --color-zinc-100 */
+
+  /* Brand — shakti-ui's "rose" accent (Button's default color) */
+  --st-brand: oklch(64.5% 0.246 16.439); /* --color-rose-500 */
+  --st-brand-dark: oklch(51.4% 0.222 16.935); /* --color-rose-700 */
+
+  /* Focus ring — shakti-ui overrides Catalyst's blue-500 focus/outline
+     color with a warm rose-hued value; width/offset match the
+     `outline-2` / `outline-offset-2` utilities components compose. */
+  --st-focus: oklch(0.635 0.19 6); /* --color-blue-500 (shakti override) */
+  --st-focus-width: 2px;
+  --st-focus-offset: 2px;
+
+  /* Status colors — text tone plus a light background tint, matching
+     the archive's own `color-mix(in oklab, <tone> 15%, transparent)`
+     pattern for badge/alert backgrounds. */
+  --st-success: oklch(52.7% 0.154 150.069); /* --color-green-700 */
+  --st-success-bg: color-mix(in oklab, var(--st-success) 15%, white);
+  --st-warn: oklch(55.5% 0.163 48.998); /* --color-amber-700 */
+  --st-warn-bg: color-mix(in oklab, var(--st-warn) 15%, white);
+  --st-danger: oklch(50.5% 0.213 27.518); /* --color-red-700 */
+  --st-danger-bg: color-mix(in oklab, var(--st-danger) 15%, white);
+
+  /* Radii — shakti-ui's softened Tailwind radius scale */
+  --st-radius-control: 0.625rem; /* --radius-md, inputs/buttons */
+  --st-radius-card: 1rem; /* --radius-lg, cards/panels */
+  --st-radius-dialog: 1.75rem; /* --radius-2xl, dialogs/large surfaces */
+
+  /* Spacing — shakti-ui's 4px base unit (`--spacing: 0.25rem`), taken
+     at the 1x/2x/3x/4x multiples components compose most (px-1..px-4) */
+  --st-space-1: 4px;
+  --st-space-2: 8px;
+  --st-space-3: 12px;
+  --st-space-4: 16px;
+
+  /* Type — shakti-ui's single self-hosted rounded sans family */
+  --st-font: "Quicksand Variable", ui-rounded, system-ui, sans-serif;
+}

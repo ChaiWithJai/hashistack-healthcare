@@ -227,7 +227,11 @@ fn parse_loopback_endpoint(value: &str) -> Result<Endpoint, String> {
         if host != "127.0.0.1" && host != "localhost" {
             return Err("local model endpoint must be 127.0.0.1, localhost, or [::1]".into());
         }
-        let connect_host = if host == "localhost" { "127.0.0.1" } else { host };
+        let connect_host = if host == "localhost" {
+            "127.0.0.1"
+        } else {
+            host
+        };
         (host, port, format!("{connect_host}:{port}"))
     };
     if host.is_empty() || path.contains(' ') {
@@ -512,9 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn raw_media_reaches_only_the_selected_loopback_model() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();

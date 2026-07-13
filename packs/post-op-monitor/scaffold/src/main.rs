@@ -78,12 +78,12 @@ struct Patient {
     // phi-encryption: stub — in-memory over the synthetic seed only;
     // hipaa-core encryptField via Vault transit before any real storage.
     id: String,
-    name: String,         // phi: patient name
+    name: String, // phi: patient name
     #[allow(dead_code)] // retained in the synthetic fixture's PHI inventory
-    age: u8,              // phi: age
-    procedure: String,    // phi: procedure performed
+    age: u8, // phi: age
+    procedure: String, // phi: procedure performed
     surgery_date: String, // phi: date of surgery
-    surgeon: String,      // phi: treating surgeon
+    surgeon: String, // phi: treating surgeon
     #[serde(default)]
     checkins: Vec<SeedCheckin>,
 }

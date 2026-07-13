@@ -1368,6 +1368,7 @@ mod tests {
         let main_rs = &bundle.files["server/src/main.rs"];
         assert!(main_rs.contains("PAIN_ESCALATION_THRESHOLD"));
         assert!(bundle.files["server/Cargo.toml"].contains("post-op-monitor-scaffold"));
+        assert!(bundle.files["server/Cargo.lock"].contains("name = \"axum\""));
         // The synthetic seed rides along where the app's loader expects it.
         assert!(bundle.files["synthetic/post-op-demo.json"]
             .contains("SYNTHETIC DATA — generated, not derived from any real person"));

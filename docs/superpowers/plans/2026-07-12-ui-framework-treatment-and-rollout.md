@@ -593,135 +593,157 @@ git commit -m "docs: score treatments, decide framework, extract primitives"
 
 ---
 
-### Task 6: Full rollout — replace web/index.html with the winner
+### Task 6 (REVISED 2026-07-13): Rebase only — no rollout
 
-**Files:**
-- Modify: `web/` (becomes the winning framework's project root, or a
-  `web/app/` subfolder with `web/index.html` as its single-file build
-  output — pick whichever keeps `src/api.rs`'s
-  `include_str!("../web/index.html")` valid without touching Rust code;
-  document the choice at the top of `web/README.md`)
-- Create: `web/README.md` (how to run dev, how to build, how the single-
-  file output is produced)
-- Modify: `src/api.rs:41` only if the served file's path changes
-- Test: manual verification against `cargo run`, see Step 5
+**Why revised:** while Tasks 1–5 ran, `origin/main` advanced 26 commits
+past this branch's base, adding Clerk auth and a full "Shakti flow"
+(describe → 3 signed treatment recipes → review diff → gate → live)
+directly into `web/index.html`, plus Netlify/DigitalOcean/Cloudflare
+delivery infra and Svelte-as-export-target code generation in
+`src/eject.rs` (for clinicians' *exported* apps, not the platform's own
+doctor UI). Replacing `web/index.html` with the Nuxt Pareto-screen build
+would delete real, shipped functionality the treatments never
+implemented. Per user direction (2026-07-13): **do not replace
+`web/index.html`.** The three treatments and the comparison doc stand as
+forward-looking research for a possible future migration, not something
+landing now.
 
-**Interfaces:**
-- Consumes: Task 5's winner + primitives list; the winning treatment's
-  own code from Task 2/3/4 as the starting point (move/rename its
-  directory into `web/`, don't rewrite from scratch).
+**Status: DONE.** The branch was rebased cleanly onto `origin/main`
+(`2885c70`) with zero conflicts (`web-treatments/` and `docs/treatments/`
+are new paths main never touched). A separate rollout attempt (promoting
+`web-treatments/nuxt/` into `web/`, deleting `web/index.html`) was started
+by an implementer subagent, recognized as wrong mid-flight, and fully
+reverted (`git reset --hard` + `git clean`) before rebasing — no trace of
+it remains on the branch.
 
-- [ ] **Step 1: Rebase onto current main**
-
-```bash
-git fetch origin main
-git rebase origin/main
-```
-Resolve any conflicts (there should be none — `web/index.html` is the
-only file both this branch and `main` could plausibly touch; if `main`
-changed it, take `main`'s version as the pre-rollout baseline and reapply
-this task on top of it).
-
-- [ ] **Step 2: Promote the winning treatment into `web/`**
-
-```bash
-git mv web-treatments/<winner>/* web/
-git rm web/index.html   # the old vanilla file, once its replacement builds (Step 4)
-```
-
-- [ ] **Step 3: Extend to full 8-stage parity**
-
-Add the 4 stages the Pareto screens didn't cover — `deploy` and
-`operate` views (GET `/api/apps/:id/operate`, `/api/apps/:id/
-operations`), plus `restore`/`review` actions (POST `/api/apps/:id/
-restore`, `/api/apps/:id/review`) surfaced on the workflow-rail screen
-next to the existing iterate/promote/rollback controls, and an export
-link (GET `/api/apps/:id/export`, GET `/api/audit/export`) on the audit
-screen. Reuse the Step-4/Task-5 API client and polling primitive; add
-the new endpoints to the same `api.ts`/`useApi.ts` file rather than a
-new one.
-
-- [ ] **Step 4: Configure the single-file production build**
-
-Add `vite-plugin-singlefile` to the winner's Vite config (already
-installed in Tasks 2–4), set the build output to emit exactly
-`web/index.html` with all JS/CSS inlined:
-
-```ts
-import { viteSingleFile } from 'vite-plugin-singlefile';
-// in defineConfig plugins array, alongside the framework plugin:
-plugins: [/* framework plugin */, viteSingleFile()],
-build: { outDir: '.', emptyOutDir: false }
-```
-
-Adjust `outDir`/build target per framework (SvelteKit and Nuxt both
-need their SSR/adapter config set to static/SPA output first — e.g.
-`@sveltejs/adapter-static` or Nuxt's `nitro.preset = 'static'` — before
-`vite-plugin-singlefile` can inline a single HTML file; do this
-adapter/preset change as part of this step, not a follow-up).
-
-```bash
-cd web && npm run build
-```
-
-- [ ] **Step 5: Verify the built artifact serves from the real binary**
-
-```bash
-cd /Users/jaybhagat/Documents/qedc/hashistack-healthcare
-cargo run
-```
-In a browser, open `http://127.0.0.1:3000/` and walk the full workflow:
-create an app, iterate, view gate report and fix a check, promote,
-view operate/audit, export. Confirm no console errors and no requests
-to a dev-proxy origin (everything must resolve against the same-origin
-`/api/*` the Rust server serves, since there's no Vite proxy at runtime
-— this is why Step 3's `api.ts` must use relative `/api/...` paths, not
-`http://127.0.0.1:3000/api/...`).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add web/ src/api.rs
-git commit -m "feat: replace web/index.html with <winner>-built doctor UI"
-```
+Task 7 below is rewritten to cover the documentation the user actually
+asked for instead: current-state doctor-UI journey, the exported
+clinician deliverable, the delivery infra, and the framework-treatment
+findings as one indexed package.
 
 ---
 
-### Task 7: Screenshots
+### Task 7 (REVISED 2026-07-13): Comprehensive documentation package
+
+Four independent sub-tasks (7a–7d), each producing its own doc file(s)
+under `docs/journey/`, run sequentially (not parallel — shared risk of
+screenshot-directory/index-file collisions), followed by one index task
+(7e) tying them together. Each sub-task is its own implementer + review
+cycle, same as Tasks 1–5.
+
+#### Task 7a: Doctor UI journey (current main)
 
 **Files:**
-- Create: `docs/treatments/screenshots/` (PNG files, before/after per
-  stage)
+- Create: `docs/journey/doctor-ui.md`
+- Create: `docs/journey/screenshots/doctor-ui/` (PNG files)
 
-**Interfaces:**
-- Consumes: `cargo run` serving the new `web/index.html` (Task 6); a
-  second checkout of the pre-rollout `web/index.html` (via `git show
-  origin/main:web/index.html`) for the "before" set.
+**Interfaces:** consumes `cargo run` serving current `web/index.html`
+(post-rebase, i.e. the real Shakti flow + Clerk + legacy skins).
 
-- [ ] **Step 1: Capture "after" screenshots**
+- [ ] **Step 1:** Start `cargo run` from the main checkout (read-only;
+  don't kill processes you didn't start). Load Chrome browser automation
+  tools (`ToolSearch` for `mcp__claude-in-chrome__*`).
+- [ ] **Step 2:** Walk and screenshot every screen/permutation reachable
+  from `/`: the guest/anonymous describe flow, the Clerk sign-in
+  ownership gate, the 3-recipe treatment comparison (`shaktiTreatments`),
+  candidate review/diff (`shaktiCandidateReview`), the gate modal
+  (`shaktiGate`), the live/post-launch dashboard (`shaktiLive`), and the
+  four legacy skins if still reachable (Builder/Release path/Clinical
+  view/Architecture). Name files by screen: `docs/journey/screenshots/
+  doctor-ui/{describe,auth-gate,treatments,candidate-review,gate,live,
+  skin-builder,skin-pipeline,skin-chart,skin-arch}.png`.
+- [ ] **Step 3:** Write `docs/journey/doctor-ui.md`: one section per
+  screen with its screenshot embedded, what triggers it, what state
+  transition it represents (tie back to the `S` state machine fields
+  found in `web/index.html`), and any rough edges observed (loading
+  states, error handling, accessibility) — evidence-based, not
+  speculative.
+- [ ] **Step 4:** Commit: `git add docs/journey/doctor-ui.md docs/journey/screenshots/doctor-ui/ && git commit -m "docs: current doctor-UI journey with screenshots"`
 
-With `cargo run` serving the Task 6 build, use Chrome browser automation
-(load `mcp__claude-in-chrome__*` tools via ToolSearch first) to navigate
-`http://127.0.0.1:3000/` and screenshot each of the 8 workflow stages
-plus the gate-report and audit-trail screens. Save as
-`docs/treatments/screenshots/after-{stage}.png` for each of: builder,
-generate, preview, iterate, gate, deploy, operate, audit.
+#### Task 7b: Exported clinician deliverable
 
-- [ ] **Step 2: Capture "before" screenshots**
+**Files:**
+- Create: `docs/journey/exported-app.md`
+- Create: `docs/journey/screenshots/exported-app/` (PNG files, reuse
+  screenshots the generated `owned-app.mjs` Playwright test already
+  produces under `web/test-results/` if an export is run, per Step 2)
 
-Write `origin/main`'s `web/index.html` to a scratch file, serve it
-statically (e.g. `python3 -m http.server` from a temp dir containing
-just that file — note in the issue that it won't have live API data
-since it's the standalone file, so these are UI/UX-only captures), and
-screenshot the same set of stages/skins the file exposes via its
-`.skins` toggle. Save as `docs/treatments/screenshots/before-{stage}.png`.
+**Interfaces:** consumes `src/eject.rs` (read-only) and one real export
+run (`cargo run` + trigger export for `post-op-monitor`, or read the
+generated file contents directly from `eject.rs`'s template functions if
+running a live export isn't practical in this environment — say
+explicitly in the doc which method was used).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 1:** Read `src/eject.rs` in full to understand exactly what
+  gets generated (Svelte 5/SvelteKit source, `owned-app.mjs` Playwright
+  journey test, README/CONTRIBUTING content, `.gitignore`/`.dockerignore`).
+- [ ] **Step 2:** Either trigger a real export via the running API and
+  inspect the generated tree, or (if that's not practical here) document
+  precisely from `eject.rs`'s template strings what ships, clearly
+  labeled as "read from generator source" vs. "observed from a live
+  export."
+- [ ] **Step 3:** Write `docs/journey/exported-app.md`: what a clinician
+  receives (file tree, README/CONTRIBUTING excerpts), the post-op-monitor
+  escalation flow specifically (patient submits pain score → queued →
+  clinician inbox), the `owned-app.mjs` browser-journey test and what it
+  asserts (including the zero-external-host-network-request check), and
+  how a clinician would run/verify it themselves.
+- [ ] **Step 4:** Commit: `git add docs/journey/exported-app.md docs/journey/screenshots/exported-app/ && git commit -m "docs: exported clinician deliverable"`
 
-```bash
-git add docs/treatments/screenshots/
-git commit -m "docs: before/after screenshots for the UI framework rollout"
-```
+#### Task 7c: Frontend delivery infra
+
+**Files:**
+- Create: `docs/journey/delivery-infra.md`
+
+**Interfaces:** consumes `netlify.toml`, `terraform/cloudflare/`,
+`deploy/cloudflared/staging.yml.example`, `docs/decisions/0008-cloudflare-delivery-boundary.md`,
+`docs/decisions/0009-agent-workspace-and-model-routing.md`,
+`docs/digitalocean-runbook.md`, `.github/workflows/staging-preview.yml`,
+`.github/workflows/cloudflare-dns.yml`, `verifier/` (all read-only).
+
+- [ ] **Step 1:** Read every file listed above in full.
+- [ ] **Step 2:** Write `docs/journey/delivery-infra.md` as one clear
+  pipeline diagram-in-prose: what's actually live today (Netlify static
+  host + proxy → hardcoded DO droplet IP) vs. what's staged-but-not-
+  cut-over (Cloudflare DNS/tunnel terraform), the staging-preview GitHub
+  Actions flow end to end (firewall punch → deploy exact PR SHA → comment
+  URL back), and the `verifier/` sandboxed Docker verification pipeline
+  (what it checks, why network is disabled). Be explicit about the gap
+  between "accepted decision" (ADR 0008) and "what's actually wired" —
+  don't present the Cloudflare path as live if it isn't.
+- [ ] **Step 3:** Commit: `git add docs/journey/delivery-infra.md && git commit -m "docs: frontend delivery infra, current state vs. staged"`
+
+#### Task 7d: Framework-treatment findings index
+
+**Files:**
+- Create: `docs/journey/framework-treatments.md` (a short pointer/summary
+  doc — the actual findings already exist in `docs/treatments/*`, this
+  task does not duplicate them)
+
+**Interfaces:** consumes `docs/treatments/ui-svelte.md`,
+`docs/treatments/ui-nuxt.md`, `docs/treatments/ui-solid-tanstack.md`,
+`docs/treatments/ui-framework-comparison.md` (already committed, Tasks
+2–5).
+
+- [ ] **Step 1:** Write `docs/journey/framework-treatments.md`: one
+  paragraph framing this as forward-looking research (not something that
+  shipped — cross-reference Task 6's revision note above for why), a
+  one-line summary of each treatment's outcome, the winner and why, and
+  a link to each underlying doc. Keep this short; it's an index, not a
+  restatement.
+- [ ] **Step 2:** Commit: `git add docs/journey/framework-treatments.md && git commit -m "docs: index the framework-treatment findings as forward-looking research"`
+
+#### Task 7e: Journey index
+
+**Files:**
+- Create: `docs/journey/README.md`
+
+- [ ] **Step 1:** Write a short index linking all four docs (7a–7d) plus
+  a one-paragraph statement of scope: this package documents UX, exported
+  deliverable, delivery infra, and framework research as of the date
+  written — a snapshot, not a living doc guaranteed to track future
+  changes.
+- [ ] **Step 2:** Commit: `git add docs/journey/README.md && git commit -m "docs: journey documentation package index"`
 
 ---
 
@@ -738,22 +760,33 @@ git push -u origin claude/treatment-planning-ui-frameworks
 - [ ] **Step 2: Open the draft PR**
 
 ```bash
-gh pr create --draft --title "Exploratory: doctor-UI framework treatments (Svelte / Nuxt / Solid+TanStack)" --body "$(cat <<'EOF'
+gh pr create --draft --title "Exploratory: doctor-UI framework treatments + journey documentation" --body "$(cat <<'EOF'
 ## Summary
-Three throwaway Pareto-screen treatments against the live API, scored in
-docs/treatments/ui-framework-comparison.md, winner rebuilt to full
-8-stage parity and made the served UI in web/. Evidence, not a
-deliverable — per docs/process/gitops-treatments.md, this PR is closed
-without merging; see the tracking issue for what actually ships.
+Three throwaway Pareto-screen treatments (SvelteKit/Nuxt/Solid+TanStack)
+against the live API, scored in docs/treatments/ui-framework-comparison.md.
+Nuxt won on ecosystem maturity, reusability, and time-to-working-screen.
+This is forward-looking research, NOT a rollout: web/index.html is
+unchanged (it has since gained Clerk auth and a full treatment-recipe
+flow on main that none of the treatments implement — replacing it would
+have regressed shipped functionality). Evidence, not a deliverable — per
+docs/process/gitops-treatments.md, this PR is closed without merging; see
+the tracking issue for the actual documentation deliverable.
 
-## Self-reports
+Also includes docs/journey/ — a documentation package covering the
+current doctor-UI journey, the exported clinician deliverable, and the
+frontend delivery infra, with screenshots.
+
+## Self-reports (framework treatments)
 - docs/treatments/ui-svelte.md
 - docs/treatments/ui-nuxt.md
 - docs/treatments/ui-solid-tanstack.md
 - docs/treatments/ui-framework-comparison.md (decision + primitives)
 
-## Screenshots
-docs/treatments/screenshots/ (before/after, all 8 stages)
+## Journey documentation
+- docs/journey/doctor-ui.md (+ screenshots)
+- docs/journey/exported-app.md (+ screenshots)
+- docs/journey/delivery-infra.md
+- docs/journey/framework-treatments.md (index into the treatments above)
 EOF
 )"
 ```
@@ -776,22 +809,27 @@ comment via `gh pr comment` once the issue number is known.)
 - [ ] **Step 1: Create the parent issue**
 
 ```bash
-gh issue create --title "UI: replace web/index.html with <winner> — enable + why the current UX isn't production-ready" --label "area:web,type:feature" --body "$(cat <<'EOF'
-Closes out the exploratory PR #<pr-number> (Svelte/Nuxt/Solid+TanStack
-treatments, docs/treatments/ui-framework-comparison.md).
+gh issue create --title "Journey documentation: doctor UX, exported deliverable, delivery infra, framework research" --label "area:web,type:docs" --body "$(cat <<'EOF'
+Closes out the exploratory PR #<pr-number> (docs/journey/ + docs/treatments/).
 
-## What's enabled
-web/ now builds a <winner> app to a single-file web/index.html (vite-plugin-singlefile), served unchanged by src/api.rs's include_str!. Run: `cd web && npm run build && cd .. && cargo run`.
+## What this covers
+- docs/journey/doctor-ui.md — every screen/permutation of the current
+  doctor UI (Shakti flow + Clerk + legacy skins), with screenshots
+- docs/journey/exported-app.md — what a clinician actually receives
+  (generated Svelte+Rust app, browser-journey test, per-pack flow)
+- docs/journey/delivery-infra.md — the Netlify/DigitalOcean/Cloudflare
+  delivery pipeline, live vs. staged-but-not-cut-over
+- docs/journey/framework-treatments.md — index into the SvelteKit/Nuxt/
+  Solid+TanStack research (docs/treatments/), forward-looking, not shipped
 
-## Why web/index.html (pre-rollout) wasn't production-ready
-- Single 551-line file, inline styles, no component reuse
-- No loading/error states beyond hand-rolled ad hoc handling
-- No accessibility audit (focus management, ARIA on the modal/drawer patterns)
-- No responsive behavior below its fixed max-width layout
-- No tests
+## Why this instead of a UI rollout
+web/index.html gained Clerk auth and a full treatment-recipe flow while
+the framework treatments were in progress; replacing it with any
+treatment's build would have regressed shipped functionality. The
+treatments stand as research for a possible future migration.
 
 ## Evidence
-docs/treatments/screenshots/{before,after}-*.png (all 8 stages)
+docs/journey/screenshots/{doctor-ui,exported-app}/*.png
 docs/treatments/ui-{svelte,nuxt,solid-tanstack}.md (self-reports)
 docs/treatments/ui-framework-comparison.md (decision + primitives)
 EOF
@@ -801,8 +839,11 @@ EOF
 - [ ] **Step 2: Create sub-issues, each referencing the parent**
 
 ```bash
+gh issue create --title "Journey doc: doctor UI UX audit + screenshots" --body "docs/journey/doctor-ui.md. Sub-issue of #<parent>."
+gh issue create --title "Journey doc: exported clinician deliverable" --body "docs/journey/exported-app.md. Sub-issue of #<parent>."
+gh issue create --title "Journey doc: frontend delivery infra (Netlify/DO/Cloudflare)" --body "docs/journey/delivery-infra.md. Sub-issue of #<parent>."
 gh issue create --title "UI framework treatment: SvelteKit — best practices + proof" --body "Self-report: docs/treatments/ui-svelte.md. Sub-issue of #<parent>."
-gh issue create --title "UI framework treatment: Nuxt — best practices + proof" --body "Self-report: docs/treatments/ui-nuxt.md. Sub-issue of #<parent>."
+gh issue create --title "UI framework treatment: Nuxt — best practices + proof (winner)" --body "Self-report: docs/treatments/ui-nuxt.md. Sub-issue of #<parent>."
 gh issue create --title "UI framework treatment: Solid+TanStack — best practices + proof" --body "Self-report: docs/treatments/ui-solid-tanstack.md. Sub-issue of #<parent>."
 gh issue create --title "Primitives/helpers extracted from the UI treatments" --body "docs/treatments/ui-framework-comparison.md, Step 3. Sub-issue of #<parent>."
 ```
@@ -813,6 +854,9 @@ gh issue create --title "Primitives/helpers extracted from the UI treatments" --
 gh issue edit <parent> --body "$(gh issue view <parent> --json body -q .body)
 
 ## Sub-issues
+- #<doctor-ui-doc-issue>
+- #<exported-app-doc-issue>
+- #<delivery-infra-doc-issue>
 - #<svelte-issue>
 - #<nuxt-issue>
 - #<solid-issue>

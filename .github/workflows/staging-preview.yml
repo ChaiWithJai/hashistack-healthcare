@@ -64,29 +64,33 @@ jobs:
             IdentitiesOnly yes
           EOF
           chmod 0600 ~/.ssh/config
-          ssh -o BatchMode=yes "$STAGING_SSH_HOST" true
 
-      - name: Install versioned DigitalOcean agent routing
+      - name: Deploy exact SHA and prove the critical path
         env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DO_STAGING_FIREWALL_TOKEN }}
+          DO_STAGING_FIREWALL_ID: ${{ vars.DO_STAGING_FIREWALL_ID }}
+          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
           STAGING_SSH_HOST: ${{ secrets.DO_STAGING_HOST }}
+          STUDIO_BEARER_TOKEN: ${{ secrets.DO_STAGING_BEARER_TOKEN }}
+          STAGING_BASE_URL: ${{ vars.DO_STAGING_URL }}
           DIGITALOCEAN_PLANNER_ENDPOINT: ${{ vars.DIGITALOCEAN_PLANNER_ENDPOINT }}
           DIGITALOCEAN_PLANNER_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_PLANNER_ACCESS_KEY }}
           DIGITALOCEAN_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
           DIGITALOCEAN_GENERATOR_ENDPOINT: ${{ vars.DIGITALOCEAN_GENERATOR_ENDPOINT }}
           DIGITALOCEAN_GENERATOR_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_GENERATOR_ACCESS_KEY }}
           DIGITALOCEAN_GENERATOR_VERSION: ${{ vars.DIGITALOCEAN_GENERATOR_VERSION }}
-        run: scripts/single-host-configure-agent.sh "$STAGING_SSH_HOST"
-
-      - name: Deploy exact SHA and prove the critical path
-        env:
-          COMMIT_SHA: ${{ steps.pr.outputs.sha }}
-          STAGING_SSH_HOST: ${{ secrets.DO_STAGING_HOST }}
-          STUDIO_BEARER_TOKEN: ${{ secrets.DO_STAGING_BEARER_TOKEN }}
-          STAGING_BASE_URL: ${{ vars.DO_STAGING_URL }}
           REQUIRE_DIGITALOCEAN_PLANNER: "1"
           EXPECTED_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
           REQUIRE_DIGITALOCEAN_GENERATOR: ${{ vars.DIGITALOCEAN_GENERATOR_REQUIRED || '0' }}
-        run: scripts/single-host-release.sh "$STAGING_SSH_HOST" "$COMMIT_SHA"
+        run: |
+          runner_cidr=$(scripts/digitalocean-runner-firewall.sh open)
+          cleanup() {
+            scripts/digitalocean-runner-firewall.sh close "$runner_cidr"
+          }
+          trap cleanup EXIT
+          ssh -o BatchMode=yes -o ConnectTimeout=15 "$STAGING_SSH_HOST" true
+          scripts/single-host-configure-agent.sh "$STAGING_SSH_HOST"
+          scripts/single-host-release.sh "$STAGING_SSH_HOST" "$COMMIT_SHA"
 
       - name: Comment preview URL
         env:

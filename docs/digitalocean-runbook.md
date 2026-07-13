@@ -91,6 +91,13 @@ Configure the GitHub `staging` environment with:
 - secret `DIGITALOCEAN_PLANNER_ACCESS_KEY`;
 - secret `DO_STAGING_HOST`, plus the existing SSH key and known-hosts secrets.
 
+Hosted GitHub runners do not have a stable source address. The protected
+staging job uses `DO_STAGING_FIREWALL_TOKEN` and
+`DO_STAGING_FIREWALL_ID` to add one exact runner `/32` for TCP 22. A shell
+trap removes the same rule whether deployment passes or fails. The token needs
+only firewall update access. SSH still requires the staging private key and a
+pinned known-host entry; ports 80 and 443 remain the public application path.
+
 The source-generation worker remains separate. It has distinct endpoint,
 key, and version settings because an ADK worker must never reuse the planner
 credential. Set `DIGITALOCEAN_GENERATOR_REQUIRED=1` only after the deployed

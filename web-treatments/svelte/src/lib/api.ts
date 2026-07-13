@@ -18,7 +18,12 @@
 // audit) since Tasks 3-4 (Nuxt, Solid) implement the identical contract
 // independently and Task 5 compares all three treatments on it.
 
-const TOKEN = import.meta.env.VITE_DEV_TOKEN ?? 'dev-token-osei';
+// Dev-only bearer token. Never hardcode this outside a gitignored .env —
+// copy .env.example to .env to set VITE_DEV_TOKEN locally.
+const TOKEN = import.meta.env.VITE_DEV_TOKEN;
+if (!TOKEN) {
+	throw new Error('VITE_DEV_TOKEN is not set. Copy .env.example to .env and set it.');
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`/api${path}`, {

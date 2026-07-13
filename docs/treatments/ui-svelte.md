@@ -31,6 +31,9 @@ state must survive a component teardown (the polling interval).
   No runtime dependencies — SvelteKit ships nothing to the client beyond
   the compiled output.
 - **`npm install` tree:** 57 top-level packages under `node_modules`.
+- **Before running `npm run dev`:** copy `.env.example` to `.env` (sets
+  `VITE_DEV_TOKEN`, the dev-only bearer token) — `src/lib/api.ts` throws
+  at startup if it's unset.
 - **Dev-server startup time observed in Step 6:** `VITE v8.1.4 ready in
   406 ms` (cold) / `607 ms` (warm restart after a code fix). Both under a
   second — Vite's dependency pre-bundling plus Svelte's small compiler

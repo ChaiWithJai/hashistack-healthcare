@@ -20,8 +20,9 @@ use rust_proof_service::state::{
 };
 use rust_proof_service::store::{self, PgStore, MIGRATION};
 use rust_proof_service::workspace::{
-    source_digest, CandidateFile, CandidatePatch, CheckStatus, Treatment, TreatmentPlan,
-    VerificationCheck, VerificationReport, WorkspaceRecord, EXECUTABLE_CHECK_IDS,
+    source_digest, AgentProvenance, CandidateFile, CandidatePatch, CheckStatus,
+    ClinicianRefinement, Treatment, TreatmentPlan, VerificationCheck, VerificationReport,
+    WorkspaceRecord, EXECUTABLE_CHECK_IDS,
 };
 
 /// The dev registry's meridian clinician — the co-signing principal (#10).
@@ -377,7 +378,15 @@ async fn postgres_restart_recovers_the_editable_source_workspace() {
             2,
         )
         .expect("valid treatment plan");
-    workspace.select("guided", 3).expect("select treatment");
+    workspace.plan_agent = Some(AgentProvenance {
+        provider: "digitalocean".to_string(),
+        model: "gemma-4-31B-it".to_string(),
+        deployment_version: Some("planner-test-v1".to_string()),
+        fallback_reason: None,
+    });
+    workspace
+        .select("guided", ClinicianRefinement::default(), "dr-osei", 3)
+        .expect("select treatment");
     let candidate_files = BTreeMap::from([
         ("README.md".to_string(), "# Durable workspace\n".to_string()),
         (

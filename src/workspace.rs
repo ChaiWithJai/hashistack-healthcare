@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_SOURCE_FILES: usize = 64;
 pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
+pub const MAX_TREATMENT_PLAN_BYTES: usize = 16 * 1024;
+pub const MAX_REFINEMENT_BYTES: usize = 500;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,6 +24,59 @@ pub struct Treatment {
     pub data_changes: Vec<String>,
     #[serde(default)]
     pub safety_notes: Vec<String>,
+}
+
+impl Treatment {
+    fn validate(&self) -> Result<(), String> {
+        if !is_treatment_id(&self.id) {
+            return Err(
+                "treatment ids must be 1 to 64 lowercase ASCII letters, digits, or hyphens".into(),
+            );
+        }
+        validate_bounded_text("treatment label", &self.label, 100)?;
+        validate_bounded_text("treatment outcome", &self.user_outcome, 500)?;
+        validate_text_list("screen changes", &self.screen_changes, 1, 6, 300)?;
+        validate_text_list("data changes", &self.data_changes, 0, 6, 300)?;
+        validate_text_list("safety notes", &self.safety_notes, 0, 6, 300)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PresentationMode {
+    #[default]
+    TaskFirst,
+    ContextFirst,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClinicianRefinement {
+    #[serde(default)]
+    pub presentation: PresentationMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emphasis: Option<String>,
+}
+
+impl ClinicianRefinement {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(emphasis) = &self.emphasis {
+            validate_bounded_text("clinician emphasis", emphasis, MAX_REFINEMENT_BYTES)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TreatmentSelection {
+    pub treatment: Treatment,
+    pub refinement: ClinicianRefinement,
+    pub plan_digest: String,
+    pub planner: AgentProvenance,
+    pub selected_by: String,
+    pub selected_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,13 +93,10 @@ impl TreatmentPlan {
         if !(2..=3).contains(&self.treatments.len()) {
             return Err("a plan must contain two or three treatments".into());
         }
+        validate_bounded_text("treatment problem", &self.problem, 500)?;
+        validate_text_list("acceptance checks", &self.acceptance_checks, 1, 8, 300)?;
         for treatment in &self.treatments {
-            if !is_treatment_id(&treatment.id) {
-                return Err(
-                    "treatment ids must be 1 to 64 lowercase ASCII letters, digits, or hyphens"
-                        .into(),
-                );
-            }
+            treatment.validate()?;
         }
         let ids = self
             .treatments
@@ -57,11 +109,50 @@ impl TreatmentPlan {
         if !ids.contains(self.recommended_treatment_id.as_str()) {
             return Err("recommended treatment must exist".into());
         }
-        if self.problem.trim().is_empty() || self.acceptance_checks.is_empty() {
-            return Err("problem and acceptance checks are required".into());
+        if serde_json::to_vec(self)
+            .map_err(|_| "treatment plan could not be serialized")?
+            .len()
+            > MAX_TREATMENT_PLAN_BYTES
+        {
+            return Err(format!(
+                "treatment plan exceeds {MAX_TREATMENT_PLAN_BYTES} bytes"
+            ));
         }
         Ok(())
     }
+}
+
+pub fn treatment_plan_digest(plan: &TreatmentPlan) -> String {
+    let bytes = serde_json::to_vec(plan).expect("TreatmentPlan serialization cannot fail");
+    format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+fn validate_bounded_text(name: &str, value: &str, max_bytes: usize) -> Result<(), String> {
+    if value.trim().is_empty() || value.len() > max_bytes {
+        return Err(format!("{name} must be 1 to {max_bytes} bytes"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!("{name} contains a control character"));
+    }
+    Ok(())
+}
+
+fn validate_text_list(
+    name: &str,
+    values: &[String],
+    min_items: usize,
+    max_items: usize,
+    max_item_bytes: usize,
+) -> Result<(), String> {
+    if !(min_items..=max_items).contains(&values.len()) {
+        return Err(format!(
+            "{name} must contain {min_items} to {max_items} items"
+        ));
+    }
+    for value in values {
+        validate_bounded_text(name, value, max_item_bytes)?;
+    }
+    Ok(())
 }
 
 fn is_treatment_id(value: &str) -> bool {
@@ -328,6 +419,8 @@ pub struct WorkspaceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_agent: Option<AgentProvenance>,
     pub selected_treatment_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_treatment: Option<TreatmentSelection>,
     pub accepted: Checkpoint,
     pub candidate: Option<Candidate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -344,6 +437,7 @@ impl WorkspaceRecord {
             treatment_plan: None,
             plan_agent: None,
             selected_treatment_id: None,
+            selected_treatment: None,
             accepted: Checkpoint::new(0, files, now),
             candidate: None,
             generation_agent: None,
@@ -385,6 +479,33 @@ impl WorkspaceRecord {
                 return Err("selected treatment is not in the restored plan".into());
             }
         }
+        if let Some(selection) = &self.selected_treatment {
+            let plan = self
+                .treatment_plan
+                .as_ref()
+                .ok_or_else(|| "selected treatment snapshot has no plan".to_string())?;
+            selection.treatment.validate()?;
+            selection.refinement.validate()?;
+            selection.planner.validate()?;
+            validate_bounded_text("selection actor", &selection.selected_by, 128)?;
+            if self.selected_treatment_id.as_deref() != Some(selection.treatment.id.as_str()) {
+                return Err("selected treatment snapshot does not match its id".into());
+            }
+            if selection.plan_digest != treatment_plan_digest(plan) {
+                return Err("selected treatment snapshot has a stale plan digest".into());
+            }
+            if plan
+                .treatments
+                .iter()
+                .find(|item| item.id == selection.treatment.id)
+                != Some(&selection.treatment)
+            {
+                return Err("selected treatment snapshot differs from the plan".into());
+            }
+            if self.plan_agent.as_ref() != Some(&selection.planner) {
+                return Err("selected treatment planner provenance differs from the plan".into());
+            }
+        }
         if let Some(candidate) = &self.candidate {
             CandidatePatch {
                 summary: candidate.summary.clone(),
@@ -414,10 +535,12 @@ impl WorkspaceRecord {
             WorkspacePhase::Described
                 if self.treatment_plan.is_none()
                     && self.selected_treatment_id.is_none()
+                    && self.selected_treatment.is_none()
                     && self.candidate.is_none() => {}
             WorkspacePhase::TreatmentsReady
                 if self.treatment_plan.is_some()
                     && self.selected_treatment_id.is_none()
+                    && self.selected_treatment.is_none()
                     && self.candidate.is_none() => {}
             WorkspacePhase::TreatmentSelected
                 if self.selected_treatment_id.is_some() && self.candidate.is_none() => {}
@@ -443,6 +566,7 @@ impl WorkspaceRecord {
         self.treatment_plan = Some(plan);
         self.plan_agent = None;
         self.selected_treatment_id = None;
+        self.selected_treatment = None;
         self.candidate = None;
         self.generation_agent = None;
         self.phase = WorkspacePhase::TreatmentsReady;
@@ -450,15 +574,41 @@ impl WorkspaceRecord {
         Ok(())
     }
 
-    pub fn select(&mut self, treatment_id: &str, now: u64) -> Result<(), String> {
+    pub fn select(
+        &mut self,
+        treatment_id: &str,
+        refinement: ClinicianRefinement,
+        selected_by: &str,
+        now: u64,
+    ) -> Result<(), String> {
         let plan = self
             .treatment_plan
             .as_ref()
             .ok_or_else(|| "treatment plan is missing".to_string())?;
-        if !plan.treatments.iter().any(|item| item.id == treatment_id) {
-            return Err("selected treatment is not in this plan".into());
-        }
+        let treatment = plan
+            .treatments
+            .iter()
+            .find(|item| item.id == treatment_id)
+            .cloned()
+            .ok_or_else(|| "selected treatment is not in this plan".to_string())?;
+        let planner = self
+            .plan_agent
+            .clone()
+            .ok_or_else(|| "treatment plan provenance is missing".to_string())?;
+        refinement.validate()?;
+        planner.validate()?;
+        validate_bounded_text("selection actor", selected_by, 128)?;
         self.selected_treatment_id = Some(treatment_id.to_string());
+        self.selected_treatment = Some(TreatmentSelection {
+            treatment,
+            refinement,
+            plan_digest: treatment_plan_digest(plan),
+            planner,
+            selected_by: selected_by.to_string(),
+            selected_at: now,
+        });
+        self.candidate = None;
+        self.generation_agent = None;
         self.phase = WorkspacePhase::TreatmentSelected;
         self.updated_at = now;
         Ok(())
@@ -579,6 +729,18 @@ fn diff_files(before: &BTreeMap<String, String>, changes: &[CandidateFile]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn select(workspace: &mut WorkspaceRecord, treatment_id: &str, now: u64) {
+        workspace.plan_agent = Some(AgentProvenance {
+            provider: "digitalocean".into(),
+            model: "gemma-4-31B-it".into(),
+            deployment_version: Some("planner-test-v1".into()),
+            fallback_reason: None,
+        });
+        workspace
+            .select(treatment_id, ClinicianRefinement::default(), "dr-test", now)
+            .unwrap();
+    }
 
     fn plan() -> TreatmentPlan {
         TreatmentPlan {
@@ -705,10 +867,79 @@ mod tests {
     }
 
     #[test]
+    fn treatment_text_and_refinement_are_bounded_data() {
+        let mut value = plan();
+        value.treatments[0].label = "x".repeat(101);
+        assert!(value.validate().is_err());
+
+        let mut value = plan();
+        value.treatments[0].screen_changes = vec!["change".into(); 7];
+        assert!(value.validate().is_err());
+
+        let mut value = plan();
+        value.treatments[0].user_outcome = "unsafe\ncontrol".into();
+        assert!(value.validate().is_err());
+
+        assert!(ClinicianRefinement {
+            presentation: PresentationMode::ContextFirst,
+            emphasis: Some("</script><script>globalThis.pwned=1</script>${value}".into()),
+        }
+        .validate()
+        .is_ok());
+        assert!(ClinicianRefinement {
+            presentation: PresentationMode::TaskFirst,
+            emphasis: Some("x".repeat(MAX_REFINEMENT_BYTES + 1)),
+        }
+        .validate()
+        .is_err());
+        assert!(ClinicianRefinement {
+            presentation: PresentationMode::TaskFirst,
+            emphasis: Some("two\nparagraphs".into()),
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn selection_snapshots_the_plan_and_replanning_clears_it() {
+        let mut workspace = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
+        let first_plan = plan();
+        workspace.set_plan(first_plan.clone(), 2).unwrap();
+        workspace.plan_agent = Some(AgentProvenance {
+            provider: "digitalocean".into(),
+            model: "gemma-4-31B-it".into(),
+            deployment_version: Some("planner-v1".into()),
+            fallback_reason: None,
+        });
+        let refinement = ClinicianRefinement {
+            presentation: PresentationMode::ContextFirst,
+            emphasis: Some("Lead with the follow-up explanation.".into()),
+        };
+        workspace
+            .select("daily-view", refinement.clone(), "dr-test", 3)
+            .unwrap();
+        let selected = workspace.selected_treatment.as_ref().unwrap();
+        assert_eq!(selected.treatment, first_plan.treatments[1]);
+        assert_eq!(selected.refinement, refinement);
+        assert_eq!(selected.plan_digest, treatment_plan_digest(&first_plan));
+
+        let before = workspace.clone();
+        assert!(workspace
+            .select("missing", ClinicianRefinement::default(), "dr-test", 4)
+            .is_err());
+        assert_eq!(workspace, before);
+
+        workspace.set_plan(plan(), 5).unwrap();
+        assert!(workspace.selected_treatment_id.is_none());
+        assert!(workspace.selected_treatment.is_none());
+        assert!(workspace.generation_agent.is_none());
+    }
+
+    #[test]
     fn failed_or_rejected_candidate_never_changes_the_checkpoint() {
         let mut workspace = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
         workspace.set_plan(plan(), 2).unwrap();
-        workspace.select("calm-list", 3).unwrap();
+        select(&mut workspace, "calm-list", 3);
         let before = workspace.accepted.digest.clone();
         let failed = VerificationReport {
             id: "verify-v1-failed".into(),
@@ -741,7 +972,7 @@ mod tests {
     fn verified_candidate_advances_one_immutable_checkpoint() {
         let mut workspace = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
         workspace.set_plan(plan(), 2).unwrap();
-        workspace.select("calm-list", 3).unwrap();
+        select(&mut workspace, "calm-list", 3);
         workspace
             .review_candidate("good".into(), patch("web/x", "good"), pass(4), 4)
             .unwrap();
@@ -771,11 +1002,28 @@ mod tests {
         assert!(bad_digest.validate_restored().is_err());
 
         workspace.set_plan(plan(), 2).unwrap();
-        workspace.select("calm-list", 3).unwrap();
+        select(&mut workspace, "calm-list", 3);
         workspace
             .review_candidate("good".into(), patch("web/x", "good"), pass(4), 4)
             .unwrap();
         assert!(workspace.validate_restored().is_ok());
+
+        let mut tampered_selection = workspace.clone();
+        tampered_selection
+            .selected_treatment
+            .as_mut()
+            .unwrap()
+            .treatment
+            .label = "Tampered after selection".into();
+        assert!(tampered_selection.validate_restored().is_err());
+
+        let mut stale_selection = workspace.clone();
+        stale_selection
+            .selected_treatment
+            .as_mut()
+            .unwrap()
+            .plan_digest = "sha256:stale".into();
+        assert!(stale_selection.validate_restored().is_err());
 
         let mut stale = workspace.clone();
         stale.candidate.as_mut().unwrap().base_version += 1;
@@ -805,7 +1053,7 @@ mod tests {
             .collect();
         let mut workspace = WorkspaceRecord::new("app".into(), files, 1);
         workspace.set_plan(plan(), 2).unwrap();
-        workspace.select("calm-list", 3).unwrap();
+        select(&mut workspace, "calm-list", 3);
         let patch = patch("web/one-too-many.txt", "good");
         assert!(patch.validate().is_ok(), "the patch alone is within budget");
         let mut merged = workspace.accepted.files.clone();

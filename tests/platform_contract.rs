@@ -27,7 +27,14 @@ fn production_configuration_has_one_application_model_boundary() {
         "LOCAL_MODEL_URL",
         "FRONTIER_MODEL_URL",
         "MODEL_HTTP_TIMEOUT_SECS",
+        "OPENAI_API_KEY",
+        "gpt-",
+        "Hermes",
+        "Liquid",
+        "Open SWE",
+        "Deep Agents",
         "SmolLM",
+        "llama.cpp",
         "llama_cpp.server",
     ] {
         assert!(
@@ -46,6 +53,9 @@ fn treatment_choice_never_interpolates_model_data_into_javascript() {
     let ui = include_str!("../web/index.html");
     assert!(ui.contains("onchange=\"selectTreatment(this.value)\""));
     assert!(!ui.contains("selectTreatment('${esc(treatment.id)}')"));
+    assert!(
+        ui.contains("Rust prepared a model-free fallback treatment because Gemma was unavailable.")
+    );
 }
 
 async fn call(
@@ -159,14 +169,50 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
         3
     );
 
+    let (status, invalid_refinement) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/select"),
+        Some(json!({
+            "treatment_id":"patient-timeline",
+            "refinement": {"presentation":"context-first", "emphasis":"x".repeat(501)}
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{invalid_refinement}"
+    );
+    let (_, unchanged) = call(&router, "GET", &workspace_url, None).await;
+    assert!(unchanged["selected_treatment"].is_null());
+
     let (status, selected) = call(
         &router,
         "POST",
         &format!("{workspace_url}/select"),
-        Some(json!({"treatment_id":"patient-timeline"})),
+        Some(json!({
+            "treatment_id":"patient-timeline",
+            "refinement": {
+                "presentation": "context-first",
+                "emphasis": "Show exactly why the practice inbox was notified."
+            }
+        })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{selected}");
+    assert_eq!(
+        selected["selected_treatment"]["treatment"],
+        planned["treatment_plan"]["treatments"][1]
+    );
+    assert_eq!(
+        selected["selected_treatment"]["refinement"]["presentation"],
+        "context-first"
+    );
+    assert_eq!(
+        selected["selected_treatment"]["planner"],
+        planned["plan_agent"]
+    );
 
     let (status, review) = call(
         &router,
@@ -177,14 +223,25 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     .await;
     assert_eq!(status, StatusCode::OK, "{review}");
     assert_eq!(review["phase"], "review_required");
-    assert_eq!(review["generation_agent"]["provider"], "deterministic");
-    assert_eq!(review["generation_agent"]["model"], "convention-floor-v1");
+    assert_eq!(review["generation_agent"]["provider"], "rust");
+    assert_eq!(review["generation_agent"]["model"], "rust-convention-v2");
     assert_eq!(review["accepted"]["digest"], initial_digest);
     assert_eq!(review["candidate"]["verification"]["passed"], true);
-    assert!(review["candidate"]["diff"][0]["unified"]
-        .as_str()
-        .unwrap()
-        .contains("data-treatment"));
+    assert_eq!(
+        review["candidate"]["diff"][0]["path"],
+        "web/src/lib/treatment.json"
+    );
+    let candidate_config: Value =
+        serde_json::from_str(review["candidate"]["files"][0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(candidate_config["treatment"]["id"], "patient-timeline");
+    assert_eq!(
+        candidate_config["refinement"]["presentation"],
+        "context-first"
+    );
+    assert_eq!(
+        candidate_config["refinement"]["emphasis"],
+        "Show exactly why the practice inbox was notified."
+    );
     let rejected_id = review["candidate"]["id"].as_str().unwrap();
 
     let (_, rejected) = call(
@@ -216,10 +273,17 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     assert_ne!(accepted["accepted"]["digest"], initial_digest);
 
     let (_, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
-    assert!(export["files"]["web/src/routes/+page.svelte"]
+    let exported_config: Value = serde_json::from_str(
+        export["files"]["web/src/lib/treatment.json"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(exported_config, candidate_config);
+    assert!(export["files"]["web/src/lib/PostOpCheckIn.svelte"]
         .as_str()
         .unwrap()
-        .contains("data-treatment=\"patient-timeline\""));
+        .contains("treatment.refinement.presentation === 'context-first'"));
 }
 
 #[tokio::test]

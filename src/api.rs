@@ -895,6 +895,8 @@ struct PlanWorkspace {
 #[derive(Deserialize)]
 struct SelectTreatment {
     treatment_id: String,
+    #[serde(default)]
+    refinement: crate::workspace::ClinicianRefinement,
 }
 
 #[derive(Deserialize)]
@@ -1040,6 +1042,9 @@ async fn select_source_treatment(
     Json(req): Json<SelectTreatment>,
 ) -> ApiResult<crate::workspace::WorkspaceRecord> {
     ensure_tenant(&platform, &id, &principal)?;
+    req.refinement
+        .validate()
+        .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
     let _serial = serialize_app_mutation(&platform, &id).await;
     let before = {
         let mut plat = platform.write().unwrap();
@@ -1049,7 +1054,7 @@ async fn select_source_treatment(
             .ok_or_else(|| not_found("workspace"))?;
         let before = workspace.clone();
         workspace
-            .select(&req.treatment_id, now_unix())
+            .select(&req.treatment_id, req.refinement, &principal.id, now_unix())
             .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
         plat.audit.record(
             &principal.id,
@@ -1085,18 +1090,19 @@ async fn generate_source_candidate(
             .workspaces
             .get(&id)
             .ok_or_else(|| not_found("workspace"))?;
-        let selected = workspace
-            .selected_treatment_id
-            .clone()
-            .ok_or_else(|| ApiError(StatusCode::CONFLICT, "select a treatment first".into()))?;
+        let selected = workspace.selected_treatment.clone().ok_or_else(|| {
+            ApiError(
+                StatusCode::CONFLICT,
+                "select this treatment again before generating".into(),
+            )
+        })?;
         (
             plat.workspace_agent.clone(),
             crate::workspace_agent::GenerateRequest {
                 thread_id: id.clone(),
-                task: req.task.trim().to_string(),
                 pack: app.pack.clone(),
                 workspace_summary: crate::workspace_agent::workspace_summary(&workspace.accepted),
-                selected_treatment_id: selected,
+                selected_treatment: selected,
                 accepted_files: workspace.accepted.files.clone(),
             },
             workspace.accepted.digest.clone(),

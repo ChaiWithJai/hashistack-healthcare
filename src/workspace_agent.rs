@@ -15,13 +15,16 @@ use anyhow::{bail, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
-use crate::workspace::{CandidateFile, CandidatePatch, Checkpoint, Treatment, TreatmentPlan};
+use crate::workspace::{
+    CandidateFile, CandidatePatch, Checkpoint, Treatment, TreatmentPlan, TreatmentSelection,
+};
 
 const SCHEMA_VERSION: u8 = 1;
 const DEFAULT_TIMEOUT_SECS: u64 = 45;
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 600_000;
 const MAX_CONFIGURED_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const DETERMINISTIC_MODEL: &str = "convention-floor-v1";
+const DETERMINISTIC_MATERIALIZER: &str = "rust-convention-v2";
 const DIGITALOCEAN_PLANNER_MODEL: &str = "gemma-4-31B-it";
 
 pub type AgentFuture<'a, T> =
@@ -38,10 +41,9 @@ pub struct PlanRequest {
 #[derive(Clone, Debug)]
 pub struct GenerateRequest {
     pub thread_id: String,
-    pub task: String,
     pub pack: String,
     pub workspace_summary: String,
-    pub selected_treatment_id: String,
+    pub selected_treatment: TreatmentSelection,
     /// Local-only input for the deterministic floor. It is never serialized
     /// into a DigitalOcean request.
     pub accepted_files: BTreeMap<String, String>,
@@ -125,8 +127,8 @@ impl WorkspaceAgent for DeterministicWorkspaceAgent {
             })?;
             Ok(AgentOutput {
                 value: patch,
-                provider: "deterministic",
-                model: DETERMINISTIC_MODEL,
+                provider: "rust",
+                model: DETERMINISTIC_MATERIALIZER,
                 deployment_version: None,
                 fallback: None,
             })
@@ -498,7 +500,7 @@ pub fn workspace_summary(checkpoint: &Checkpoint) -> String {
 
 fn deterministic_plan(task: &str) -> TreatmentPlan {
     TreatmentPlan {
-        problem: task.trim().to_string(),
+        problem: bounded_problem(task),
         recommended_treatment_id: "guided-worklist".into(),
         treatments: vec![
             Treatment {
@@ -543,26 +545,48 @@ fn deterministic_plan(task: &str) -> TreatmentPlan {
     }
 }
 
+fn bounded_problem(task: &str) -> String {
+    let normalized = task.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut end = normalized.len().min(500);
+    while !normalized.is_char_boundary(end) {
+        end -= 1;
+    }
+    normalized[..end].to_string()
+}
+
 fn deterministic_patch(request: &GenerateRequest) -> Result<CandidatePatch> {
-    let current = request
+    request
         .accepted_files
-        .get("web/src/routes/+page.svelte")
-        .context("accepted Svelte page is missing")?;
-    let safe_task = request.task.trim().replace(['<', '>'], "");
-    let addition = format!(
-        "\n<section class=\"hc-card hc-stack\" data-treatment=\"{}\"><h2>Selected treatment</h2><p>{}</p><p class=\"hc-help\">Synthetic examples only. Review this change before accepting it.</p></section>\n",
-        request.selected_treatment_id, safe_task
-    );
-    let content = current.replacen("</main>", &format!("{addition}</main>"), 1);
+        .get("web/src/lib/treatment.json")
+        .context("accepted treatment configuration is missing")?;
+    request
+        .selected_treatment
+        .refinement
+        .validate()
+        .map_err(anyhow::Error::msg)?;
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "treatment": &request.selected_treatment.treatment,
+        "refinement": &request.selected_treatment.refinement,
+        "planner": &request.selected_treatment.planner,
+        "materializer": DETERMINISTIC_MATERIALIZER,
+    }))?;
     Ok(CandidatePatch {
         summary: format!(
-            "Apply the {} treatment to the Svelte screen",
-            request.selected_treatment_id
+            "Apply {} as a {} Svelte treatment",
+            request.selected_treatment.treatment.label,
+            match request.selected_treatment.refinement.presentation {
+                crate::workspace::PresentationMode::TaskFirst => "task-first",
+                crate::workspace::PresentationMode::ContextFirst => "context-first",
+            }
         ),
         files: vec![CandidateFile {
-            path: "web/src/routes/+page.svelte".into(),
+            path: "web/src/lib/treatment.json".into(),
             content,
-            reason: "This is the screen treatment the user selected".into(),
+            reason: format!(
+                "Rust materialized the complete selected treatment for pack {} without changing server authority",
+                request.pack
+            ),
         }],
         verification_commands: vec![
             "npm run check".into(),
@@ -578,6 +602,28 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
+
+    fn selected(treatment_id: &str) -> TreatmentSelection {
+        let plan = deterministic_plan("queue");
+        TreatmentSelection {
+            treatment: plan
+                .treatments
+                .iter()
+                .find(|treatment| treatment.id == treatment_id)
+                .unwrap()
+                .clone(),
+            refinement: crate::workspace::ClinicianRefinement::default(),
+            plan_digest: crate::workspace::treatment_plan_digest(&plan),
+            planner: crate::workspace::AgentProvenance {
+                provider: "digitalocean".into(),
+                model: DIGITALOCEAN_PLANNER_MODEL.into(),
+                deployment_version: Some("planner-test-v1".into()),
+                fallback_reason: None,
+            },
+            selected_by: "dr-test".into(),
+            selected_at: 1,
+        }
+    }
 
     fn serve_once(response_body: String) -> (String, mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -715,22 +761,81 @@ mod tests {
         let output = agent
             .generate(GenerateRequest {
                 thread_id: "app-1".into(),
-                task: "queue".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
-                selected_treatment_id: "timeline".into(),
+                selected_treatment: selected("patient-timeline"),
                 accepted_files: BTreeMap::from([(
-                    "web/src/routes/+page.svelte".into(),
-                    "<main><h1>Practice</h1></main>".into(),
+                    "web/src/lib/treatment.json".into(),
+                    "{}".into(),
                 )]),
             })
             .await
             .unwrap();
-        assert_eq!(output.provider, "deterministic");
-        assert_eq!(output.model, "convention-floor-v1");
+        assert_eq!(output.provider, "rust");
+        assert_eq!(output.model, DETERMINISTIC_MATERIALIZER);
         assert!(output.deployment_version.is_none());
-        assert!(output.value.files[0].content.contains("queue"));
-        assert!(output.value.files[0].content.contains("timeline"));
+        assert!(output.value.files[0].content.contains("Patient timeline"));
+        assert!(output.value.files[0].content.contains("patient-timeline"));
+    }
+
+    #[test]
+    fn materialization_is_distinct_deterministic_and_keeps_prose_in_json() {
+        let accepted_files = BTreeMap::from([
+            ("web/src/lib/treatment.json".into(), "{}".into()),
+            (
+                "server/src/main.rs".into(),
+                "const PAIN_ESCALATION_THRESHOLD: u8 = 7;".into(),
+            ),
+        ]);
+        let mut hostile = selected("guided-worklist");
+        hostile.refinement = crate::workspace::ClinicianRefinement {
+            presentation: crate::workspace::PresentationMode::ContextFirst,
+            emphasis: Some(
+                "</script><script>globalThis.pwned=1</script> ${value} `quoted` & safe".into(),
+            ),
+        };
+        let first = GenerateRequest {
+            thread_id: "app-1".into(),
+            pack: "post-op-monitor".into(),
+            workspace_summary: "checkpoint=0".into(),
+            selected_treatment: hostile.clone(),
+            accepted_files: accepted_files.clone(),
+        };
+        let first_patch = deterministic_patch(&first).unwrap();
+        let repeat_patch = deterministic_patch(&first).unwrap();
+        assert_eq!(first_patch, repeat_patch);
+        assert_eq!(first_patch.files.len(), 1);
+        assert_eq!(first_patch.files[0].path, "web/src/lib/treatment.json");
+        let config: serde_json::Value =
+            serde_json::from_str(&first_patch.files[0].content).unwrap();
+        assert_eq!(
+            config["refinement"]["emphasis"],
+            hostile.refinement.emphasis.unwrap()
+        );
+        assert_eq!(config["materializer"], DETERMINISTIC_MATERIALIZER);
+
+        let second = GenerateRequest {
+            selected_treatment: selected("patient-timeline"),
+            ..first
+        };
+        let second_patch = deterministic_patch(&second).unwrap();
+        assert_ne!(first_patch.files[0].content, second_patch.files[0].content);
+        assert!(second_patch.files[0].content.contains("Patient timeline"));
+        assert!(!second_patch.files[0].content.contains("Guided worklist"));
+        assert_eq!(
+            accepted_files["server/src/main.rs"],
+            "const PAIN_ESCALATION_THRESHOLD: u8 = 7;"
+        );
+    }
+
+    #[test]
+    fn deterministic_fallback_normalizes_and_bounds_the_problem() {
+        let task = format!("First line\n\n{}", "é".repeat(400));
+        let plan = deterministic_plan(&task);
+        assert!(plan.validate().is_ok());
+        assert!(!plan.problem.contains('\n'));
+        assert!(plan.problem.len() <= 500);
+        assert!(plan.problem.starts_with("First line "));
     }
 
     #[tokio::test]
@@ -869,20 +974,19 @@ mod tests {
         let output = agent
             .generate(GenerateRequest {
                 thread_id: "app-1".into(),
-                task: "add a queue".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
-                selected_treatment_id: "guided-worklist".into(),
+                selected_treatment: selected("guided-worklist"),
                 accepted_files: BTreeMap::from([(
-                    "web/src/routes/+page.svelte".into(),
-                    "<main></main>".into(),
+                    "web/src/lib/treatment.json".into(),
+                    "{}".into(),
                 )]),
             })
             .await
             .unwrap();
-        assert_eq!(output.provider, "deterministic");
-        assert_eq!(output.model, "convention-floor-v1");
+        assert_eq!(output.provider, "rust");
+        assert_eq!(output.model, DETERMINISTIC_MATERIALIZER);
         assert!(output.fallback.is_none());
-        assert!(output.value.files[0].content.contains("add a queue"));
+        assert!(output.value.files[0].content.contains("Guided worklist"));
     }
 }

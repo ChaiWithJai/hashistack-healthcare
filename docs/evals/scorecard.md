@@ -1,6 +1,6 @@
 # Platform eval scorecard — the portable baseline
 
-Generated 2026-07-13T07:35:37.098Z at commit `238baac` by `scripts/evals.sh` (50s). Machine-readable twin: [scorecard.json](scorecard.json).
+Generated 2026-07-13T08:34:23.149Z at commit `dcb84ad` by `scripts/evals.sh` (52s). Machine-readable twin: [scorecard.json](scorecard.json).
 
 ## What this measures
 

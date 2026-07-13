@@ -440,7 +440,7 @@ fn local_media_input_component() -> String {
       digest = body.sha256;
     } catch (cause) {
       error = cause instanceof DOMException && cause.name === 'AbortError'
-        ? 'Local analysis was cancelled.'
+        ? 'Stopped waiting for local analysis. The local model may finish before its 30-second limit.'
         : cause instanceof Error ? cause.message : 'The local model is unavailable.';
     } finally {
       working = false;
@@ -467,7 +467,7 @@ fn local_media_input_component() -> String {
   </label>
   <div class="hc-actions">
     <button class="hc-button" disabled={!file || !acknowledged || working} onclick={analyze}>{working ? 'Analyzing locally…' : 'Analyze locally'}</button>
-    {#if working}<button class="hc-button" onclick={() => controller?.abort()}>Cancel</button>{/if}
+    {#if working}<button class="hc-button" onclick={() => controller?.abort()}>Stop waiting</button>{/if}
   </div>
   {#if error}<p class="hc-notice hc-notice--warning" role="alert">{error} The text-only workflow still works.</p>{/if}
   {#if observation}

@@ -1,0 +1,30 @@
+[build]
+  publish = "web"
+
+# The browser stays on the Netlify origin while the Rust control plane remains
+# on the DigitalOcean droplet. Replace this target when production receives a
+# dedicated backend.
+[[redirects]]
+  from = "/api/*"
+  to = "https://138-197-27-225.sslip.io/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/auth/*"
+  to = "https://138-197-27-225.sslip.io/auth/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/health"
+  to = "https://138-197-27-225.sslip.io/health"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"

@@ -1061,6 +1061,7 @@ events {}
 http {
   include /etc/nginx/mime.types;
   default_type application/octet-stream;
+  absolute_redirect off;
   access_log /dev/stdout;
   client_body_temp_path /tmp/client-body;
   proxy_temp_path /tmp/proxy;
@@ -1432,6 +1433,7 @@ mod tests {
         assert!(dockerfile.contains("SYNTHETIC_DATA=/srv/synthetic/post-op-demo.json"));
         assert!(!dockerfile.contains("python3"));
         assert!(bundle.files["config/nginx.conf"].contains("include /etc/nginx/mime.types"));
+        assert!(bundle.files["config/nginx.conf"].contains("absolute_redirect off"));
         assert!(bundle.files["config/nginx.conf"].contains("return 302 /login"));
         assert!(bundle.files["web/src/routes/+page.svelte"].contains("href=\"/login\""));
     }

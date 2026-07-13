@@ -180,7 +180,7 @@ async fn anonymous_workspaces_are_private_synthetic_and_export_requires_an_owner
 }
 
 #[tokio::test]
-async fn verified_identity_can_claim_its_guest_app_then_export_it() {
+async fn guest_completes_the_core_flow_and_auth_is_required_only_at_eject() {
     let router = strict_router(None);
     let cookie = guest_cookie(&router).await;
     let (_, created) = guest_call(
@@ -192,6 +192,15 @@ async fn verified_identity_can_claim_its_guest_app_then_export_it() {
     )
     .await;
     let id = created["app"]["id"].as_str().unwrap();
+    let (status, iterated) = guest_call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/iterate"),
+        &cookie,
+        Some(json!({"instruction":"add a calm confirmation screen"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{iterated}");
     let (status, _) = guest_call(
         &router,
         "POST",

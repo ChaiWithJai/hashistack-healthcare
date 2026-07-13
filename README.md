@@ -3,8 +3,9 @@
 Practice Studio helps a clinician describe a small practice tool, change it
 with synthetic data, check it before release, and export the source.
 
-You do not need an account to explore the core flow. Clerk is required when you
-claim a workspace and export it.
+You do not need an account to describe, build, change, check, or publish a
+synthetic preview. Clerk appears only when you claim the workspace and eject
+the source or export its audit record.
 
 > Practice Studio is not approved for patient data or clinical care. Local,
 > pull request, and staging environments use synthetic data only.

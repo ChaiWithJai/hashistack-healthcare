@@ -279,7 +279,7 @@ async function runWorkflow(scenario, base, score) {
   if (exported.status !== 200) return fail(`export returned ${exported.status}`);
   const files = exported.json.files;
   const missingCore = wf.eject_core_files.filter((f) => !(f in files));
-  const scaffoldOk = 'app/src/main.rs' in files && 'app/Cargo.toml' in files && 'artifact-quality.json' in files;
+  const scaffoldOk = 'server/src/main.rs' in files && 'server/Cargo.toml' in files && 'web/src/routes/+page.svelte' in files && 'artifact-quality.json' in files;
   const promptCarried = (files['README.md'] ?? '').includes(scenario.prompt);
   score.add('eject_bundle_complete',
     missingCore.length === 0 && scaffoldOk && promptCarried,
@@ -504,15 +504,15 @@ function unpackBundle(bundle, dir) {
 const builtApps = new Map();
 function buildEjectedApp(bundleDir, scenarioId, contract) {
   const hash = createHash('sha256')
-    .update(fs.readFileSync(path.join(bundleDir, 'app', 'src', 'main.rs')))
-    .update(fs.readFileSync(path.join(bundleDir, 'app', 'Cargo.toml')))
+    .update(fs.readFileSync(path.join(bundleDir, 'server', 'src', 'main.rs')))
+    .update(fs.readFileSync(path.join(bundleDir, 'server', 'Cargo.toml')))
     .digest('hex');
   const targetDir = path.join(EJECT_TARGET_DIR, contract.pack);
   const bin = path.join(targetDir, 'debug', 'app');
   if (builtApps.get(contract.pack) === hash && fs.existsSync(bin)) return bin;
   console.log(`    [layer2] building the ejected app (${scenarioId}) …`);
   execFileSync('cargo', ['build', '--quiet'], {
-    cwd: path.join(bundleDir, 'app'),
+    cwd: path.join(bundleDir, 'server'),
     env: { ...process.env, CARGO_TARGET_DIR: targetDir },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -593,7 +593,7 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
   const child = spawnServer(bin, {
     APP_BIND: `127.0.0.1:${port}`,
     SYNTHETIC_DATA: path.join(bundleDir, contract.runtime.synthetic),
-  }, logPath, path.join(bundleDir, 'app'));
+  }, logPath, path.join(bundleDir, 'server'));
 
   const shot = (name) => path.join(SHOTS_DIR, `${scenario.id}-${name}.png`);
   const context = await browser.newContext({ viewport: { width: 960, height: 720 } });
@@ -611,7 +611,7 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
 
     const required = [...new Set([
       ...contract.quality.ownership.required_paths,
-      'docs/CUSTOMIZE.md',
+      'README.md',
     ])];
     const missing = required.filter((rel) => !(rel in bundle.files));
     score.add('artifact_ownership', missing.length === 0,
@@ -645,9 +645,9 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
       const content = bundle.files[rel] ?? '';
       for (const section of sections) if (!content.includes(section)) docsMissing.push(`${rel}:${section}`);
     }
-    const customize = bundle.files['docs/CUSTOMIZE.md'] ?? '';
+    const customize = bundle.files['README.md'] ?? '';
     for (const section of ['Source map', 'Make the next change', 'Export or share the next version']) {
-      if (!customize.includes(section)) docsMissing.push(`docs/CUSTOMIZE.md:${section}`);
+      if (!customize.includes(section)) docsMissing.push(`README.md:${section}`);
     }
     score.add('artifact_docs', docsMissing.length === 0, `missing required documentation sections [${docsMissing.join(', ')}]`);
   } catch (err) {

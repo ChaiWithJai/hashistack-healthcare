@@ -18,7 +18,7 @@ from gradient_adk import entrypoint
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_gradient import ChatGradient
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
 PLANNER_MODEL = os.getenv("PRACTICE_STUDIO_PLANNER_MODEL", "gemma-4-31B-it")
@@ -46,6 +46,15 @@ class TreatmentPlan(BaseModel):
     recommended_treatment_id: str
     treatments: list[Treatment] = Field(min_length=2, max_length=3)
     acceptance_checks: list[str] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_treatment_ids(self) -> "TreatmentPlan":
+        ids = [item.id for item in self.treatments]
+        if len(set(ids)) != len(ids):
+            raise ValueError("treatment ids must be unique")
+        if self.recommended_treatment_id not in ids:
+            raise ValueError("recommended treatment must exist")
+        return self
 
 
 class FileChange(BaseModel):
@@ -76,6 +85,17 @@ def _json(value: BaseModel) -> str:
 
 def _model(name: str) -> ChatGradient:
     return ChatGradient(model=name, temperature=0)
+
+
+def _state_file_text(value: Any, path: str) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        content = value.get("content")
+        encoding = value.get("encoding", "utf-8")
+        if isinstance(content, str) and encoding == "utf-8":
+            return content
+    raise ValueError(f"{path} is not a UTF-8 state file")
 
 
 @tool
@@ -194,13 +214,15 @@ async def main(data: dict[str, Any], context: dict[str, Any]):
     )
     final = result["messages"][-1].content
     files = result.get("files", {})
+    treatment_raw = _state_file_text(files.get("/treatment.json"), "/treatment.json")
+    candidate_raw = _state_file_text(files.get("/candidate.json"), "/candidate.json")
+    treatment_plan = TreatmentPlan.model_validate_json(treatment_raw)
+    candidate_patch = validate_candidate_json(candidate_raw)
     return {
+        "schema_version": 1,
         "response": final,
-        "artifacts": {
-            path: value
-            for path, value in files.items()
-            if path in {"/treatment.json", "/candidate.json"}
-        },
+        "treatment_plan": treatment_plan.model_dump(),
+        "candidate_patch": candidate_patch.model_dump(),
         "models": {
             "planner": PLANNER_MODEL,
             "generator": GENERATOR_MODEL,

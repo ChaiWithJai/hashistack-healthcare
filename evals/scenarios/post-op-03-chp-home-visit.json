@@ -34,8 +34,10 @@
     "eject": true,
     "eject_core_files": [
       "README.md",
-      "docs/RUNBOOK.md",
-      "docs/COMPLIANCE.md",
+      "web/src/routes/+page.svelte",
+      "diagrams/system-architecture.tldr",
+      "diagrams/workspace-state-machine.tldr",
+      "diagrams/service-map.tldr",
       "Dockerfile",
       "render.yaml",
       "fly.toml",

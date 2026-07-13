@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "pack": "patient-portal",
-  "runtime": {"manifest":"app/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/portal-demo.json"},
+  "runtime": {"manifest":"server/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/portal-demo.json"},
   "quality": {
     "job": {"weight":40,"journeys":[{"id":"patient-scope-and-message","steps":[{"do":"goto","path":"/login"},{"do":"fill","label":"Username","value":"patient"},{"do":"fill","label":"Password","value":"learn-patient"},{"do":"click","role":"button","name":"Sign in"},{"assert":"visible","text":"Avery Brooks"},{"assert":"not_visible","text":"Samira Cole"},{"do":"fill","label":"Message","value":"Synthetic scheduling question"},{"do":"click","role":"button","name":"Send message"},{"assert":"visible","text":"Message queued"}]}]},
-    "ownership": {"weight":20,"required_paths":["app/Cargo.toml","app/src/main.rs","pack.hcl","artifact-quality.json","README.md","docs/RUNBOOK.md","docs/COMPLIANCE.md","nomad/job.nomad.hcl"]},
+    "ownership": {"weight":20,"required_paths":["server/Cargo.toml","server/src/main.rs","pack.hcl","artifact-quality.json","README.md","web/src/routes/+page.svelte","diagrams/system-architecture.tldr","diagrams/workspace-state-machine.tldr","diagrams/service-map.tldr","nomad/job.nomad.hcl"]},
     "safety_honesty": {"weight":20,"required_visible":["SYNTHETIC DATA","not monitored for emergencies","learning app"],"forbidden_claims":["HIPAA compliant","production ready"]},
     "accessibility": {"weight":10,"path":"/login","required_labels":["Username","Password"],"required_landmarks":["main","navigation"]},
-    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Owning it"],"docs/RUNBOOK.md":["Run with Docker","Deploy targets"],"docs/COMPLIANCE.md":["Gate report","Known limitations"]}}
+    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Repository map","Run with Docker","Deploy targets","Gate report","Known limitations"]}}
   }
 }

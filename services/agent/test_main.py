@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from main import normalize_request, validate_candidate_json
+from main import TreatmentPlan, _state_file_text, normalize_request, validate_candidate_json
 
 
 def test_request_rejects_unexpected_authority():
@@ -60,3 +60,23 @@ def test_candidate_rejects_duplicate_paths():
     )
     with pytest.raises(ValueError, match="duplicate paths"):
         validate_candidate_json(raw)
+
+
+def test_plan_rejects_unknown_recommendation_and_duplicate_ids():
+    base = {
+        "problem": "reduce follow-up work",
+        "recommended_treatment_id": "missing",
+        "treatments": [
+            {"id":"one","label":"One","user_outcome":"One","screen_changes":["a"]},
+            {"id":"one","label":"Two","user_outcome":"Two","screen_changes":["b"]},
+        ],
+        "acceptance_checks": ["works"],
+    }
+    with pytest.raises(ValueError):
+        TreatmentPlan.model_validate(base)
+
+
+def test_state_file_decoder_accepts_v2_and_rejects_binary():
+    assert _state_file_text({"content":"{}","encoding":"utf-8"}, "/candidate.json") == "{}"
+    with pytest.raises(ValueError, match="not a UTF-8 state file"):
+        _state_file_text({"content":"e30=","encoding":"base64"}, "/candidate.json")

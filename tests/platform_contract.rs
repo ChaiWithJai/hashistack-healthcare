@@ -95,6 +95,94 @@ async fn describe_lands_in_sandbox_on_synthetic_data() {
 }
 
 #[tokio::test]
+async fn source_treatment_is_reviewed_before_it_changes_the_export() {
+    let router = app();
+    let id = create_post_op_app(&router).await;
+    let workspace_url = format!("/api/apps/{id}/workspace");
+
+    let (_, initial) = call(&router, "GET", &workspace_url, None).await;
+    let initial_digest = initial["accepted"]["digest"].as_str().unwrap().to_string();
+    assert_eq!(initial["accepted"]["version"], 0);
+
+    let (status, planned) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/treatments"),
+        Some(json!({"task":"make follow-up work easier to scan"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{planned}");
+    assert_eq!(planned["phase"], "treatments_ready");
+    assert_eq!(
+        planned["treatment_plan"]["treatments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let (status, selected) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/select"),
+        Some(json!({"treatment_id":"patient-timeline"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+
+    let (status, review) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/generate"),
+        Some(json!({"task":"show unresolved events first"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{review}");
+    assert_eq!(review["phase"], "review_required");
+    assert_eq!(review["accepted"]["digest"], initial_digest);
+    assert_eq!(review["candidate"]["verification"]["passed"], true);
+    assert!(review["candidate"]["diff"][0]["unified"]
+        .as_str()
+        .unwrap()
+        .contains("data-treatment"));
+    let rejected_id = review["candidate"]["id"].as_str().unwrap();
+
+    let (_, rejected) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/candidate/reject"),
+        Some(json!({"candidate_id":rejected_id})),
+    )
+    .await;
+    assert_eq!(rejected["accepted"]["digest"], initial_digest);
+
+    let (_, review) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/generate"),
+        Some(json!({"task":"show unresolved events first"})),
+    )
+    .await;
+    let candidate_id = review["candidate"]["id"].as_str().unwrap();
+    let (status, accepted) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/candidate/accept"),
+        Some(json!({"candidate_id":candidate_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{accepted}");
+    assert_eq!(accepted["accepted"]["version"], 1);
+    assert_ne!(accepted["accepted"]["digest"], initial_digest);
+
+    let (_, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
+    assert!(export["files"]["web/src/routes/+page.svelte"]
+        .as_str()
+        .unwrap()
+        .contains("data-treatment=\"patient-timeline\""));
+}
+
+#[tokio::test]
 async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
     let router = app();
     let id = create_post_op_app(&router).await;
@@ -403,7 +491,7 @@ async fn synthetic_demo_export_does_not_claim_a_prod_nomad_job() {
     // compliance record is a draft with no attestation and a stub Nomad job.
     let (status, draft) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
     assert_eq!(status, StatusCode::OK);
-    let compliance = draft["files"]["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = draft["files"]["README.md"].as_str().unwrap();
     assert!(compliance.contains("draft — not released"));
     assert!(!compliance.contains("co-signed by:"), "no attestation yet");
     assert!(draft["files"]["nomad/job.nomad.hcl"]
@@ -476,8 +564,11 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     let files = export["files"].as_object().unwrap();
     for path in [
         "README.md",
-        "docs/RUNBOOK.md",
-        "docs/COMPLIANCE.md",
+        "web/src/routes/+page.svelte",
+        "server/src/main.rs",
+        "diagrams/system-architecture.tldr",
+        "diagrams/workspace-state-machine.tldr",
+        "diagrams/service-map.tldr",
         "Dockerfile",
         "render.yaml",
         "fly.toml",
@@ -499,7 +590,7 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
 
     // COMPLIANCE embeds the release: the attestation-time gate report
     // frozen at promotion (F3), cosigner, audit — stub disclosed, cited.
-    let compliance = files["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = files["README.md"].as_str().unwrap();
     assert!(compliance.contains("5/6 (1 stubbed)"));
     assert!(compliance.contains("frozen at promotion"));
     assert!(compliance.contains("STUBBED —"), "no false passes");
@@ -511,10 +602,10 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     // bundle carries the real app source and the runbook drops the
     // placeholder caveat it used to need.
     assert!(
-        files.contains_key("app/src/main.rs"),
+        files.contains_key("server/src/main.rs"),
         "real app source ships"
     );
-    assert!(files.contains_key("app/Cargo.toml"));
+    assert!(files.contains_key("server/Cargo.toml"));
     assert!(
         files["synthetic/post-op-demo.json"]
             .as_str()
@@ -522,7 +613,7 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
             .contains("SYNTHETIC DATA"),
         "the synthetic seed travels with the app"
     );
-    let runbook = files["docs/RUNBOOK.md"].as_str().unwrap();
+    let runbook = files["README.md"].as_str().unwrap();
     assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
     assert!(runbook.contains("The app source is real"));
 

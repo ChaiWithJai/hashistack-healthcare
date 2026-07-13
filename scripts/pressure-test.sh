@@ -383,19 +383,20 @@ EXPORT=$(get "/api/apps/$ID/export")
 check "job rendered"      "$EXPORT" "job \\\"$ID\\\""
 check "synthetic-demo constraint" "$EXPORT" 'value     = \"synthetic-demo\"'
 check "no raw tokens"     "$(echo "$EXPORT" | grep -c '{{app_id}}' || true)" "0"
-check "compliance doc in bundle" "$EXPORT" '"docs/COMPLIANCE.md"'
+check "single README in bundle" "$EXPORT" '"README.md"'
 check "readme tells their story" "$EXPORT" 'post-op recovery tracker for my knee replacement patients'
 check "app becomes a template"   "$EXPORT" "$ID-template"
 check "unpack one-liner ships"   "$EXPORT" 'python3 -c'
 # post-op-monitor is converted to the runnable-scaffold spec (#5): the
 # bundle carries real app source and the runbook drops its old caveat.
-check "real scaffold source ships" "$EXPORT" '"app/src/main.rs"'
-check "runbook drops placeholder caveat" "$(echo "$EXPORT" | python3 -c 'import json,sys; rb=json.load(sys.stdin)["files"]["docs/RUNBOOK.md"]; print("caveat-present" if "scaffold placeholder" in rb else "real-source")')" "real-source"
+check "real scaffold source ships" "$EXPORT" '"server/src/main.rs"'
+check "Svelte source ships" "$EXPORT" '"web/src/routes/+page.svelte"'
+check "runbook drops placeholder caveat" "$(echo "$EXPORT" | python3 -c 'import json,sys; rb=json.load(sys.stdin)["files"]["README.md"]; print("caveat-present" if "scaffold placeholder" in rb else "real-source")')" "real-source"
 # Stubbed synthetic-demo jobs must never receive tenant credentials.
 check "synthetic demo job omits tenant vault stanza" "$(echo "$EXPORT" | python3 -c 'import json,sys; job=json.load(sys.stdin)["files"]["nomad/job.nomad.hcl"]; print("stanza-present" if "vault {" in job else "stanza-missing")')" "stanza-missing"
 # F3: a released app's compliance record embeds the report frozen at
 # promotion — the evidence that admitted it — never a lineage re-run.
-COMPLIANCE=$(echo "$EXPORT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
+COMPLIANCE=$(echo "$EXPORT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["README.md"])')
 check "compliance report frozen at promotion" "$COMPLIANCE" 'frozen at promotion'
 check "compliance names the stub"             "$COMPLIANCE" 'STUBBED —'
 check "compliance carries HIPAA citations"    "$COMPLIANCE" '45 CFR §164.312(b)'
@@ -509,7 +510,7 @@ else
   echo "  skipped (no vault+control-db): no-password label + password absent from export"
 fi
 COMPLIANCE8=$(get "/api/apps/$ID/export" | python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["files"]["docs/COMPLIANCE.md"])')
+  'import json,sys; print(json.load(sys.stdin)["files"]["README.md"])')
 check "ejected compliance keeps the doctor's words" "$COMPLIANCE8" "$WORDS"
 if [[ -n "${AUDIT_FILE:-}" && -r "$AUDIT_FILE" ]]; then
   check "archive has the registration probe line" "$(cat "$AUDIT_FILE")" '"audit.sink_probe"'

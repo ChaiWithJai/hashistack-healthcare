@@ -71,6 +71,7 @@ else
   bundle=$(curl -fsS "${auth[@]}" "$base/api/apps/$id/export")
 fi
 printf '%s' "$bundle" | grep -q 'synthetic demo'
-printf '%s' "$bundle" | grep -q 'app/src/main.rs'
+printf '%s' "$bundle" | grep -q 'server/src/main.rs'
+printf '%s' "$bundle" | grep -q 'web/src/routes/+page.svelte'
 
 echo "remote proof passed at $base: $id is synthetic-only, exportable, and makes no fabricated telemetry claim"

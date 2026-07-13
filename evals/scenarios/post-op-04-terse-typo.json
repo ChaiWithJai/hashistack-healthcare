@@ -10,19 +10,14 @@
     {
       "instruction": "auto log off after idle pls",
       "vocabulary": "rules",
-      "expect_wired": [
-        "auto-logoff"
-      ]
+      "expect_wired": []
     }
   ],
   "workflow": {
     "gate_total": 6,
-    "initially_failing": [
-      "auto-logoff"
-    ],
-    "fixable_failing": [
-      "auto-logoff"
-    ],
+    "initial_green": true,
+    "initially_failing": [],
+    "fixable_failing": [],
     "stubbed": 1,
     "assert_false_pass_guard": true,
     "fix_gates": [],

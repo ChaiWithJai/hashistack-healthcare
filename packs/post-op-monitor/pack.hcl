@@ -4,7 +4,7 @@
 
 pack "post-op-monitor" {
   name        = "post-op monitor"
-  description = "Recovery tracking for surgical patients: daily pain + wound check-ins, encrypted photo upload, escalation flags to the practice inbox."
+  description = "Recovery tracking for surgical patients: daily pain + wound check-ins, a memory-only photo upload stub, and escalation flags to the practice inbox."
   profile     = "web"
   tier        = 3
   wave        = 2
@@ -20,7 +20,7 @@ pack "post-op-monitor" {
   # What the agent scaffolds before the doctor's first edit, hipaa-core pre-wired.
   scaffold = [
     "pain + wound check-in form",
-    "photo upload (encrypted)",
+    "photo upload (memory-only learning stub)",
     "audit log wired to every route",
     "daily reminder schedule",
   ]
@@ -31,6 +31,7 @@ pack "post-op-monitor" {
     "audit-log",
     "ai-allowlist",
     "dependency-scan",
+    "auto-logoff",
     "synthetic-only",
   ]
 

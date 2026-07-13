@@ -10,9 +10,7 @@
     {
       "instruction": "log people off if they walk away \u2014 idle timeout",
       "vocabulary": "rules",
-      "expect_wired": [
-        "auto-logoff"
-      ]
+      "expect_wired": []
     },
     {
       "instruction": "make the pain question feel less clinical",
@@ -22,12 +20,9 @@
   ],
   "workflow": {
     "gate_total": 6,
-    "initially_failing": [
-      "auto-logoff"
-    ],
-    "fixable_failing": [
-      "auto-logoff"
-    ],
+    "initial_green": true,
+    "initially_failing": [],
+    "fixable_failing": [],
     "stubbed": 1,
     "assert_false_pass_guard": true,
     "fix_gates": [],

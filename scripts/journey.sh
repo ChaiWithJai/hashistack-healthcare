@@ -3,8 +3,8 @@
 #
 # Runs THE flagship journey (Dr. Osei vibe-coding a post-op recovery tracker
 # on the fully-real pack) end to end against a freshly booted control plane:
-# describe → sandbox UI → iterate → failing gate (named, screenshotted,
-# promote refused) → one-click fix → co-sign & release → eject → the ejected
+# describe → sandbox UI → iterate → gate review (screenshotted, production
+# limitation enforced) → co-sign synthetic demo → eject → the ejected
 # bundle compiled, booted, and driven with Playwright. Every step is timed
 # (wall ms around the HTTP call / build / boot) and cross-referenced to the
 # audit events it produced.
@@ -14,9 +14,9 @@
 #   # → docs/evals/journey/journey.json (every number, machine-readable)
 #   # → docs/evals/journey/0*.png       (six stage screenshots, <900KB total)
 #
-# Ports: 39400 (control plane) and 39450 (ejected app) — clear of the eval
-# harness (39200/39300) and the staging pressure test (39000+). Prereqs are
-# the eval harness's: cargo, node >= 20, Playwright with Chromium (the dev
+# Process-specific high ports avoid collisions with the eval harness and
+# concurrent worktrees; JOURNEY_CP_PORT/JOURNEY_APP_PORT can pin them. Prereqs
+# are the eval harness's: cargo, node >= 20, Playwright with Chromium (the dev
 # container preinstalls /opt/node22 and /opt/pw-browsers; elsewhere
 # `npm install playwright && npx playwright install chromium`).
 set -euo pipefail

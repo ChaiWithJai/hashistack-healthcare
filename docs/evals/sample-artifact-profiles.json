@@ -1,6 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "evaluated_at": "2026-07-13T04:53:13.835Z",
+  "updated_at": "2026-07-13T11:08:02Z",
   "sample_size": 12,
   "baseline": {
     "scenarios": 78,
@@ -13,7 +14,7 @@
     "lockfile": true,
     "readme_count": 1,
     "tldraw_count": 3,
-    "single_runnable_svelte_rust_product": false
+    "single_runnable_svelte_rust_product": true
   },
   "framework_comparison": {
     "runtime_dependencies": [],
@@ -22,27 +23,27 @@
       "repository_context": 3,
       "planning_state": 4,
       "tool_isolation": 5,
-      "verification": 4,
-      "user_handoff": 3
+      "verification": 5,
+      "user_handoff": 4
     }
   },
-  "bugs": [
-    "The exported runtime does not build or serve the included Svelte app.",
-    "The README uses cd app, but the export has no app directory.",
-    "The README points to server/assets/clinician.css, but the file is web/src/clinician.css."
+  "bugs": [],
+  "remaining_limits": [
+    "A new owner has not yet completed the README-only handoff exercise.",
+    "The meaningful Svelte-to-Rust customization proof currently covers the post-op monitor; the other sampled packs still use their pack journey plus the generic treatment workspace."
   ],
   "profiles": [
-    {"pack":"post-op-monitor","job":5,"continue":3,"export":3},
-    {"pack":"hypertension-tracker","job":5,"continue":3,"export":3},
-    {"pack":"patient-intake","job":5,"continue":3,"export":3},
-    {"pack":"insurance-verification","job":4,"continue":3,"export":3},
-    {"pack":"patient-portal","job":4,"continue":3,"export":3},
-    {"pack":"inbound-scheduling","job":4,"continue":3,"export":3},
-    {"pack":"outbound-followup","job":4,"continue":3,"export":3},
-    {"pack":"rpm-wearables","job":4,"continue":3,"export":3},
-    {"pack":"visit-notes","job":4,"continue":3,"export":3},
-    {"pack":"deid-local","job":4,"continue":3,"export":3},
-    {"pack":"airgapped-support","job":4,"continue":3,"export":3},
-    {"pack":"hybrid-pipeline","job":4,"continue":3,"export":3}
+    {"pack":"post-op-monitor","job":5,"continue":4,"export":5},
+    {"pack":"hypertension-tracker","job":5,"continue":3,"export":4},
+    {"pack":"patient-intake","job":5,"continue":3,"export":4},
+    {"pack":"insurance-verification","job":4,"continue":3,"export":4},
+    {"pack":"patient-portal","job":4,"continue":3,"export":4},
+    {"pack":"inbound-scheduling","job":4,"continue":3,"export":4},
+    {"pack":"outbound-followup","job":4,"continue":3,"export":4},
+    {"pack":"rpm-wearables","job":4,"continue":3,"export":4},
+    {"pack":"visit-notes","job":4,"continue":3,"export":4},
+    {"pack":"deid-local","job":4,"continue":3,"export":4},
+    {"pack":"airgapped-support","job":4,"continue":3,"export":4},
+    {"pack":"hybrid-pipeline","job":4,"continue":3,"export":4}
   ]
 }

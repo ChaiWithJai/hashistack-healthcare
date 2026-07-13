@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-13T05:31:53.624Z",
-  "commit": "0bccc87",
+  "generated_at": "2026-07-13T12:05:54.129Z",
+  "commit": "30ba4cc",
   "prompt": "a post-op recovery tracker for my knee replacement patients",
   "pack": "post-op-monitor",
   "app_id": "post-op-recovery-tracker",
@@ -9,13 +9,14 @@
   "scaffold_steps": [
     "scaffolding from pack…",
     "pain + wound check-in form",
-    "photo upload (encrypted)",
+    "photo upload (memory-only learning stub)",
     "audit log wired to every route",
     "daily reminder schedule"
   ],
   "initial_controls": [
     "ai-allowlist",
     "audit-log",
+    "auto-logoff",
     "dependency-scan",
     "phi-encryption",
     "synthetic-only"
@@ -31,7 +32,7 @@
     },
     {
       "instruction": "remind patients to log wound photos daily",
-      "ms": 11,
+      "ms": 12,
       "wired": [],
       "reply": "✓ done — remind patients to log wound photos daily. Nothing leaves the sandbox yet."
     }
@@ -42,25 +43,18 @@
   },
   "gate": {
     "initial": {
-      "passed": 4,
+      "passed": 5,
       "stubbed": 1,
       "total": 6,
-      "satisfied": 5,
-      "green": false,
-      "failing": [
-        {
-          "id": "auto-logoff",
-          "title": "auto-logoff after idle",
-          "reason": "auto-logoff after idle — not wired",
-          "fixable": true
-        }
-      ]
+      "satisfied": 6,
+      "green": true,
+      "failing": []
     },
     "refusal": {
       "status": 409,
-      "body": "{\"error\":\"deploy locked: principal dr-osei denied promotion of app post-op-recovery-tracker at v3; report 4/6 (1 stubbed) (real-data release requested) digest sha256:c9284d4d2c473bf3104c62c8d71d3c0a853ff81c219ab38cfbf4754d845c9806; blockers: phi-encryption (encryption on all patient fields): STUBBED — PHI fields rest on a labeled encryption stub — plumbing verified, cipher absent (hipaa-core encryptField via Vault transit is the scaffold's labeled TODO): Patient [name, age, procedure, surgery_date, surgeon] (scaffold/src/main.rs); SeedCheckin [pain, wound, note] (scaffold/src/main.rs); Checkin [patient_id, pain, wound, note] (scaffold/src/main.rs); PhotoStub [patient_id, filename] (scaffold/src/main.rs); auto-logoff (auto-logoff after idle): auto-logoff after idle — not wired\"}"
+      "body": "{\"error\":\"deploy locked: principal dr-osei denied promotion of app post-op-recovery-tracker at v3; report 5/6 (1 stubbed) (real-data release requested) digest sha256:2eb9d6005fa336f94b786387f3e97240d357d32f8f7fe6ceb24b47ea9b2d4e49; blockers: phi-encryption (encryption on all patient fields): STUBBED — PHI fields rest on a labeled encryption stub — plumbing verified, cipher absent (hipaa-core encryptField via Vault transit is the scaffold's labeled TODO): Patient [name, age, procedure, surgery_date, surgeon] (scaffold/src/main.rs); SeedCheckin [pain, wound, note] (scaffold/src/main.rs); Checkin [patient_id, pain, wound, note] (scaffold/src/main.rs); PhotoStub [patient_id, filename] (scaffold/src/main.rs)\"}"
     },
-    "after_fix": {
+    "synthetic_demo_ready": {
       "passed": 5,
       "stubbed": 1,
       "total": 6,
@@ -71,15 +65,15 @@
     "cosigner": "Dr. A. Osei",
     "principal": "dr-osei",
     "gate_summary": "5/6 (1 stubbed)",
-    "report_digest": "sha256:161df34d8b12055b47316ea0da38d921f385aa8d6833c5125d97ca626c7917c0"
+    "report_digest": "sha256:2eb9d6005fa336f94b786387f3e97240d357d32f8f7fe6ceb24b47ea9b2d4e49"
   },
   "allocation": {
-    "app_version": 4,
+    "app_version": 3,
     "credentials": "none: explicitly synthetic demo; tenant credentials are not issued",
     "database": "synthetic-demo-only",
-    "deployed_at": 1783920705,
+    "deployed_at": 1783944345,
     "healthy": false,
-    "id": "a-d458",
+    "id": "a-adb8",
     "image": "registry.internal/clinician-client@sha256:8f32c9b98d31f5ad0e0be9f92efc47942c74ec352af89c3254ddf967db2d19f7",
     "pool": "synthetic-demo",
     "profile": "web",
@@ -89,8 +83,8 @@
   "stages": [
     {
       "stage": "describe",
-      "ms": 18,
-      "what": "POST /api/apps → app post-op-recovery-tracker in sandbox on synthetic data; 5 scaffold steps; controls pre-wired: [ai-allowlist, audit-log, dependency-scan, phi-encryption, synthetic-only]",
+      "ms": 21,
+      "what": "POST /api/apps → app post-op-recovery-tracker in sandbox on synthetic data; 5 scaffold steps; controls pre-wired: [ai-allowlist, audit-log, auto-logoff, dependency-scan, phi-encryption, synthetic-only]",
       "audit_seqs": [
         1,
         2,
@@ -100,7 +94,7 @@
     },
     {
       "stage": "ui-sandbox",
-      "ms": 213,
+      "ms": 220,
       "what": "Playwright on the studio: the app open in a synthetic sandbox with conversation and preview → 01-sandbox.png",
       "audit_seqs": []
     },
@@ -116,7 +110,7 @@
     },
     {
       "stage": "iterate-2",
-      "ms": 11,
+      "ms": 12,
       "what": "\"remind patients to log wound photos daily\" → wired [nothing — feature only, honest off-vocabulary edit]",
       "audit_seqs": [
         8,
@@ -125,130 +119,130 @@
       ]
     },
     {
-      "stage": "gate-failing",
+      "stage": "gate-reviewed",
       "ms": 6,
-      "what": "GET gate → 5/6 satisfied (4 passed + 1 labeled stub), failing: auto-logoff (one-click fixable: true)",
+      "what": "GET gate → 6/6 satisfied (5 passed + 1 labeled stub), green for a synthetic demo; the encryption stub remains disclosed and blocks real-data release",
       "audit_seqs": []
     },
     {
-      "stage": "ui-gate-failing",
-      "ms": 184,
-      "what": "the release gate names the failure and offers its repair → 02-gate-failing.png",
+      "stage": "ui-gate-review",
+      "ms": 148,
+      "what": "the release gate discloses the production limitation and synthetic-demo readiness → 02-gate-review.png",
       "audit_seqs": []
     },
     {
       "stage": "promote-locked",
-      "ms": 5,
-      "what": "POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial",
+      "ms": 6,
+      "what": "POST real-data promote → 409; named the encryption stub that blocks real-data release",
       "audit_seqs": [
         11
       ]
     },
     {
-      "stage": "fix-auto-logoff",
-      "ms": 7,
-      "what": "POST gate/auto-logoff/fix → gate 6/6 satisfied, green (5 passed + 1 labeled stub)",
+      "stage": "cosign-release",
+      "ms": 13,
+      "what": "POST promote (cosigner \"Dr. A. Osei\", synthetic_demo=true) → isolated synthetic demo; attestation by dr-osei, digest sha256:2eb9d6005…; allocation a-adb8 (synthetic-demo pool, post-op-recovery-tracker.synthetic-demo.local)",
       "audit_seqs": [
         12,
         13
       ]
     },
     {
-      "stage": "cosign-release",
-      "ms": 12,
-      "what": "POST promote (cosigner \"Dr. A. Osei\", synthetic_demo=true) → isolated synthetic demo; attestation by dr-osei, digest sha256:161df34d8…; allocation a-d458 (synthetic-demo pool, post-op-recovery-tracker.synthetic-demo.local)",
-      "audit_seqs": [
-        14,
-        15
-      ]
-    },
-    {
       "stage": "ui-live",
-      "ms": 111,
+      "ms": 122,
       "what": "the live view: synthetic badge, frozen release record, ownership action, and honest runtime status → 03-live.png",
       "audit_seqs": []
     },
     {
       "stage": "eject",
       "ms": 7,
-      "what": "GET export → 30 files, 161028 bytes; README opens with the prompt; README carries the frozen report + digest",
+      "what": "GET export → 37 files, 186566 bytes; README opens with the prompt; README carries the frozen report + digest",
       "audit_seqs": [
-        16
+        14
       ]
     },
     {
       "stage": "artifact-build",
-      "ms": 6744,
+      "ms": 7458,
       "what": "cargo build of the ejected server/ crate — cold, worktree-local target (what a stranger gets)",
       "audit_seqs": []
     },
     {
       "stage": "artifact-boot",
-      "ms": 319,
+      "ms": 261,
       "what": "the ejected binary healthy on :39450 against its bundled synthetic seed",
       "audit_seqs": []
     },
     {
       "stage": "artifact-drive",
-      "ms": 466,
-      "what": "pain-9 check-in for pt-001 → flag routed to the practice inbox; the app's own audit JSONL recorded 4 events → 04/05/06 screenshots",
+      "ms": 396,
+      "what": "pain-9 check-in for pt-001 → flag routed to the practice inbox; the app's own audit JSONL recorded 6 events → 04/05/06 screenshots",
       "audit_seqs": []
     }
   ],
   "bundle": {
-    "file_count": 30,
-    "total_bytes": 161028,
+    "file_count": 37,
+    "total_bytes": 186566,
     "files": {
+      ".dockerignore": 112,
+      ".gitignore": 112,
       ".mcp.json": 90,
       "Dockerfile": 984,
-      "README.md": 15366,
-      "artifact-quality.json": 1849,
+      "README.md": 15672,
+      "artifact-quality.json": 2745,
       "config/deploy.yml": 420,
-      "config/nginx.conf": 943,
+      "config/nginx.conf": 1247,
       "config/start.sh": 452,
-      "diagrams/service-map.tldr": 4770,
-      "diagrams/system-architecture.tldr": 3553,
+      "diagrams/service-map.tldr": 4112,
+      "diagrams/system-architecture.tldr": 2894,
       "diagrams/workspace-state-machine.tldr": 4123,
       "fly.toml": 347,
       "nomad/job.nomad.hcl": 2747,
-      "pack.hcl": 1430,
+      "pack.hcl": 1362,
       "render.yaml": 321,
+      "scripts/reexport.mjs": 1200,
+      "scripts/reimport.mjs": 1755,
+      "server/Cargo.lock": 15791,
       "server/Cargo.toml": 1129,
-      "server/src/local_media.rs": 19894,
-      "server/src/main.rs": 40122,
+      "server/src/main.rs": 52284,
       "synthetic/post-op-demo.json": 5598,
-      "web/package-lock.json": 46366,
-      "web/package.json": 469,
+      "web/package-lock.json": 47895,
+      "web/package.json": 545,
       "web/src/app.d.ts": 47,
       "web/src/app.html": 298,
       "web/src/clinician.css": 2748,
-      "web/src/lib/LocalMediaInput.svelte": 3464,
+      "web/src/lib/PostOpCheckIn.svelte": 7539,
+      "web/src/lib/TreatmentWorkspace.svelte": 4516,
+      "web/src/lib/treatment.json": 857,
       "web/src/routes/+layout.svelte": 111,
       "web/src/routes/+layout.ts": 26,
-      "web/src/routes/+page.svelte": 2630,
+      "web/src/routes/+page.svelte": 2054,
       "web/svelte.config.js": 166,
+      "web/tests/owned-app.mjs": 3702,
       "web/tsconfig.json": 326,
       "web/vite.config.ts": 239
     },
-    "readme_opening": "# post-op recovery tracker\n\nBuilt on the clinician platform and ejected as an owned, self-contained\nrepository. It started as one sentence:\n\n> a post-op recovery tracker for my knee replacement patients",
-    "compliance_report_heading": "## Gate report (frozen at promotion, app v4)",
-    "compliance_digest_line": "- gate report digest: `sha256:161df34d8b12055b47316ea0da38d921f385aa8d6833c5125d97ca626c7917c0` — sha256 over the frozen report's canonical JSON; the co-sign binds exactly this evidence (#10)",
-    "unpack": "mkdir -p post-op-recovery-tracker && cd post-op-recovery-tracker && python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,exist_ok=True), q.write_text(c)))(pathlib.Path(p)) for p,c in json.load(sys.stdin)[\"files\"].items()]' < ../export.json"
+    "readme_opening": "# post-op recovery tracker\n\nBuilt on the clinician platform and ejected as an owned source\nrepository. It started as one sentence:\n\n> a post-op recovery tracker for my knee replacement patients",
+    "compliance_report_heading": "## Gate report (frozen at promotion, app v3)",
+    "compliance_digest_line": "- gate report digest: `sha256:2eb9d6005fa336f94b786387f3e97240d357d32f8f7fe6ceb24b47ea9b2d4e49` — sha256 over the frozen report's canonical JSON; the co-sign binds exactly this evidence (#10)",
+    "unpack": "mkdir -p post-op-recovery-tracker && cd post-op-recovery-tracker && python3 -c 'import json,sys,pathlib; root=pathlib.Path.cwd().resolve(); files=json.load(sys.stdin)[\"files\"]; [(lambda q,c: (_ for _ in ()).throw(ValueError(\"unsafe export path\")) if q == root or root not in q.parents else (q.parent.mkdir(parents=True,exist_ok=True),q.open(\"x\",encoding=\"utf-8\").write(c)))((root/pathlib.Path(p)).resolve(),c) for p,c in files.items()]' < ../export.json"
   },
   "artifact": {
-    "build_ms": 6744,
-    "boot_ms": 319,
+    "build_ms": 7458,
+    "boot_ms": 261,
     "audit_jsonl": [
-      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783920713,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":200}",
-      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783920713,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":303}",
-      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783920713,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/\",\"status\":200}",
-      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783920713,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/checkin\",\"status\":200}"
+      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783944353,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":200}",
+      "{\"action\":\"http.request\",\"actor\":\"anonymous\",\"at\":1783944353,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/login\",\"status\":303}",
+      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783944353,\"control\":\"audit-log\",\"method\":\"GET\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/\",\"status\":200}",
+      "{\"action\":\"post_op.checkin.accepted\",\"actor\":\"demo-patient\",\"at\":1783944353,\"checkin_id\":\"checkin-000000\",\"control\":\"audit-log\",\"pain\":9,\"patient_id\":\"pt-001\",\"synthetic_only\":true,\"wound\":\"clean\"}",
+      "{\"action\":\"post_op.escalation.queued\",\"actor\":\"demo-patient\",\"at\":1783944353,\"checkin_id\":\"checkin-000000\",\"control\":\"audit-log\",\"destination\":\"practice-inbox\",\"flag_id\":\"flag-000000\",\"reason_codes\":[\"pain-threshold\"],\"synthetic_only\":true}",
+      "{\"action\":\"http.request\",\"actor\":\"demo-patient\",\"at\":1783944353,\"control\":\"audit-log\",\"method\":\"POST\",\"note\":\"hipaa-core placeholder — stdout JSONL until the shared audit library lands\",\"path\":\"/checkin\",\"status\":200}"
     ]
   },
   "audit_timeline": [
     {
       "seq": 1,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.created",
@@ -256,7 +250,7 @@
     },
     {
       "seq": 2,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -264,7 +258,7 @@
     },
     {
       "seq": 3,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -272,7 +266,7 @@
     },
     {
       "seq": 4,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.scaffolded",
@@ -280,7 +274,7 @@
     },
     {
       "seq": 5,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -288,7 +282,7 @@
     },
     {
       "seq": 6,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -296,7 +290,7 @@
     },
     {
       "seq": 7,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.iterated",
@@ -304,7 +298,7 @@
     },
     {
       "seq": 8,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.routed",
@@ -312,7 +306,7 @@
     },
     {
       "seq": 9,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "agent",
       "action": "agent.attempt",
@@ -320,7 +314,7 @@
     },
     {
       "seq": 10,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.iterated",
@@ -328,92 +322,76 @@
     },
     {
       "seq": 11,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "dr-osei",
       "action": "gate.promotion_denied",
-      "detail": "principal dr-osei denied promotion of app post-op-recovery-tracker at v3; report 4/6 (1 stubbed) (real-data release requested) digest sha256:c9284d4d2c473bf3104c62c8d71d3c0a853ff81c219ab38cfbf4754d845c9806; blockers: phi-encryption (encryption on all patient fields): STUBBED — PHI fields rest on a labeled encryption stub — plumbing verified, cipher absent (hipaa-core encryptField via Vault transit is the scaffold's labeled TODO): Patient [name, age, procedure, surgery_date, surgeon] (scaffold/src/main.rs); SeedCheckin [pain, wound, note] (scaffold/src/main.rs); Checkin [patient_id, pain, wound, note] (scaffold/src/main.rs); PhotoStub [patient_id, filename] (scaffold/src/main.rs); auto-logoff (auto-logoff after idle): auto-logoff after idle — not wired"
+      "detail": "principal dr-osei denied promotion of app post-op-recovery-tracker at v3; report 5/6 (1 stubbed) (real-data release requested) digest sha256:2eb9d6005fa336f94b786387f3e97240d357d32f8f7fe6ceb24b47ea9b2d4e49; blockers: phi-encryption (encryption on all patient fields): STUBBED — PHI fields rest on a labeled encryption stub — plumbing verified, cipher absent (hipaa-core encryptField via Vault transit is the scaffold's labeled TODO): Patient [name, age, procedure, surgery_date, surgeon] (scaffold/src/main.rs); SeedCheckin [pain, wound, note] (scaffold/src/main.rs); Checkin [patient_id, pain, wound, note] (scaffold/src/main.rs); PhotoStub [patient_id, filename] (scaffold/src/main.rs)"
     },
     {
       "seq": 12,
-      "at": 1783920705,
-      "offset_ms": 0,
-      "actor": "agent",
-      "action": "agent.attempt",
-      "detail": "op op-adb8 fix v4 tier=rules verdict=accepted → applied"
-    },
-    {
-      "seq": 13,
-      "at": 1783920705,
-      "offset_ms": 0,
-      "actor": "agent",
-      "action": "gate.fixed",
-      "detail": "wired control auto-logoff"
-    },
-    {
-      "seq": 14,
-      "at": 1783920705,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "gate-engine",
       "action": "gate.passed",
-      "detail": "preflight 5/6 (1 stubbed) green at v4"
+      "detail": "preflight 5/6 (1 stubbed) green at v3"
     },
     {
-      "seq": 15,
-      "at": 1783920705,
+      "seq": 13,
+      "at": 1783944345,
       "offset_ms": 0,
       "actor": "deploy",
       "action": "app.promoted",
-      "detail": "deploy v4 approved (preflight 5/6 (1 stubbed)) — co-signed Dr. A. Osei (dr-osei) binding report digest sha256:161df34d8b12055b47316ea0da38d921f385aa8d6833c5125d97ca626c7917c0 — allocation a-d458 in synthetic-demo pool"
+      "detail": "deploy v3 approved (preflight 5/6 (1 stubbed)) — co-signed Dr. A. Osei (dr-osei) binding report digest sha256:2eb9d6005fa336f94b786387f3e97240d357d32f8f7fe6ceb24b47ea9b2d4e49 — allocation a-adb8 in synthetic-demo pool"
     },
     {
-      "seq": 16,
-      "at": 1783920706,
-      "offset_ms": 717,
+      "seq": 14,
+      "at": 1783944345,
+      "offset_ms": 0,
       "actor": "dr-osei",
       "action": "app.exported",
-      "detail": "ejection bundle: 30 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code"
+      "detail": "ejection bundle: 37 files, docs from the record, pack post-op-recovery-tracker-template derived — no hostage code"
     }
   ],
   "totals": {
-    "prompt_to_live_ms": 600,
-    "prompt_to_ejected_running_ms": 7789,
-    "api_calls_only_ms": 71,
-    "artifact_build_ms": 6744,
-    "artifact_boot_ms": 319,
-    "control_plane_boot_ms": 761
+    "prompt_to_live_ms": 653,
+    "prompt_to_ejected_running_ms": 8512,
+    "api_calls_only_ms": 70,
+    "artifact_build_ms": 7458,
+    "artifact_boot_ms": 261,
+    "control_plane_boot_ms": 658
   },
   "screenshots": [
     {
       "file": "01-sandbox.png",
-      "bytes": 83066
+      "bytes": 82015
     },
     {
-      "file": "02-gate-failing.png",
-      "bytes": 173635
+      "file": "02-gate-review.png",
+      "bytes": 171773
     },
     {
       "file": "03-live.png",
-      "bytes": 186711
+      "bytes": 187041
     },
     {
       "file": "04-artifact-home.png",
-      "bytes": 66347
+      "bytes": 70914
     },
     {
       "file": "05-artifact-form.png",
-      "bytes": 67882
+      "bytes": 71804
     },
     {
       "file": "06-artifact-flag.png",
-      "bytes": 32915
+      "bytes": 30641
     }
   ],
   "honesty": [
     "agent tier: every scaffold/iterate ran on the deterministic rules driver (scaffold:rules×1, iterate:rules×2) — the honest floor; no model endpoint was configured (decision 0002 keeps sandbox/CI model-free).",
-    "allocation a-d458 is simulated in dev mode (in-memory control plane, no Nomad configured) — the same promote renders a real Nomad job in staging (#2/#6).",
+    "allocation a-adb8 is simulated in dev mode (in-memory control plane, no Nomad configured) — the same promote renders a real Nomad job in staging (#2/#6).",
     "the pack's phi-encryption check is a labeled stub — it satisfies the meter as \"stubbed\", is never drawn as a pass, and the ejected app labels encryption-at-rest as a TODO on its own page.",
-    "the gate meter reads 5/6 before the fix because the labeled stub counts as satisfied-with-a-caveat: 4 passed + 1 stub, auto-logoff failing.",
+    "the gate reads 6/6 satisfied: 5 passed + 1 labeled stub. Auto-logoff passes, the synthetic demo is green, and real-data release remains blocked by the encryption stub.",
     "the locked promote (409) is enforcement without an audit event today — the refusal is captured here verbatim from the HTTP body; only state-changing actions land on the app's stream.",
     "audit offsets are derived from the stream's 1-second timestamps; stage wall times are measured around each HTTP call/build/boot at ms precision."
   ]

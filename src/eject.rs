@@ -61,6 +61,8 @@ pub fn validate_owned_bundle(files: &BTreeMap<String, String>) -> Result<(), Str
     }
     if files.keys().any(|path| {
         path.starts_with("docs/")
+            || path == "export.json"
+            || path == "reimport-result.json"
             || path == ".practice-verifier-report.json"
             || path.ends_with("/.practice-verifier-report.json")
             || path.starts_with("server/target/")
@@ -167,6 +169,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     }
     files.insert(".mcp.json".to_string(), svelte_mcp_config());
     files.insert("scripts/reimport.mjs".to_string(), owned_reimport_script());
+    files.insert("scripts/reexport.mjs".to_string(), owned_reexport_script());
     files.insert(".gitignore".to_string(), exported_gitignore());
     files.insert(".dockerignore".to_string(), exported_dockerignore());
     files.insert(
@@ -291,7 +294,7 @@ fn unpack_command(app_id: &str) -> String {
 fn readme_md(app: &AppRecord, pack: &PackManifest) -> String {
     let mut md = String::new();
     md.push_str(&format!("# {}\n\n", app.name));
-    md.push_str("Built on the clinician platform and ejected as an owned, self-contained\nrepository. It started as one sentence:\n\n");
+    md.push_str("Built on the clinician platform and ejected as an owned source\nrepository. It started as one sentence:\n\n");
     md.push_str(&format!("> {}\n\n", app.prompt));
     md.push_str(&format!(
         "Scaffolded from the **{}** pack (`{}`), HIPAA controls pre-wired: {}\n\n",
@@ -441,12 +444,12 @@ try {
 }
 
 fn exported_gitignore() -> String {
-    "reimport-result.json\nserver/target/\nweb/.svelte-kit/\nweb/build/\nweb/node_modules/\nweb/test-results/\n"
+    "export.json\nreimport-result.json\nserver/target/\nweb/.svelte-kit/\nweb/build/\nweb/node_modules/\nweb/test-results/\n"
         .to_string()
 }
 
 fn exported_dockerignore() -> String {
-    ".git\nreimport-result.json\nserver/target\nweb/.svelte-kit\nweb/build\nweb/node_modules\nweb/test-results\n"
+    ".git\nexport.json\nreimport-result.json\nserver/target\nweb/.svelte-kit\nweb/build\nweb/node_modules\nweb/test-results\n"
         .to_string()
 }
 
@@ -472,7 +475,7 @@ function walk(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     const relative = path.relative(root, absolute).split(path.sep).join('/');
-    if (ignored.has(relative) || relative === '.DS_Store' || relative === 'reimport-result.json') continue;
+    if (ignored.has(relative) || relative === '.DS_Store' || relative === 'export.json' || relative === 'reimport-result.json') continue;
     if (entry.isSymbolicLink()) throw new Error(`Refusing symbolic link: ${relative}`);
     if (entry.isDirectory()) walk(absolute);
     else if (entry.isFile()) files[relative] = fs.readFileSync(absolute, 'utf8');
@@ -493,6 +496,31 @@ if (!response.ok) throw new Error(body.error || `Import failed with HTTP ${respo
 fs.writeFileSync(path.join(root, 'reimport-result.json'), `${JSON.stringify(body, null, 2)}\n`);
 console.log(`Imported ${body.app.id} as a private synthetic starter.`);
 console.log(`Open ${baseUrl}/ and select ${body.app.id}.`);
+"#
+    .to_string()
+}
+
+fn owned_reexport_script() -> String {
+    r#"import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const baseUrl = (process.env.PRACTICE_STUDIO_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+const token = process.env.PRACTICE_STUDIO_TOKEN;
+const resultPath = path.join(root, 'reimport-result.json');
+const imported = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : null;
+const appId = process.env.PRACTICE_STUDIO_APP_ID || imported?.app?.id;
+if (!appId) throw new Error('Set PRACTICE_STUDIO_APP_ID or run scripts/reimport.mjs first.');
+
+const headers = {};
+if (token) headers.authorization = `Bearer ${token}`;
+const response = await fetch(`${baseUrl}/api/apps/${encodeURIComponent(appId)}/export`, { headers });
+const body = await response.json();
+if (!response.ok) throw new Error(body.error || `Export failed with HTTP ${response.status}`);
+if (!body.files || typeof body.files !== 'object') throw new Error('Export response has no file map.');
+fs.writeFileSync(path.join(root, 'export.json'), `${JSON.stringify(body, null, 2)}\n`);
+console.log(`Exported ${appId} to export.json.`);
 "#
     .to_string()
 }
@@ -806,7 +834,7 @@ fn post_op_checkin_component() -> String {
       <h2>{treatment.treatment.user_outcome}</h2>
       {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
       <div class="hc-notice"><b>What happens next</b><p>Concerning synthetic answers are evaluated by Rust and, when required, queued to the practice inbox with a visible reason.</p></div>
-      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · Rust owns the current clinical threshold.</p>
     </article>
   {/if}
   <div class="hc-workflow-grid">
@@ -884,7 +912,7 @@ fn post_op_checkin_component() -> String {
       <div class="hc-actions"><span class="hc-badge">Gemma-planned treatment</span><b>{treatment.treatment.label}</b></div>
       <h2>{treatment.treatment.user_outcome}</h2>
       {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
-      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · Rust owns the current clinical threshold.</p>
     </article>
   {/if}
 </section>
@@ -988,6 +1016,18 @@ fn tldraw_diagram(title: &str, labels: &[&str]) -> String {
 
 fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> String {
     let id = &app.id;
+    let nomad_target = if app.allocation.is_some() {
+        "| Nomad | `nomad/job.nomad.hcl` | `nomad job run nomad/job.nomad.hcl` |"
+    } else {
+        "| Nomad | `nomad/job.nomad.hcl` | placeholder until promotion; promote and re-export |"
+    };
+    let nomad_note = if app.allocation.is_some() {
+        "The Nomad job is the platform's rendered live allocation spec; its Vault\n\
+         `{{ with secret … }}` blocks resolve against your Vault at runtime."
+    } else {
+        "This draft has no live allocation. Its Nomad file is an explicit placeholder,\n\
+         not a runnable job; promote the app and re-export before using Nomad."
+    };
     let source_section = if real_source {
         "## The app source is real\n\n\
          `app/` is the Rust and Axum service. It runs the clinical workflow from\n\
@@ -995,8 +1035,9 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          extending that workflow. Run the Rust service for local development:\n\n\
          ```bash\n\
          cd app\n\
-         APP_BIND=127.0.0.1:8080 cargo run\n\
+         cargo fmt --check\n\
          cargo test\n\
+         APP_BIND=127.0.0.1:8080 cargo run\n\
          ```\n\n\
          In a second terminal, run the Svelte workspace:\n\n\
          ```bash\n\
@@ -1017,7 +1058,9 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
     };
     format!(
         "# Runbook — {name}\n\n\
-         This bundle is self-contained. Nothing here phones home to the platform.\n\n\
+         You own all application source in this bundle. The running app makes no\n\
+         call back to Practice Studio. First builds can download the pinned Rust and\n\
+         JavaScript dependencies, Playwright browser, and Docker base images.\n\n\
          {source_section}\n\
          ## Unpack a downloaded export\n\n\
          Save the downloaded JSON as `export.json`, then run:\n\n\
@@ -1031,7 +1074,7 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          curl --fail http://127.0.0.1:8080/health\n\
          ```\n\n\
          Open `http://127.0.0.1:8080/` for the clinical workflow. Open\n\
-         `http://127.0.0.1:8080/workspace/` for the Svelte extension workspace.\n\
+         `http://127.0.0.1:8080/workspace/` for the Svelte workflow workspace.\n\
          Both use the same origin and the same Rust service.\n\n\
          ## Run the browser journey\n\n\
          Keep the Docker container running. In another terminal, run:\n\n\
@@ -1046,12 +1089,11 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          ## Deploy targets\n\n\
          | target | manifest | command |\n\
          |---|---|---|\n\
-         | Nomad | `nomad/job.nomad.hcl` | `nomad job run nomad/job.nomad.hcl` |\n\
+         {nomad_target}\n\
          | Render | `render.yaml` | connect the repo; Render reads the blueprint |\n\
          | Fly.io | `fly.toml` | `fly launch --copy-config --now` |\n\
          | Kamal | `config/deploy.yml` | `kamal setup` (fill in your server + registry) |\n\n\
-         The Nomad job is the platform's own rendered allocation spec; the Vault\n\
-         `{{{{ with secret … }}}}` blocks resolve against your Vault at runtime.\n\
+         {nomad_note}\n\n\
          Render/Fly/Kamal manifests build from the Dockerfile in this bundle.\n\n\
          ## Import as a private starter\n\n\
          Start Practice Studio, then run this command from the bundle root:\n\n\
@@ -1060,13 +1102,24 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          ```\n\n\
          Set `PRACTICE_STUDIO_TOKEN` when the platform requires a bearer token.\n\
          Rust validates the file map, resolves `based_on` against the trusted built-in\n\
-         registry, and verifies the exact source digest. The import receives a new id\n\
-         in your tenant. It starts with synthetic data and receives no prior release,\n\
+         registry, and verifies the exact source digest. The import returns an app id\n\
+         in your tenant and can retain the owned slug. It starts with synthetic data\n\
+         and receives no prior release,\n\
          deployment, credential, or signer authority. The command writes the result to\n\
-         the ignored `reimport-result.json` file.\n",
+         the ignored `reimport-result.json` file.\n\n\
+         ## Export the imported starter again\n\n\
+         After continuing the app in Practice Studio, export its current owned bundle:\n\n\
+         ```bash\n\
+         PRACTICE_STUDIO_URL=http://127.0.0.1:3000 node scripts/reexport.mjs\n\
+         ```\n\n\
+         The helper reads the imported id from `reimport-result.json`; set\n\
+         `PRACTICE_STUDIO_APP_ID` to export a different app. It writes the ignored\n\
+         `export.json` file and uses the same optional bearer token.\n",
         name = app.name,
         unpack = unpack_command(id),
         id = id,
+        nomad_target = nomad_target,
+        nomad_note = nomad_note,
     )
 }
 
@@ -1097,6 +1150,11 @@ fn customize_md(
         .map(|gate| format!("`{gate}`"))
         .collect::<Vec<_>>()
         .join(", ");
+    let svelte_workflow = if pack.id == "post-op-monitor" {
+        "`web/src/lib/PostOpCheckIn.svelte`"
+    } else {
+        "`web/src/routes/+page.svelte`"
+    };
 
     format!(
         r#"# Customize — {name}
@@ -1109,7 +1167,8 @@ smallest useful change should remain easy to locate, run, and verify.
 | Change | Start here |
 |---|---|
 | Clinical workflow, routes, and server validation | `app/src/main.rs` |
-| Svelte extension workspace | `web/src/routes/+page.svelte` |
+| Svelte page shell | `web/src/routes/+page.svelte` |
+| Svelte clinical workflow | {svelte_workflow} |
 | Theme tokens and reusable component classes | `web/src/clinician.css` |
 | Rust dependencies and binary settings | `app/Cargo.toml` |
 | Svelte dependencies and scripts | `web/package.json` |
@@ -1130,7 +1189,7 @@ Runtime profile: **{profile}**. Current workflow:
 2. Add or adjust synthetic examples in `{fixture}`. Never paste real patient
    information into a fixture, prompt, screenshot, or test.
 3. Implement server behavior in `app/src/main.rs` and screen behavior in
-   `web/src/routes/+page.svelte`. Keep authorization checks and safety
+   {svelte_workflow}. Keep authorization checks and safety
    disclosures on every new route.
 4. Update the contract in `artifact-quality.json` and the executable test in
    `web/tests/owned-app.mjs`. The test must prove the user outcome in a browser.
@@ -1151,7 +1210,8 @@ control is production-ready. Keep the known limitations in
   together.
 - Deploy with one of the manifests documented in `docs/RUNBOOK.md`.
 - Run `node scripts/reimport.mjs` to import the exact customized bundle as
-  your next private synthetic starter.
+  your next private synthetic starter. After continuing there, run
+  `node scripts/reexport.mjs` to write its current owned bundle to `export.json`.
 
 Before real patient use, replace process-local state and demo credentials,
 configure durable audit/storage/backups, enforce workload identity and egress,
@@ -1879,6 +1939,8 @@ mod tests {
         assert!(bundle.files[".dockerignore"].contains("web/node_modules"));
         assert!(bundle.files[".dockerignore"].contains("web/test-results"));
         assert!(bundle.files.contains_key("scripts/reimport.mjs"));
+        assert!(bundle.files.contains_key("scripts/reexport.mjs"));
+        assert!(bundle.files["README.md"].contains("node scripts/reexport.mjs"));
         validate_owned_bundle(&bundle.files).unwrap();
 
         let mut traversal = bundle.files.clone();

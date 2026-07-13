@@ -350,7 +350,7 @@ async fn same_app_mutations_serialize_through_durable_confirmation() {
         call(
             &first_router,
             "POST",
-            &format!("/api/apps/{first_id}/gate/auto-logoff/fix"),
+            &format!("/api/apps/{first_id}/gate/access-roles/fix"),
             Some(json!({})),
         )
         .await
@@ -383,7 +383,7 @@ async fn same_app_mutations_serialize_through_durable_confirmation() {
     let (_, app) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
     let controls = app["controls"].as_array().unwrap();
     assert!(
-        !controls.iter().any(|control| control == "auto-logoff"),
+        !controls.iter().any(|control| control == "access-roles"),
         "failed first mutation must not survive inside the later success: {app}"
     );
     assert!(
@@ -818,7 +818,7 @@ async fn kill_the_sink_and_the_next_promotion_fails_sandboxed_with_the_failure_o
     let (status, _) = call(
         &router,
         "POST",
-        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
+        &format!("/api/apps/{id}/gate/access-roles/fix"),
         Some(json!({})),
     )
     .await;
@@ -904,7 +904,7 @@ async fn a_dead_sink_blocks_every_load_bearing_operation_not_just_promote() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|c| c == "auto-logoff"),
+            .any(|c| c == "access-roles"),
         "the unrecorded fix must not stand: {app}"
     );
 

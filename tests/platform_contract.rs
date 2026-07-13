@@ -146,11 +146,11 @@ async fn describe_lands_in_sandbox_on_synthetic_data() {
     assert_eq!(app_body["stage"], "sandbox");
     assert_eq!(app_body["data_source"]["kind"], "synthetic");
     assert!(app_body["features"].as_array().unwrap().len() >= 4);
-    // The scaffold pre-wires hipaa-core controls but NOT auto-logoff:
-    // the doctor (or "fix it for me") has to close that check.
+    // The scaffold implements idle session expiry, so its app record must not
+    // contradict the executable source by claiming auto-logoff is missing.
     let controls = app_body["controls"].as_array().unwrap();
     assert!(controls.iter().any(|c| c == "phi-encryption"));
-    assert!(!controls.iter().any(|c| c == "auto-logoff"));
+    assert!(controls.iter().any(|c| c == "auto-logoff"));
 }
 
 #[tokio::test]
@@ -309,20 +309,19 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
 }
 
 #[tokio::test]
-async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
+async fn gate_blocks_real_data_then_admits_disclosed_synthetic_demo() {
     let router = app();
     let id = create_post_op_app(&router).await;
 
-    // Preflight: auto-logoff failing and marked fixable (storyboard 1a⑤).
-    // Evidence basis (#3): four verdicts are inspected from the pack's
+    // Evidence basis (#3): five verdicts are inspected from the pack's
     // scaffold source; the encryption stub reports `stubbed`, never `pass`,
-    // so `passed` counts 4 with 1 stubbed alongside.
+    // so `passed` counts 5 with 1 stubbed alongside.
     let (status, gate) = call(&router, "GET", &format!("/api/apps/{id}/gate"), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(gate["report"]["passed"], 4);
+    assert_eq!(gate["report"]["passed"], 5);
     assert_eq!(gate["report"]["stubbed"], 1);
     assert_eq!(gate["report"]["total"], 6);
-    assert_eq!(gate["report"]["green"], false);
+    assert_eq!(gate["report"]["green"], true);
     let audit_gate = gate["report"]["results"]
         .as_array()
         .unwrap()
@@ -344,47 +343,10 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
         .iter()
         .filter(|r| r["status"] == "fail")
         .collect();
-    assert_eq!(failing.len(), 1);
-    assert_eq!(failing[0]["id"], "auto-logoff");
-    assert_eq!(failing[0]["fixable"], true);
+    assert!(failing.is_empty());
 
     // Deploy is locked: the false-pass guard. The error must name the gap.
     let (status, err) = call(
-        &router,
-        "POST",
-        &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "Dr. A. Osei", "synthetic_demo": true})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert!(err["error"].as_str().unwrap().contains("auto-logoff"));
-
-    // Still sandboxed — the failed promotion changed nothing.
-    let (_, app_body) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
-    assert_eq!(app_body["stage"], "sandbox");
-    assert!(app_body["allocation"].is_null());
-
-    // "fix it for me", then promote with a co-signature.
-    let (status, _) = call(
-        &router,
-        "POST",
-        &format!("/api/apps/{id}/gate/auto-logoff/fix"),
-        Some(json!({})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-
-    // A promotion without a co-signer is still refused.
-    let (status, _) = call(
-        &router,
-        "POST",
-        &format!("/api/apps/{id}/promote"),
-        Some(json!({"cosigner": "  "})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-
-    let (status, promoted) = call(
         &router,
         "POST",
         &format!("/api/apps/{id}/promote"),
@@ -392,10 +354,22 @@ async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert!(promoted["error"]
-        .as_str()
-        .unwrap()
-        .contains("phi-encryption"));
+    assert!(err["error"].as_str().unwrap().contains("phi-encryption"));
+
+    // Still sandboxed — the failed promotion changed nothing.
+    let (_, app_body) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    assert_eq!(app_body["stage"], "sandbox");
+    assert!(app_body["allocation"].is_null());
+
+    // A synthetic-demo promotion without a co-signer is still refused.
+    let (status, _) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/promote"),
+        Some(json!({"cosigner": "  ", "synthetic_demo": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
 
     let (_, audit) = call(&router, "GET", &format!("/api/apps/{id}/audit"), None).await;
     let denial = audit["events"]
@@ -779,6 +753,7 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
             "<!-- imported-svelte-sentinel -->",
         ),
         ("web/tests/owned-app.mjs", "// imported-browser-sentinel"),
+        ("README.md", "Owned customization record."),
     ] {
         let changed = format!("{}\n{sentinel}\n", files[path].as_str().unwrap());
         files.insert(path.into(), Value::String(changed));
@@ -845,6 +820,7 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
         "web/tests/owned-app.mjs",
         "synthetic/post-op-demo.json",
         "artifact-quality.json",
+        "README.md",
     ] {
         assert_eq!(reexported["files"][path], expected[path], "changed {path}");
     }

@@ -36,7 +36,16 @@ jobs:
       - name: Initialize
         working-directory: terraform/cloudflare
         run: |
-          terraform init -input=false +            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" +            -backend-config="key=cloudflare/dns.tfstate" +            -backend-config="region=${{ vars.TERRAFORM_STATE_REGION }}" +            -backend-config="endpoints={s3=\"https://${{ vars.TERRAFORM_STATE_REGION }}.digitaloceanspaces.com\"}" +            -backend-config="skip_credentials_validation=true" +            -backend-config="skip_region_validation=true" +            -backend-config="skip_requesting_account_id=true" +            -backend-config="skip_metadata_api_check=true" +            -backend-config="skip_s3_checksum=true"
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" \
+            -backend-config="key=cloudflare/dns.tfstate" \
+            -backend-config="region=${{ vars.TERRAFORM_STATE_REGION }}" \
+            -backend-config="endpoints={s3=\"https://${{ vars.TERRAFORM_STATE_REGION }}.digitaloceanspaces.com\"}" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="skip_requesting_account_id=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_s3_checksum=true"
       - name: Check formatting
         run: terraform fmt -check -recursive terraform/cloudflare
       - name: Validate

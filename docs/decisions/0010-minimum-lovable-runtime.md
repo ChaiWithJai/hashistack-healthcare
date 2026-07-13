@@ -22,6 +22,12 @@ deployment rights, or patient data. Rust checks the response and owns source
 creation, verification, checkpoints, acceptance, export, and deployment
 decisions.
 
+The hosted request has a 20 second budget because the pull request frontend
+uses a Netlify proxy. If Gemma is slower, Rust returns the same signed treatment
+set and labels the fallback in the workspace evidence. The doctor can continue
+instead of receiving a proxy timeout. The provider profile separately proves
+that Gemma can return a valid treatment with no fallback.
+
 ## User outcome
 
 A doctor can build a small practice tool with synthetic data. The core flow

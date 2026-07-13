@@ -22,6 +22,12 @@ frontend commit. The staging proof must report the exact Rust commit. A green
 frontend preview does not prove the backend, and a green backend proof does not
 prove the browser flow.
 
+Set `WORKSPACE_AGENT_TIMEOUT_SECS=20` on the staging host. Netlify can close a
+slow proxied request before a longer model timeout finishes. Rust returns the
+signed local treatment set after 20 seconds and records the fallback. Run the
+Gemma provider profile directly against staging to prove a valid provider
+response without the proxy.
+
 ## One host boundary
 
 A hobby deployment may run staging and a production candidate on one Droplet.

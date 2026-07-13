@@ -21,7 +21,10 @@ use crate::workspace::{
 };
 
 const SCHEMA_VERSION: u8 = 1;
-const DEFAULT_TIMEOUT_SECS: u64 = 45;
+// Netlify's preview proxy must receive a response before its upstream budget.
+// Keep enough room for Rust to return the signed deterministic treatment set
+// when DigitalOcean inference is slow.
+const DEFAULT_TIMEOUT_SECS: u64 = 20;
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 600_000;
 const MAX_CONFIGURED_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const DETERMINISTIC_MODEL: &str = "convention-floor-v1";

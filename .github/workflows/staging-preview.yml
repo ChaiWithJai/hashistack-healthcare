@@ -76,7 +76,9 @@ jobs:
           DIGITALOCEAN_PLANNER_ENDPOINT: ${{ vars.DIGITALOCEAN_PLANNER_ENDPOINT }}
           DIGITALOCEAN_PLANNER_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_PLANNER_ACCESS_KEY }}
           DIGITALOCEAN_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
-          WORKSPACE_AGENT_TIMEOUT_SECS: "90"
+          # Netlify closes a slow proxied request before a 90 second model
+          # timeout. Rust must have time to return its signed local treatments.
+          WORKSPACE_AGENT_TIMEOUT_SECS: "20"
           REQUIRE_DIGITALOCEAN_PLANNER: "1"
           EXPECTED_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
         run: |

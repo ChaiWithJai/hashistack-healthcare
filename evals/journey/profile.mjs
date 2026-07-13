@@ -234,48 +234,40 @@ async function main() {
   const tierSummary = Object.entries(tiers).map(([k, v]) => `${k}×${v}`).join(', ');
   console.log(`          agent tiers used: ${tierSummary}`);
 
-  // ---- 4. GATE, failing: named, screenshotted, and the locked promote ----
+  // ---- 4. GATE: synthetic-demo ready, production caveat disclosed ----
   const gate0 = await api('GET', `/api/apps/${appId}/gate`);
   const r0 = gate0.json.report;
   const failing0 = r0.results.filter((x) => x.status === 'fail');
-  assert(!r0.green && failing0.length === 1 && failing0[0].id === 'auto-logoff',
-    `expected exactly auto-logoff failing, got [${failing0.map((x) => x.id).join(', ')}]`);
+  assert(r0.green && failing0.length === 0 && r0.passed === 5 && r0.stubbed === 1 && r0.total === 6,
+    `expected a green 5 passed + 1 labeled stub gate, got ${r0.passed} passed + ${r0.stubbed} stubbed, ` +
+    `${r0.total} total, green=${r0.green}, failing=[${failing0.map((x) => x.id).join(', ')}]`);
   const gateInitial = {
     passed: r0.passed, stubbed: r0.stubbed, total: r0.total,
     satisfied: r0.passed + r0.stubbed, green: r0.green,
     failing: failing0.map((x) => ({ id: x.id, title: x.title, reason: x.reason ?? x.outcome?.reason ?? '', fixable: !!x.fixable })),
   };
-  await record('gate-failing', gate0.ms,
+  await record('gate-reviewed', gate0.ms,
     `GET gate → ${gateInitial.satisfied}/${r0.total} satisfied (${r0.passed} passed + ${r0.stubbed} labeled stub), ` +
-    `failing: ${failing0[0].id} (one-click fixable: ${failing0[0].fixable})`);
+    'green for a synthetic demo; the encryption stub remains disclosed and blocks real-data release');
 
   t = performance.now();
   await openApp();
   await page.getByRole('button', { name: 'Check before release →' }).click();
   await page.getByTestId('gate-dialog').waitFor();
   await page.getByText('Know what is ready before anyone uses it.').waitFor();
-  await page.screenshot({ path: shotPath('02-gate-failing.png') });
-  await record('ui-gate-failing', Math.round(performance.now() - t),
-    'the release gate names the failure and offers its repair → 02-gate-failing.png');
+  await page.screenshot({ path: shotPath('02-gate-review.png') });
+  await record('ui-gate-review', Math.round(performance.now() - t),
+    'the release gate discloses the production limitation and synthetic-demo readiness → 02-gate-review.png');
 
   const refused = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER });
-  assert(refused.status === 409, `promote-while-failing must be 409, got ${refused.status}`);
+  assert(refused.status === 409, `real-data promote with an encryption stub must be 409, got ${refused.status}`);
   const refusalBody = refused.text; // verbatim — the product's own words
-  assert(refusalBody.includes('auto-logoff') && refusalBody.includes('phi-encryption') && refusalBody.includes('STUBBED'),
-    `the real-data refusal must name both the failing check and the production-blocking stub: ${refusalBody}`);
+  assert(refusalBody.includes('phi-encryption') && refusalBody.includes('STUBBED'),
+    `the real-data refusal must name the production-blocking encryption stub: ${refusalBody}`);
   await record('promote-locked', refused.ms,
-    `POST real-data promote while failing → 409; named auto-logoff + encryption stub and durably audited the denial`);
+    'POST real-data promote → 409; named the encryption stub that blocks real-data release');
 
-  // ---- 5. FIX: one click, then green ----
-  const fixed = await api('POST', `/api/apps/${appId}/gate/auto-logoff/fix`, {});
-  assert(fixed.status === 200, `fix returned ${fixed.status}: ${fixed.text.slice(0, 200)}`);
-  const gate1 = await api('GET', `/api/apps/${appId}/gate`);
-  const r1 = gate1.json.report;
-  assert(r1.green, `gate must be green after the fix, still failing: ${JSON.stringify(r1.results.filter((x) => x.status === 'fail').map((x) => x.id))}`);
-  await record('fix-auto-logoff', fixed.ms + gate1.ms,
-    `POST gate/auto-logoff/fix → gate ${r1.passed + r1.stubbed}/${r1.total} satisfied, green (${r1.passed} passed + ${r1.stubbed} labeled stub)`);
-
-  // ---- 6. CO-SIGN & RELEASE ----
+  // ---- 5. CO-SIGN & RELEASE ----
   const promoted = await api('POST', `/api/apps/${appId}/promote`, { cosigner: COSIGNER, synthetic_demo: true });
   assert(promoted.status === 200, `promote returned ${promoted.status}: ${promoted.text.slice(0, 300)}`);
   assert(promoted.json.app.stage === 'live', 'promoted app must be live');
@@ -412,7 +404,7 @@ async function main() {
 
   // ---- totals ----
   const apiOnlyMs = created.ms + iterated.reduce((a, i) => a + i.ms, 0)
-    + gate0.ms + refused.ms + fixed.ms + gate1.ms + promoted.ms;
+    + gate0.ms + refused.ms + promoted.ms;
   const totals = {
     prompt_to_live_ms: promptToLiveMs,
     prompt_to_ejected_running_ms: promptToRunningMs,
@@ -431,7 +423,7 @@ async function main() {
     `agent tier: every scaffold/iterate ran on the deterministic rules driver (${tierSummary}) — the honest floor; no model endpoint was configured (decision 0002 keeps sandbox/CI model-free).`,
     `allocation ${alloc.id} is simulated in dev mode (in-memory control plane, no Nomad configured) — the same promote renders a real Nomad job in staging (#2/#6).`,
     'the pack\'s phi-encryption check is a labeled stub — it satisfies the meter as "stubbed", is never drawn as a pass, and the ejected app labels encryption-at-rest as a TODO on its own page.',
-    'the gate meter reads 5/6 before the fix because the labeled stub counts as satisfied-with-a-caveat: 4 passed + 1 stub, auto-logoff failing.',
+    'the gate reads 6/6 satisfied: 5 passed + 1 labeled stub. Auto-logoff passes, the synthetic demo is green, and real-data release remains blocked by the encryption stub.',
     'the locked promote (409) is enforcement without an audit event today — the refusal is captured here verbatim from the HTTP body; only state-changing actions land on the app\'s stream.',
     'audit offsets are derived from the stream\'s 1-second timestamps; stage wall times are measured around each HTTP call/build/boot at ms precision.',
   ];
@@ -445,7 +437,7 @@ async function main() {
     gate: {
       initial: gateInitial,
       refusal: { status: refused.status, body: refusalBody },
-      after_fix: { passed: r1.passed, stubbed: r1.stubbed, total: r1.total, green: r1.green },
+      synthetic_demo_ready: { passed: r0.passed, stubbed: r0.stubbed, total: r0.total, green: r0.green },
     },
     attestation: {
       cosigner: att.cosigner, principal: att.principal,
@@ -527,22 +519,18 @@ function renderMarkdown(j) {
   L.push('## The gate story');
   L.push('');
   L.push(`The preflight gate read **${j.gate.initial.satisfied}/${j.gate.initial.total} satisfied** (${j.gate.initial.passed} passed`);
-  L.push(`+ ${j.gate.initial.stubbed} labeled stub) with one named failure:`);
+  L.push(`+ ${j.gate.initial.stubbed} labeled stub) and was green for a disclosed synthetic demo.`);
   L.push('');
-  for (const f of j.gate.initial.failing) {
-    L.push(`- \`${f.id}\` — ${f.reason || f.title} (one-click fixable: ${f.fixable})`);
-  }
+  L.push('![the preflight modal disclosing the production limitation](02-gate-review.png)');
   L.push('');
-  L.push('![the preflight modal naming the failure](02-gate-failing.png)');
-  L.push('');
-  L.push(`Promotion while failing was refused — HTTP ${j.gate.refusal.status}, the product's own words, verbatim:`);
+  L.push(`Real-data promotion was refused — HTTP ${j.gate.refusal.status}, the product's own words, verbatim:`);
   L.push('');
   L.push('```json');
   L.push(j.gate.refusal.body);
   L.push('```');
   L.push('');
-  L.push(`One click fixed \`auto-logoff\`; the gate went **green at ${j.gate.after_fix.passed + j.gate.after_fix.stubbed}/${j.gate.after_fix.total}**`);
-  L.push(`(${j.gate.after_fix.passed} passed + ${j.gate.after_fix.stubbed} labeled stub — the stub is satisfied-with-a-caveat, never a pass).`);
+  L.push(`The synthetic-demo gate remained **green at ${j.gate.synthetic_demo_ready.passed + j.gate.synthetic_demo_ready.stubbed}/${j.gate.synthetic_demo_ready.total} satisfied**`);
+  L.push(`(${j.gate.synthetic_demo_ready.passed} passed + ${j.gate.synthetic_demo_ready.stubbed} labeled stub — the stub is satisfied-with-a-caveat, never a pass).`);
   L.push(`Dr. Osei co-signed as **${j.attestation.cosigner}** and the release attestation bound the`);
   L.push(`authenticated principal \`${j.attestation.principal}\` to the frozen gate report:`);
   L.push('');

@@ -3,8 +3,8 @@
 #
 # Runs THE flagship journey (Dr. Osei vibe-coding a post-op recovery tracker
 # on the fully-real pack) end to end against a freshly booted control plane:
-# describe → sandbox UI → iterate → failing gate (named, screenshotted,
-# promote refused) → one-click fix → co-sign & release → eject → the ejected
+# describe → sandbox UI → iterate → gate review (screenshotted, production
+# limitation enforced) → co-sign synthetic demo → eject → the ejected
 # bundle compiled, booted, and driven with Playwright. Every step is timed
 # (wall ms around the HTTP call / build / boot) and cross-referenced to the
 # audit events it produced.

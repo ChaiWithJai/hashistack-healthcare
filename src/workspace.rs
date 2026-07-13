@@ -143,6 +143,14 @@ pub enum CheckStatus {
     Fail,
 }
 
+pub const EXECUTABLE_CHECK_IDS: [&str; 5] = [
+    "workspace.structure.v1",
+    "web.svelte-check.v1",
+    "web.svelte-build.v1",
+    "server.cargo-test.v1",
+    "browser.synthetic-smoke.v1",
+];
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationCheck {
     pub id: String,
@@ -152,6 +160,9 @@ pub struct VerificationCheck {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationReport {
+    pub id: String,
+    pub workspace_digest: String,
+    pub profile_digest: String,
     pub checks: Vec<VerificationCheck>,
     pub passed: bool,
     pub verified_at: u64,
@@ -159,6 +170,21 @@ pub struct VerificationReport {
 
 impl VerificationReport {
     pub fn validate(&self) -> Result<(), String> {
+        if !self.id.starts_with("verify-v1-")
+            || !self.workspace_digest.starts_with("sha256:")
+            || !self.profile_digest.starts_with("sha256:")
+        {
+            return Err("verification evidence identity is invalid".into());
+        }
+        if self.checks.len() != EXECUTABLE_CHECK_IDS.len()
+            || self
+                .checks
+                .iter()
+                .zip(EXECUTABLE_CHECK_IDS)
+                .any(|(check, id)| check.id != id)
+        {
+            return Err("verification checks or order do not match executable profile v1".into());
+        }
         let all_pass = !self.checks.is_empty()
             && self
                 .checks
@@ -275,6 +301,13 @@ impl WorkspaceRecord {
             .clone()
             .ok_or_else(|| "select a treatment before generation".to_string())?;
         let diff = diff_files(&self.accepted.files, &patch.files);
+        let mut verified_files = self.accepted.files.clone();
+        for file in &patch.files {
+            verified_files.insert(file.path.clone(), file.content.clone());
+        }
+        if report.workspace_digest != source_digest(&verified_files) {
+            return Err("verification report does not match candidate bytes".into());
+        }
         self.candidate = Some(Candidate {
             id,
             base_version: self.accepted.version,
@@ -408,12 +441,19 @@ mod tests {
     }
 
     fn pass(now: u64) -> VerificationReport {
+        let files = BTreeMap::from([("web/x".to_string(), "good".to_string())]);
         VerificationReport {
-            checks: vec![VerificationCheck {
-                id: "structure".into(),
-                status: CheckStatus::Pass,
-                detail: "ok".into(),
-            }],
+            id: "verify-v1-test".into(),
+            workspace_digest: source_digest(&files),
+            profile_digest: "sha256:test".into(),
+            checks: EXECUTABLE_CHECK_IDS
+                .iter()
+                .map(|id| VerificationCheck {
+                    id: (*id).into(),
+                    status: CheckStatus::Pass,
+                    detail: "ok".into(),
+                })
+                .collect(),
             passed: true,
             verified_at: now,
         }
@@ -455,11 +495,20 @@ mod tests {
         workspace.select("calm-list", 3).unwrap();
         let before = workspace.accepted.digest.clone();
         let failed = VerificationReport {
-            checks: vec![VerificationCheck {
-                id: "build".into(),
-                status: CheckStatus::Fail,
-                detail: "failed".into(),
-            }],
+            id: "verify-v1-failed".into(),
+            workspace_digest: source_digest(&BTreeMap::from([(
+                "web/x".to_string(),
+                "bad".to_string(),
+            )])),
+            profile_digest: "sha256:test".into(),
+            checks: EXECUTABLE_CHECK_IDS
+                .iter()
+                .map(|id| VerificationCheck {
+                    id: (*id).into(),
+                    status: CheckStatus::Fail,
+                    detail: "failed".into(),
+                })
+                .collect(),
             passed: false,
             verified_at: 4,
         };

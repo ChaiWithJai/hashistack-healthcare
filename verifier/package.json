@@ -1,0 +1,15 @@
+{
+  "name": "practice-studio-workspace-verifier",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sveltejs/adapter-auto": "7.0.1",
+    "@sveltejs/kit": "2.69.2",
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "playwright": "1.55.1",
+    "svelte": "5.56.4",
+    "svelte-check": "4.4.5",
+    "typescript": "5.9.3",
+    "vite": "8.1.4"
+  }
+}

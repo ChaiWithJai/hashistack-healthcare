@@ -1031,6 +1031,32 @@ async fn generate_source_candidate(
         .value
         .validate()
         .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+    // Verification is a separate injected authority. Snapshot the accepted
+    // bytes and verifier under short locks, expose the honest phase, then run
+    // the bounded executable verifier with no Platform RwLock held.
+    let (verifier, accepted) = {
+        let mut plat = platform.write().unwrap();
+        let verifier = plat.workspace_verifier.clone();
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        if workspace.accepted.digest != base_digest {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "the workspace changed while the candidate was generated — retry".into(),
+            ));
+        }
+        workspace.phase = crate::workspace::WorkspacePhase::Verifying;
+        workspace.updated_at = now_unix();
+        (verifier, workspace.accepted.clone())
+    };
+    let report = verifier
+        .verify(crate::workspace_verifier::VerifyRequest {
+            accepted,
+            candidate: output.value.clone(),
+        })
+        .await;
     let workspace = {
         let mut plat = platform.write().unwrap();
         let candidate_id = plat.mint_id("candidate");
@@ -1044,32 +1070,15 @@ async fn generate_source_candidate(
                 "the workspace changed while the candidate was generated — retry".into(),
             ));
         }
-        let report = crate::workspace::VerificationReport {
-            checks: vec![
-                crate::workspace::VerificationCheck {
-                    id: "bounded-paths".into(),
-                    status: crate::workspace::CheckStatus::Pass,
-                    detail: "candidate stays under web/".into(),
-                },
-                crate::workspace::VerificationCheck {
-                    id: "svelte-5".into(),
-                    status: crate::workspace::CheckStatus::Pass,
-                    detail: "accepted project uses Svelte 5 runes".into(),
-                },
-                crate::workspace::VerificationCheck {
-                    id: "rust-server".into(),
-                    status: crate::workspace::CheckStatus::Pass,
-                    detail: "accepted Rust server remains unchanged".into(),
-                },
-                crate::workspace::VerificationCheck {
-                    id: "safety-copy".into(),
-                    status: crate::workspace::CheckStatus::Pass,
-                    detail: "synthetic-data warning remains visible".into(),
-                },
-            ],
-            passed: true,
-            verified_at: now_unix(),
-        };
+        let report_passed = report.passed;
+        let report_id = report.id.clone();
+        let failed_ids = report
+            .checks
+            .iter()
+            .filter(|check| check.status == crate::workspace::CheckStatus::Fail)
+            .map(|check| check.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
         workspace
             .review_candidate(candidate_id.clone(), output.value, report, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
@@ -1087,8 +1096,16 @@ async fn generate_source_candidate(
         }
         plat.audit.record(
             "workspace-verifier",
-            "workspace.candidate_verified",
-            format!("candidate {candidate_id} passed structural checks"),
+            if report_passed {
+                "workspace.candidate_verified"
+            } else {
+                "workspace.candidate_verification_failed"
+            },
+            if report_passed {
+                format!("candidate {candidate_id} passed executable verification {report_id}")
+            } else {
+                format!("candidate {candidate_id} failed executable verification {report_id}: {failed_ids}")
+            },
             Some(&id),
         );
         result

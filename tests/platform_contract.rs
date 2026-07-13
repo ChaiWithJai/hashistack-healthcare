@@ -8,6 +8,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use std::fs;
+use std::path::Path;
 
 use rust_proof_service::app;
 use serde_json::{json, Value};
@@ -15,17 +17,29 @@ use tower::ServiceExt;
 
 #[test]
 fn production_configuration_has_one_application_model_boundary() {
-    let active_configuration = [
+    let mut active_configuration = [
         include_str!("../env.example"),
         include_str!("../docker-compose.yml"),
         include_str!("../scripts/staging-up.sh"),
+        include_str!("../docs/rfc/0001-clinician-platform.md"),
         include_str!("../src/ladder.rs"),
         include_str!("../src/state.rs"),
     ]
     .join("\n");
+    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+    for entry in fs::read_dir(scripts).expect("read scripts") {
+        let path = entry.expect("read script entry").path();
+        if path.is_file() {
+            active_configuration.push_str(
+                &fs::read_to_string(&path)
+                    .unwrap_or_else(|error| panic!("read {}: {error}", path.display())),
+            );
+        }
+    }
     for retired in [
         "LOCAL_MODEL_URL",
         "FRONTIER_MODEL_URL",
+        "MODEL_URL=",
         "MODEL_HTTP_TIMEOUT_SECS",
         "OPENAI_API_KEY",
         "gpt-",
@@ -724,15 +738,143 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
     assert!(runbook.contains("The app source is real"));
 
-    // pack.hcl parses with the platform's own parser: their own template.
+    // The owned manifest parses as untrusted metadata and is refused by the
+    // trusted built-in registry parser.
     let pack_hcl = files["pack.hcl"].as_str().unwrap();
-    let template = rust_proof_service::packs::parse_pack(pack_hcl)
-        .expect("ejected pack.hcl must round-trip through packs::parse_pack");
+    assert!(rust_proof_service::packs::parse_pack(pack_hcl).is_err());
+    let template = rust_proof_service::packs::parse_owned_pack(pack_hcl)
+        .expect("ejected pack.hcl must parse as owned metadata");
     assert_eq!(template.id, format!("{id}-template"));
     assert!(template
         .scaffold
         .iter()
         .any(|f| f.contains("make pain a 0-10 scale")));
+}
+
+#[tokio::test]
+async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_authority() {
+    let router = app();
+    let original_id = create_post_op_app(&router).await;
+    let (status, mut exported) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{original_id}/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let files = exported["files"].as_object_mut().unwrap();
+    for (path, sentinel) in [
+        ("server/src/main.rs", "// imported-server-sentinel"),
+        (
+            "web/src/routes/+page.svelte",
+            "<!-- imported-svelte-sentinel -->",
+        ),
+        ("web/tests/owned-app.mjs", "// imported-browser-sentinel"),
+    ] {
+        let changed = format!("{}\n{sentinel}\n", files[path].as_str().unwrap());
+        files.insert(path.into(), Value::String(changed));
+    }
+    for path in ["synthetic/post-op-demo.json", "artifact-quality.json"] {
+        let changed = format!("{}\n", files[path].as_str().unwrap());
+        files.insert(path.into(), Value::String(changed));
+    }
+    let owned_manifest = files["pack.hcl"].as_str().unwrap().replacen(
+        "prewired = [",
+        "prewired = [\n    \"rogue-control\",",
+        1,
+    );
+    files.insert("pack.hcl".into(), Value::String(owned_manifest));
+    let expected = files.clone();
+
+    let (status, imported) = call(
+        &router,
+        "POST",
+        "/api/apps/import",
+        Some(json!({"files": expected})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "import failed: {imported}");
+    let imported_id = imported["app"]["id"].as_str().unwrap();
+    assert_ne!(imported_id, original_id);
+    assert_eq!(imported["app"]["stage"], "sandbox");
+    assert_eq!(imported["app"]["data_source"]["kind"], "synthetic");
+    assert!(imported["app"]["allocation"].is_null());
+    assert!(imported["app"]["attestation"].is_null());
+    assert!(!imported["app"]["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|control| control == "rogue-control"));
+    assert!(imported["verification"]["passed"].as_bool().unwrap());
+    assert_eq!(
+        imported["source_digest"],
+        imported["verification"]["workspace_digest"]
+    );
+
+    let (status, workspace) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{imported_id}/workspace"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(workspace["origin"], "owned_import_verified");
+    assert_eq!(workspace["accepted"]["files"], json!(expected));
+
+    let (status, reexported) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{imported_id}/export"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for path in [
+        "server/src/main.rs",
+        "web/src/routes/+page.svelte",
+        "web/tests/owned-app.mjs",
+        "synthetic/post-op-demo.json",
+        "artifact-quality.json",
+    ] {
+        assert_eq!(reexported["files"][path], expected[path], "changed {path}");
+    }
+
+    let (status, packs) = call(&router, "GET", "/api/packs", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(packs["packs"].as_array().unwrap().len(), 17);
+    let (status, denied) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{imported_id}/promote"),
+        Some(json!({"cosigner":"Dr. A. Osei"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(denied["error"]
+        .as_str()
+        .unwrap()
+        .contains("synthetic demo pool"));
+
+    let mut forged = expected;
+    let manifest = forged["pack.hcl"]
+        .as_str()
+        .unwrap()
+        .replace("untrusted-practice-export", "platform-root-v1");
+    forged.insert("pack.hcl".into(), Value::String(manifest));
+    let (status, rejected) = call(
+        &router,
+        "POST",
+        "/api/apps/import",
+        Some(json!({"files": forged})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(rejected["error"]
+        .as_str()
+        .unwrap()
+        .contains("untrusted-practice-export"));
 }
 
 #[tokio::test]

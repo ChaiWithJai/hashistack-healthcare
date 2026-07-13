@@ -2,6 +2,11 @@
 
 Date: 2026-07-12
 
+Status: retired. [Decision 0009](../decisions/0009-agent-workspace-and-model-routing.md)
+sets Gemma 4 as the only application model. The runnable experiment was
+removed, so this document records the result but cannot activate another
+model.
+
 Runtime: loopback-only llama.cpp OpenAI-compatible server.
 Model: Bonsai-4B-Q1_0, SHA-256
 `4524b3f997f0f06444e568d1f26e2efd69effa3218c7ad3047432fb171e42168`.
@@ -31,14 +36,6 @@ validator remains authoritative. Three distinct requests passed end to end:
 | route pain scores of 6 or higher to the practice inbox | 6 | 8/8 |
 | escalate when pain reaches 5 | 5 | 8/8 |
 | change the escalation threshold to 8 | 8 | 8/8 |
-
-Run one case with:
-
-```sh
-MODEL_URL=http://127.0.0.1:8081 \
-  scripts/generative-fill-experiment.sh \
-  'route pain scores of 6 or higher to the practice inbox' 6
-```
 
 This proves a bounded local fill with deterministic validation. It does not
 prove general Rust generation, fine-tuning, safe autonomous edits, or that

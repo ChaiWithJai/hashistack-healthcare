@@ -128,6 +128,11 @@ pub struct PackManifest {
     pub tier: u8,
     pub wave: u8,
     pub signed_by: String,
+    /// An exported, practice-owned starter names the trusted built-in pack
+    /// whose gate policy and clinical profile remain authoritative. Built-in
+    /// packs leave this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub based_on: Option<String>,
     /// Scaffold feature strings — still real: they drive the demo UI's
     /// generate animation and become the app's initial feature list.
     /// Every built-in pack ships a runnable axum scaffold plus a synthetic
@@ -477,20 +482,55 @@ pub fn network_allowlist(pack_id: &str) -> Option<Vec<String>> {
     }
 }
 
-pub fn parse_pack(source: &str) -> Result<PackManifest> {
+fn decode_pack(source: &str) -> Result<PackManifest> {
     let file: PackFile = hcl::from_str(source).context("invalid pack.hcl")?;
-    let (id, mut manifest) = file
-        .pack
-        .into_iter()
-        .next()
-        .context("pack.hcl declares no pack block")?;
+    if file.pack.len() != 1 {
+        bail!("pack.hcl must declare exactly one pack block");
+    }
+    let (id, mut manifest) = file.pack.into_iter().next().expect("length checked");
+    let valid_id = (1..=96).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && !id.starts_with('-')
+        && !id.ends_with('-');
+    if !valid_id {
+        bail!("pack id must be a lowercase ASCII slug");
+    }
     manifest.id = id;
+    Ok(manifest)
+}
+
+pub fn parse_pack(source: &str) -> Result<PackManifest> {
+    let manifest = decode_pack(source)?;
     if !TRUSTED_SIGNERS.contains(&manifest.signed_by.as_str()) {
         bail!(
             "pack {} signed by untrusted key {:?} — refusing to register",
             manifest.id,
             manifest.signed_by
         );
+    }
+    Ok(manifest)
+}
+
+/// Parse a pack manifest that came back with an owned export. This checks
+/// its shape and ownership label but never promotes it into the trusted
+/// built-in signer chain. The caller must resolve `based_on` to a trusted
+/// built-in pack and keep that pack's gates authoritative.
+pub fn parse_owned_pack(source: &str) -> Result<PackManifest> {
+    let manifest = decode_pack(source)?;
+    if manifest.signed_by != "untrusted-practice-export" {
+        bail!(
+            "owned pack {} must be labeled untrusted-practice-export",
+            manifest.id
+        );
+    }
+    let based_on = manifest
+        .based_on
+        .as_deref()
+        .context("owned pack is missing based_on")?;
+    if based_on == manifest.id {
+        bail!("owned pack cannot be based on itself");
     }
     Ok(manifest)
 }
@@ -646,5 +686,32 @@ mod tests {
             }
         "#;
         assert!(parse_pack(rogue).is_err());
+    }
+
+    #[test]
+    fn owned_pack_is_structural_metadata_not_a_registry_signature() {
+        let owned = r#"
+            pack "my-starter" {
+              name = "My starter"
+              description = "Owned source"
+              profile = "web"
+              tier = 1
+              wave = 1
+              signed_by = "untrusted-practice-export"
+              based_on = "post-op-monitor"
+              scaffold = ["one bounded feature"]
+              prewired = ["synthetic-only"]
+              gates = ["synthetic-only"]
+              synthetic_dataset = "owned synthetic fixture"
+            }
+        "#;
+        assert!(parse_pack(owned).is_err());
+        let parsed = parse_owned_pack(owned).unwrap();
+        assert_eq!(parsed.based_on.as_deref(), Some("post-op-monitor"));
+
+        let forged = owned.replace("untrusted-practice-export", "platform-root-v1");
+        assert!(parse_owned_pack(&forged).is_err());
+        let duplicate = format!("{owned}\n{owned}");
+        assert!(parse_owned_pack(&duplicate).is_err());
     }
 }

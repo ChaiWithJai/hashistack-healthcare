@@ -1,5 +1,10 @@
 # Investigation 0002 — Local models and ecosystem tools as footprint simplifiers
 
+Status: superseded by
+[decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
+This document records a rejected model routing proposal. It is not the current
+architecture. Gemma 4 is the only application model.
+
 Question: can local models (Bonsai-class ternary, Liquid LFM) and ecosystem
 tools (LM Studio, Unsloth) act as **major simplifiers** — minimizing our
 infrastructure, compliance, and vendor footprint — while still delivering a

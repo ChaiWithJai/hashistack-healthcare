@@ -1,6 +1,7 @@
 # RFC 0001 — Platform design: Lovable for clinicians on HashiStack + DigitalOcean
 
-Status: accepted · Phase 0 in progress (this repo)
+Status: accepted. The model policy was amended by
+[decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
 Design authority: the Tao of HashiCorp, applied literally, with Mitchell Hashimoto as the organizing lens for every decision.
 Wireframes: [docs/design/](../design/) (storyboards 1a/1b/1c + architecture 1d)
 Steering: [docs/hashicorp-steering.md](../hashicorp-steering.md) (patterns read out of the nomad/vault/packer/waypoint/boundary trees)
@@ -94,7 +95,7 @@ The platform needs scheduler-level and eventually hypervisor-level control to ru
 
 ### Control plane services (each independently deployable, API-first)
 
-1. **Agent service.** The loop from the Beam anatomy: model client, context manager, sandbox RPC. Stateless; conversation state in Postgres. Model-agnostic behind a driver interface (Claude first). Prompts are versioned artifacts in git, tested like code. → `src/agent.rs`
+1. **Planning service.** A private DigitalOcean Gemma 4 endpoint proposes two or three treatments from a bounded request. Rust checks the response and creates source from pack rules. Gemma has no tools, file access, deployment rights, secrets, or patient data. Prompts are versioned artifacts in git and tested like code. → `src/workspace_agent.rs`
 2. **Pack registry.** Serves use case packs (spec below). Signed packs only. Community packs install from the public registry after signature verification. This is the "one signed core plus declarative packs" pattern from the Airplane Mode ADRs, promoted to platform scale. → `src/packs.rs`
 3. **Gate engine.** Runs the promotion checklist as code: no PHI in prompts during preview, hipaa-core middleware present on every route the static analyzer flags as data-touching, auto-logoff wired, encryption key requested from Vault, dependency scan clean, third-party call allowlist satisfied (no un-BAA'd AI endpoints). Gates are plugins; hospitals can add their own (an IRB gate, a model-risk gate). → `src/gates.rs`
 4. **Deploy service.** Renders the winning pack profile into a Nomad job, requests Vault policies, registers the route, records the deploy event in the audit stream. → `src/deploy.rs`
@@ -108,7 +109,7 @@ Every use case compiles to one of three infrastructure shapes. This is the simpl
 |---|---|---|---|
 | **web** | request/response container, Postgres, optional cron | service | 1, 2, 4, 5, 6, 7, 12, 13, 14, 16 |
 | **stream** | persistent process, WebSocket/SSE, queue | service + min instances pinned | 3, 8, 11 (voice pipeline via Retell/LiveKit driver) |
-| **local** | no server allocation; on-device model runtime, optional thin cloud sidecar (web profile) for the non-PHI step | none, or web sidecar | 17, 18, 19, 20 |
+| **local** | no server allocation; deterministic local processing, with an optional web sidecar for work that does not use patient data | none, or web sidecar | 17, 18, 19, 20 |
 
 Out of platform scope by prior analysis: 9 (enterprise outcomes platform), 10 (ONC interoperability), 15 (triage liability), 21 (FDA device). The platform should refuse to scaffold these and say why; a refusal with a reason is a trust feature.
 
@@ -132,14 +133,14 @@ The 21 use cases become 17 packs (excluding the four refusals) shipped in waves:
 - **Wave 1 (launch):** compliance-checklist (4), hypertension-tracker (1), patient-intake (6). Lowest risk, validated demand, all web profile.
 - **Wave 2:** post-op-monitor (2), patient-portal (7), insurance-verification (14), nemt-logistics (16), clinical-dashboard (5).
 - **Wave 3 (stream profile lands):** outbound-followup (13), inbound-scheduling (12), rpm-wearables (3), visit-notes (8), ambient-scribe (11) with voice vendor drivers.
-- **Wave 4 (local profile lands):** deid-local (17), note-extraction-local (18), hybrid-pipeline (20), airgapped-support (19). This wave is the Bonsai/Airplane Mode convergence: the pack ships a quantized model runtime instead of a container.
+- **Wave 4 (local profile lands):** deid-local (17), note-extraction-local (18), hybrid-pipeline (20), airgapped-support (19). These packs use deterministic local code. They do not add another model runtime.
 
 ## Open source and extension model
 
 - **Open core:** the pack spec, the gate plugin interface, the agent driver interface, hipaa-core, and reference packs are open source. The hosted control plane, the pack signing service, and the BAA-covered infrastructure are the commercial product. (License note: HashiCorp itself moved MPL to BSL in 2023 and was acquired by IBM; pick MPL-2.0 or Apache-2.0 for the open pieces and decide the core license deliberately, it is a strategic choice not a default.)
 - **Three plugin points, mirroring HashiCorp's pattern:**
   - **packs** (like Terraform modules): clinicians and communities publish domain packs; signing plus gate review before registry listing
-  - **drivers** (like Nomad task drivers): model drivers (Claude, local Bonsai-class), voice drivers (Retell, LiveKit), deploy target drivers (Nomad native, export-to-Render, export-to-Kamal)
+  - **drivers** (like Nomad task drivers): voice drivers (Retell, LiveKit) and deploy target drivers (Nomad native, export-to-Render, export-to-Kamal). The planner is Gemma only and is not a plugin point.
   - **gates** (like Vault plugins): compliance checks as code; a hospital's own gates run alongside platform gates
 - **Portability as principle:** every app exports as the monorepo shape (Dockerfile plus render.yaml/fly.toml/kamal deploy.yml). No hostage code. The Lovable teardown showed GitHub sync is a trust feature that drives adoption; here it is also the tier 2 to tier 3 bridge in reverse, letting a hospital take a validated app in-house.
 
@@ -184,7 +185,7 @@ Commit discipline adopted from the same review: scope-prefixed subjects (`gates:
 | Control plane API (API-first, no privileged UI) | ✅ running | `src/api.rs` |
 | Pack registry (signed packs only, HCL manifests) | ✅ 5 packs: Wave 1 + 2 storyboard packs | `src/packs.rs`, `packs/` |
 | Gate engine (gates as plugins, preflight, false-pass guarded) | ✅ 9 built-in gates | `src/gates.rs` |
-| Agent service (driver interface; rule-based Phase 0 driver) | ✅ Claude driver is next | `src/agent.rs` |
+| Planning service (Gemma only; deterministic local fallback) | ✅ bounded planning is implemented | `src/workspace_agent.rs` |
 | Deploy service (promote on green + co-sign, Nomad job render, rollback) | ✅ simulated allocations | `src/deploy.rs` |
 | Audit pipeline (append-only, JSONL export) | ✅ in-memory | `src/audit.rs` |
 | Doctor UI (wireframes 1a/1b/1c/1d as one wired client) | ✅ served at `/` | `web/index.html` |
@@ -192,4 +193,4 @@ Commit discipline adopted from the same review: scope-prefixed subjects (`gates:
 | Packer (control-plane + client image families) | ✅ codified | `packer/` |
 | Vault (per-tenant transit + dynamic db creds policy) | ✅ codified | `vault/policies/` |
 | Nomad (service job template the deploy service renders) | ✅ codified | `nomad/templates/` |
-| Postgres control DB, real sandbox allocations, Claude agent driver | ⏳ next | — |
+| Postgres control DB and real sandbox allocations | ⏳ next | — |

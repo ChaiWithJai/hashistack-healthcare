@@ -1,0 +1,84 @@
+@import "../../tokens/tokens.css";
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--st-canvas);
+	color: var(--st-ink);
+	font-family: var(--st-font);
+}
+
+a {
+	color: var(--st-brand-dark);
+}
+
+button {
+	font-family: inherit;
+}
+
+input,
+select,
+textarea,
+button {
+	border-radius: var(--st-radius-control);
+	border: 1px solid var(--st-line);
+	font-family: inherit;
+	font-size: 1rem;
+	padding: var(--st-space-2) var(--st-space-3);
+}
+
+button {
+	background: var(--st-brand);
+	color: white;
+	border-color: var(--st-brand);
+	cursor: pointer;
+}
+
+button:hover {
+	background: var(--st-brand-dark);
+	border-color: var(--st-brand-dark);
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+button.secondary {
+	background: var(--st-panel);
+	color: var(--st-ink);
+	border-color: var(--st-line);
+}
+
+button.secondary:hover {
+	background: var(--st-canvas);
+}
+
+:focus-visible {
+	outline: var(--st-focus-width) solid var(--st-focus);
+	outline-offset: var(--st-focus-offset);
+}
+
+.shell {
+	max-width: 900px;
+	margin: 0 auto;
+	padding: var(--st-space-4);
+}
+
+.card {
+	background: var(--st-panel);
+	border: 1px solid var(--st-line);
+	border-radius: var(--st-radius-card);
+	padding: var(--st-space-4);
+}
+
+.hint {
+	color: var(--st-muted);
+}
+
+.error {
+	color: var(--st-danger);
+}

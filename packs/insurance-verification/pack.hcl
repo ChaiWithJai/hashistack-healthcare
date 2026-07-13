@@ -40,12 +40,10 @@ pack "insurance-verification" {
     "human-review",
   ]
 
-  # Routing policy (decision 0001): carried inside the signed manifest, so
-  # where each agent operation runs is reviewed and attested like the gate
-  # list. This staff-facing tier-3 pack routes the iterate loop to the
-  # in-VPC local model and consents to frontier escalation the moment a
-  # local edit regresses a gate or comes back malformed. The other packs
-  # declare nothing and inherit the platform defaults.
+  # Historical routing values retained for signed-pack compatibility.
+  # Production maps local/frontier edits to deterministic Rust rules. Gemma
+  # planning uses the separate bounded workspace provider and remains the
+  # only application model.
   routing = {
     scaffold    = "frontier"
     iterate     = "local"

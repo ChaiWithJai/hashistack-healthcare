@@ -1,5 +1,9 @@
 # Liquid and Hermes local coding floor
 
+Status: retired experiment. This is benchmark evidence, not a deployment
+plan. Neither runtime is part of the product; Gemma 4 is the only application
+model. See [decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
+
 Date: 2026-07-12
 
 Runtime: Homebrew llama.cpp b9910 (`f5525f7e7`), Metal, loopback-only,

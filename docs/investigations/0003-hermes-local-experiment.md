@@ -1,5 +1,9 @@
 # Investigation 0003 — First real staging model tier + hermes-agent as an external client
 
+Status: retired experiment. Hermes, llama.cpp, and the former local/frontier
+ladder are not deployed. Gemma 4 is the only application model; see
+[decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
+
 Experiment `hermes-local`, run 2026-07-11 on branch `claude/experiment-hermes-local`
 (based on `claude/issue-5-runnable-packs`). Two questions:
 

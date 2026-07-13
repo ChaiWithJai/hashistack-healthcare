@@ -138,7 +138,7 @@ state it changes.
 Use the existing boundaries instead of adding logic to the web page.
 
 * Add a clinical starter in `packs/<name>/`.
-* Add a model provider behind `src/workspace_agent.rs`.
+* Change the Gemma planner adapter behind `src/workspace_agent.rs` without adding another application model.
 * Add a release rule in `src/gates.rs` and include evidence for the rule.
 * Add a deployment provider behind `src/deploy.rs`.
 * Add API behavior in `src/api.rs` and prove it through a contract test.

@@ -236,6 +236,10 @@ const POST_OP_MONITOR_SCAFFOLD: &[PackSourceFile] = &[
         include_str!("../packs/post-op-monitor/scaffold/Cargo.toml"),
     ),
     (
+        "scaffold/Cargo.lock",
+        include_str!("../packs/post-op-monitor/scaffold/Cargo.lock"),
+    ),
+    (
         "scaffold/src/main.rs",
         include_str!("../packs/post-op-monitor/scaffold/src/main.rs"),
     ),
@@ -253,6 +257,10 @@ const HYPERTENSION_TRACKER_SCAFFOLD: &[PackSourceFile] = &[
     (
         "scaffold/Cargo.toml",
         include_str!("../packs/hypertension-tracker/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/Cargo.lock",
+        include_str!("../packs/hypertension-tracker/scaffold/Cargo.lock"),
     ),
     (
         "scaffold/src/main.rs",
@@ -274,6 +282,10 @@ const PATIENT_INTAKE_SCAFFOLD: &[PackSourceFile] = &[
         include_str!("../packs/patient-intake/scaffold/Cargo.toml"),
     ),
     (
+        "scaffold/Cargo.lock",
+        include_str!("../packs/patient-intake/scaffold/Cargo.lock"),
+    ),
+    (
         "scaffold/src/main.rs",
         include_str!("../packs/patient-intake/scaffold/src/main.rs"),
     ),
@@ -291,6 +303,10 @@ const INSURANCE_VERIFICATION_SCAFFOLD: &[PackSourceFile] = &[
     (
         "scaffold/Cargo.toml",
         include_str!("../packs/insurance-verification/scaffold/Cargo.toml"),
+    ),
+    (
+        "scaffold/Cargo.lock",
+        include_str!("../packs/insurance-verification/scaffold/Cargo.lock"),
     ),
     (
         "scaffold/src/main.rs",
@@ -312,6 +328,10 @@ const COMPLIANCE_CHECKLIST_SCAFFOLD: &[PackSourceFile] = &[
         include_str!("../packs/compliance-checklist/scaffold/Cargo.toml"),
     ),
     (
+        "scaffold/Cargo.lock",
+        include_str!("../packs/compliance-checklist/scaffold/Cargo.lock"),
+    ),
+    (
         "scaffold/src/main.rs",
         include_str!("../packs/compliance-checklist/scaffold/src/main.rs"),
     ),
@@ -331,6 +351,10 @@ macro_rules! pack_scaffold {
             (
                 "scaffold/Cargo.toml",
                 include_str!(concat!("../packs/", $dir, "/scaffold/Cargo.toml")),
+            ),
+            (
+                "scaffold/Cargo.lock",
+                include_str!(concat!("../packs/", $dir, "/scaffold/Cargo.lock")),
             ),
             (
                 "scaffold/src/main.rs",
@@ -528,6 +552,11 @@ mod tests {
                     assert!(
                         files.iter().any(|(p, _)| *p == "scaffold/Cargo.toml"),
                         "{}: a runnable scaffold has a manifest",
+                        pack.id
+                    );
+                    assert!(
+                        files.iter().any(|(p, _)| *p == "scaffold/Cargo.lock"),
+                        "{}: a runnable scaffold has a reproducible dependency lock",
                         pack.id
                     );
                     assert_eq!(

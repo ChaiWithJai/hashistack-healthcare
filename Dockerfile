@@ -3,6 +3,7 @@ FROM rust:1.86-bookworm@sha256:300ec56abce8cc9448ddea2172747d048ed902a3090e6b57b
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY export-assets ./export-assets
 COPY packs ./packs
 COPY web ./web
 COPY nomad ./nomad

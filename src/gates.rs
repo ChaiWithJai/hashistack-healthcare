@@ -551,11 +551,13 @@ fn phi_fields(body: &str) -> Vec<String> {
 /// Third-party calls must resolve against the BAA'd allowlist. An un-BAA'd
 /// AI endpoint is the single most common way a vibe-coded tool leaks PHI.
 ///
-/// Evidence basis: every URL/host literal in the scaffold sources, plus the
+/// Evidence basis: every URL/host literal in the executable scaffold sources, plus the
 /// app record's declared external calls, checked against the pack's signed
 /// policies/network-allowlist.hcl — so widening the app's reach is a signed
 /// pack revision, not an app edit. Loopback/bind hosts are exempt (local
-/// listeners, not egress). Limits: literals only — dynamically composed
+/// listeners, not egress). Cargo.lock registry sources are dependency
+/// provenance, not application egress, and are deliberately excluded.
+/// Limits: literals only — dynamically composed
 /// URLs need the observed-egress evidence still queued under #3.
 struct AiAllowlistGate;
 
@@ -604,6 +606,9 @@ impl Evidence for AiAllowlistGate {
     fn inspect(&self, app: &AppRecord, ctx: &EvidenceContext) -> GateStatus {
         let mut rogue = BTreeSet::new();
         for (file, src) in ctx.files {
+            if file.ends_with("Cargo.lock") {
+                continue;
+            }
             for host in host_literals(src) {
                 if LOCAL_HOSTS.contains(&host.as_str()) {
                     continue;

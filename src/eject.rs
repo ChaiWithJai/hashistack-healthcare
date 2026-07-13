@@ -48,6 +48,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         .scaffold_path
         .as_deref()
         .and_then(|_| crate::packs::scaffold_sources(&pack.id));
+    let clinical_entry = clinical_entry_path(scaffold);
     let mut files = BTreeMap::new();
     if let Some(sources) = scaffold {
         for (path, content) in sources {
@@ -80,18 +81,23 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         );
     }
     files.insert("web/package.json".to_string(), svelte_package_json());
-    files.insert("web/svelte.config.js".to_string(), svelte_config());
     files.insert(
-        "web/vite.config.ts".to_string(),
-        svelte_vite_config(has_local_media),
+        "web/package-lock.json".to_string(),
+        svelte_package_lock().to_string(),
     );
+    files.insert("web/svelte.config.js".to_string(), svelte_config());
+    files.insert("web/vite.config.ts".to_string(), svelte_vite_config());
     files.insert("web/tsconfig.json".to_string(), svelte_tsconfig());
     files.insert("web/src/app.html".to_string(), svelte_app_html());
     files.insert("web/src/app.d.ts".to_string(), svelte_app_types());
     files.insert("web/src/routes/+layout.svelte".to_string(), svelte_layout());
     files.insert(
+        "web/src/routes/+layout.ts".to_string(),
+        svelte_layout_options(),
+    );
+    files.insert(
         "web/src/routes/+page.svelte".to_string(),
-        svelte_page(app, pack),
+        svelte_page(app, pack, &clinical_entry),
     );
     if has_local_media {
         files.insert(
@@ -137,7 +143,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
                 "Clinician",
                 "Svelte client",
                 "Rust API",
-                "Agent worker",
+                "Gemma planner",
                 "Gate",
                 "Runtime",
             ]
@@ -158,6 +164,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     readme.push_str(
         &customize_md(app, pack, scaffold)
             .replace("app/", "server/")
+            .replace("cd app", "cd server")
             .replace("docs/DESIGN_SYSTEM.md", "the design system section below")
             .replace("docs/COMPLIANCE.md", "the compliance section below")
             .replace("docs/RUNBOOK.md", "the run instructions above"),
@@ -167,12 +174,17 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         .push_str(&design_system_md().replace("app/assets/clinician.css", "web/src/clinician.css"));
     readme.push_str("\n\n");
     readme.push_str(&compliance_md(app, &report, provenance, audit));
-    readme.push_str("\n\n## Extend with AI\n\nThe `.mcp.json` file connects compatible editors to the official Svelte MCP server. Use it to check Svelte 5 APIs and repair components. If you add an agent, keep it behind the Rust API and use LangChain or LangGraph as an optional worker. Do not give a model production secrets, deployment authority, or patient data.\n");
+    readme.push_str("\n\n## Extend with Gemma planning\n\nThe platform uses Gemma as its only application model. The exported app does not phone home to that planner. The `.mcp.json` file connects compatible editors to the official Svelte MCP server for API documentation and component repair; it is not a second model runtime. If you connect your own Gemma endpoint, keep it behind the Rust API. Do not give it production secrets, deployment authority, file access, or patient data.\n");
     if has_local_media {
         readme.push_str(&local_media_readme(has_audio, has_image));
     }
     files.insert("README.md".to_string(), readme);
     files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
+    files.insert(
+        "config/nginx.conf".to_string(),
+        nginx_config(&clinical_entry),
+    );
+    files.insert("config/start.sh".to_string(), runtime_start_script());
     files.insert("render.yaml".to_string(), render_yaml(app));
     files.insert("fly.toml".to_string(), fly_toml(app));
     files.insert("config/deploy.yml".to_string(), kamal_deploy_yml(app));
@@ -217,7 +229,7 @@ fn preflight_report(app: &AppRecord, pack: &PackManifest) -> (GateReport, Report
 }
 
 fn unpack_command(app_id: &str) -> String {
-    format!("mkdir -p {app_id} && cd {app_id} && curl -s $PLATFORM/api/apps/{app_id}/export | {UNPACK_ONE_LINER}")
+    format!("mkdir -p {app_id} && cd {app_id} && {UNPACK_ONE_LINER} < ../export.json")
 }
 
 // ---------- README.md: the doctor's own story ----------
@@ -285,29 +297,29 @@ fn svelte_package_json() -> String {
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "devDependencies": {
-    "@sveltejs/adapter-auto": "^7.0.1",
-    "@sveltejs/kit": "^2.69.2",
-    "@sveltejs/vite-plugin-svelte": "^7.2.0",
-    "svelte": "^5.56.4",
-    "svelte-check": "^4.4.5",
-    "typescript": "^5.9.3",
-    "vite": "^8.1.4"
+    "@sveltejs/adapter-static": "3.0.10",
+    "@sveltejs/kit": "2.69.2",
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "svelte": "5.56.4",
+    "svelte-check": "4.4.5",
+    "typescript": "5.9.3",
+    "vite": "8.1.4"
   }
 }
 "#
     .to_string()
 }
 
-fn svelte_config() -> String {
-    "import adapter from '@sveltejs/adapter-auto';\n\nexport default { kit: { adapter: adapter() } };\n".to_string()
+fn svelte_package_lock() -> &'static str {
+    include_str!("../export-assets/web-package-lock.json")
 }
 
-fn svelte_vite_config(local_media: bool) -> String {
-    if local_media {
-        "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [sveltekit()],\n  server: { proxy: { '/api/local-media': 'http://127.0.0.1:8080' } }\n});\n".to_string()
-    } else {
-        "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({ plugins: [sveltekit()] });\n".to_string()
-    }
+fn svelte_config() -> String {
+    "import adapter from '@sveltejs/adapter-static';\n\nexport default {\n  kit: {\n    adapter: adapter({ fallback: 'index.html' }),\n    paths: { base: '/workspace' }\n  }\n};\n".to_string()
+}
+
+fn svelte_vite_config() -> String {
+    "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [sveltekit()],\n  server: { proxy: { '/health': 'http://127.0.0.1:8080', '/api': 'http://127.0.0.1:8080' } }\n});\n".to_string()
 }
 
 fn svelte_tsconfig() -> String {
@@ -326,7 +338,11 @@ fn svelte_layout() -> String {
     "<script lang=\"ts\">\n  import '../clinician.css';\n  let { children } = $props();\n</script>\n\n{@render children()}\n".to_string()
 }
 
-fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
+fn svelte_layout_options() -> String {
+    "export const ssr = false;\n".to_string()
+}
+
+fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
     let features = app
         .features
         .iter()
@@ -354,11 +370,26 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
     };
     format!(
         r#"<script lang="ts">
+  import {{ onMount }} from 'svelte';
 {media_import}
   let items = $state([
 {features}
   ]);
   let note = $state('');
+  let rustStatus = $state('Checking the Rust service');
+
+  onMount(async () => {{
+    try {{
+      const response = await fetch('/health', {{ headers: {{ accept: 'application/json' }} }});
+      const contentType = response.headers.get('content-type') ?? '';
+      const health = contentType.includes('application/json') ? await response.json() : null;
+      rustStatus = response.ok && health?.status === 'ok'
+        ? 'Rust service connected'
+        : 'Rust service needs attention';
+    }} catch {{
+      rustStatus = 'Start the Rust service to connect this workspace';
+    }}
+  }});
 
   function addItem() {{
     const label = note.trim();
@@ -376,6 +407,10 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
       <span class="hc-badge">Synthetic learning environment</span>
       <h1>{name}</h1>
       <p>{description}</p>
+      <div class="hc-actions">
+        <a class="hc-button hc-link" href="{clinical_entry}">Open the clinical workflow</a>
+        <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
+      </div>
     </header>
     <section class="hc-card hc-stack" aria-labelledby="workflow-title">
       <h2 id="workflow-title">Current workflow</h2>
@@ -397,6 +432,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
         description = pack.description,
         media_import = local_media.0,
         media_control = local_media.1,
+        clinical_entry = clinical_entry,
     )
 }
 
@@ -556,15 +592,22 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
     let id = &app.id;
     let source_section = if real_source {
         "## The app source is real\n\n\
-         `app/` is this pack's runnable standalone Rust (axum) crate. It implements\n\
-         the workflow described in this repository's README and boots from the\n\
-         included `synthetic/` fixture. Pack-specific limitations stay visible in\n\
-         the app and `docs/COMPLIANCE.md`; no generic feature is implied. Run it\n\
-         directly:\n\n\
+         `app/` is the Rust and Axum service. It runs the clinical workflow from\n\
+         the included `synthetic/` fixture. `web/` is the Svelte workspace for\n\
+         extending that workflow. Run the Rust service for local development:\n\n\
          ```bash\n\
-         cd app && cargo run    # http://127.0.0.1:8080 — or APP_BIND=host:port\n\
-         cargo test             # the scaffold's own contract\n\
-         ```\n"
+         cd app\n\
+         APP_BIND=127.0.0.1:8080 cargo run\n\
+         cargo test\n\
+         ```\n\n\
+         In a second terminal, run the Svelte workspace:\n\n\
+         ```bash\n\
+         cd web\n\
+         npm ci\n\
+         npm run dev -- --host 127.0.0.1\n\
+         ```\n\n\
+         Open `http://127.0.0.1:5173/workspace/`. The development server sends\n\
+         `/health` and `/api/*` requests to Rust on port 8080.\n"
     } else {
         "## Honest caveat: the app source is a scaffold placeholder\n\n\
          Until this app's pack is converted to the runnable-scaffold spec (platform\n\
@@ -578,7 +621,8 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
         "# Runbook — {name}\n\n\
          This bundle is self-contained. Nothing here phones home to the platform.\n\n\
          {source_section}\n\
-         ## Unpack (if you received the raw export JSON)\n\n\
+         ## Unpack a downloaded export\n\n\
+         Save the downloaded JSON as `export.json`, then run:\n\n\
          ```bash\n\
          {unpack}\n\
          ```\n\n\
@@ -586,8 +630,11 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          ```bash\n\
          docker build -t {id} .\n\
          docker run --rm -p 8080:8080 {id}\n\
-         curl http://127.0.0.1:8080/health   # → ok\n\
+         curl --fail http://127.0.0.1:8080/health\n\
          ```\n\n\
+         Open `http://127.0.0.1:8080/` for the clinical workflow. Open\n\
+         `http://127.0.0.1:8080/workspace/` for the Svelte extension workspace.\n\
+         Both use the same origin and the same Rust service.\n\n\
          ## Deploy targets\n\n\
          | target | manifest | command |\n\
          |---|---|---|\n\
@@ -646,10 +693,11 @@ smallest useful change should remain easy to locate, run, and verify.
 
 | Change | Start here |
 |---|---|
-| Workflow, routes, forms, and validation | `app/src/main.rs` |
-| Theme tokens and reusable component classes | `app/assets/clinician.css` |
-| Design-system integration and component examples | `docs/DESIGN_SYSTEM.md` |
-| Dependencies and binary settings | `app/Cargo.toml` |
+| Clinical workflow, routes, and server validation | `app/src/main.rs` |
+| Svelte extension workspace | `web/src/routes/+page.svelte` |
+| Theme tokens and reusable component classes | `web/src/clinician.css` |
+| Rust dependencies and binary settings | `app/Cargo.toml` |
+| Svelte dependencies and scripts | `web/package.json` |
 | Safe example records | `{fixture}` |
 | Browser journey and quality rubric | `artifact-quality.json` |
 | Pack identity, profile, and required gates | `pack.hcl` |
@@ -665,12 +713,14 @@ Runtime profile: **{profile}**. Current workflow:
    by overdue status.” Avoid starting with a technology choice.
 2. Add or adjust synthetic examples in `{fixture}`. Never paste real patient
    information into a fixture, prompt, screenshot, or test.
-3. Implement the behavior in `app/src/main.rs`. Keep authorization checks and
-   safety disclosures on every new route.
+3. Implement server behavior in `app/src/main.rs` and screen behavior in
+   `web/src/routes/+page.svelte`. Keep authorization checks and safety
+   disclosures on every new route.
 4. Extend the journey in `artifact-quality.json` so a browser proves the new
    outcome. Update required labels and honesty text when the UI changes.
-5. Run `cd app && cargo fmt --check && cargo test`, then boot the app and run
-   the browser journey before sharing it.
+5. Run `cd app && cargo fmt --check && cargo test`. Then run
+   `cd web && npm ci && npm run check && npm run build` from the repository
+   root. Build the Docker image and repeat the browser journey before sharing.
 
 ## Controls that must survive customization
 
@@ -750,47 +800,8 @@ dependency, external font, supplied-archive code, Catalyst code, or Tailwind
 Plus asset. Change the `--hc-*` tokens to make the app yours while preserving
 the accessible component behavior below.
 
-This asset is **opt-in**. The pack's existing pages keep their original inline
-styles until you wire this file in; exporting it does not silently restyle a
-clinical workflow.
-
-## Option A: embed it in an Axum page
-
-Keep the export self-contained by embedding the stylesheet at compile time:
-
-```rust
-const CLINICIAN_CSS: &str = include_str!("../assets/clinician.css");
-
-fn page(body: &str) -> String {
-    format!(r#"<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><style>{CLINICIAN_CSS}</style><body class="hc-page"><main class="hc-shell hc-stack">{body}</main></body></html>"#)
-}
-```
-
-## Option B: serve and link the stylesheet
-
-Add the route to your existing `Router`:
-
-```rust
-use axum::http::{header, HeaderValue};
-
-async fn clinician_css() -> ([(header::HeaderName, HeaderValue); 1], &'static str) {
-    ([
-        (header::CONTENT_TYPE, HeaderValue::from_static("text/css; charset=utf-8")),
-    ], include_str!("../assets/clinician.css"))
-}
-
-let app = Router::new()
-    .route("/assets/clinician.css", get(clinician_css))
-    // keep the pack's existing routes below
-    .route("/", get(home));
-```
-
-Then put this in each generated page's `<head>` and add `class="hc-page"` to
-its `<body>`:
-
-```html
-<link rel="stylesheet" href="/assets/clinician.css">
-```
+The Svelte layout already imports this file. Change its tokens or component
+classes, then run `npm run check` and `npm run build` from `web/`.
 
 ## Components
 
@@ -966,21 +977,31 @@ fn dockerfile(
             .unwrap_or("synthetic/");
         return format!(
             "# {} — real app source: this pack's runnable scaffold (issue #5).\n\
-             # Builds server/ and boots it against the bundled synthetic dataset.\n\
-             FROM rust:1-alpine AS build\n\
+             # Builds Svelte and Rust, then serves both from one origin.\n\
+             FROM node:22-alpine AS web-build\n\
+             WORKDIR /src/web\n\
+             COPY web/package.json web/package-lock.json ./\n\
+             RUN npm ci --ignore-scripts --no-audit --no-fund\n\
+             COPY web ./\n\
+             RUN npm run build\n\
+             \n\
+             FROM rust:1-alpine AS server-build\n\
              RUN apk add --no-cache musl-dev\n\
              WORKDIR /srv\n\
              COPY synthetic ./synthetic\n\
              COPY server ./server\n\
-             RUN cargo build --release --manifest-path server/Cargo.toml\n\
+             RUN cargo build --release --locked --manifest-path server/Cargo.toml\n\
              \n\
-             FROM alpine:3\n\
-             COPY --from=build /srv/server/target/release/app /usr/local/bin/app\n\
+             FROM nginxinc/nginx-unprivileged:1.29-alpine\n\
+             COPY --from=web-build /src/web/build /usr/share/nginx/html/workspace\n\
+             COPY --from=server-build --chmod=0555 /srv/server/target/release/app /usr/local/bin/app\n\
              COPY synthetic /srv/synthetic\n\
-             ENV APP_BIND=0.0.0.0:8080\n\
+             COPY config/nginx.conf /etc/nginx/nginx.conf\n\
+             COPY --chmod=0555 config/start.sh /usr/local/bin/start.sh\n\
+             ENV APP_BIND=127.0.0.1:8081\n\
              ENV SYNTHETIC_DATA=/srv/{seed}\n\
              EXPOSE 8080\n\
-             CMD [\"app\"]\n",
+             CMD [\"/usr/local/bin/start.sh\"]\n",
             app.name
         );
     }
@@ -996,6 +1017,118 @@ fn dockerfile(
          CMD [\"python3\", \"-m\", \"http.server\", \"8080\"]\n",
         app.name
     )
+}
+
+fn clinical_entry_path(scaffold: Option<&[crate::packs::PackSourceFile]>) -> String {
+    let path = scaffold
+        .and_then(|files| {
+            files
+                .iter()
+                .find(|(path, _)| *path == "artifact-quality.json")
+        })
+        .and_then(|(_, content)| serde_json::from_str::<serde_json::Value>(content).ok())
+        .and_then(|contract| {
+            contract
+                .pointer("/quality/job/journeys/0/steps")?
+                .as_array()?
+                .iter()
+                .find(|step| step.get("do").and_then(serde_json::Value::as_str) == Some("goto"))?
+                .get("path")?
+                .as_str()
+                .map(str::to_string)
+        });
+    path.filter(|path| {
+        path.starts_with('/')
+            && !path.starts_with("//")
+            && path
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+    })
+    .unwrap_or_else(|| "/".to_string())
+}
+
+fn nginx_config(clinical_entry: &str) -> String {
+    let clinical_root = if clinical_entry == "/" {
+        String::new()
+    } else {
+        format!("    location = / {{\n      return 302 {clinical_entry};\n    }}\n\n")
+    };
+    r#"pid /tmp/nginx.pid;
+error_log /dev/stderr info;
+
+events {}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  absolute_redirect off;
+  access_log /dev/stdout;
+  client_body_temp_path /tmp/client-body;
+  proxy_temp_path /tmp/proxy;
+  client_max_body_size 26m;
+
+  server {
+    listen 8080;
+    server_name _;
+
+    # CLINICAL_ROOT
+    location = /workspace {
+      return 308 /workspace/;
+    }
+
+    location ^~ /workspace/_app/ {
+      root /usr/share/nginx/html;
+      try_files $uri =404;
+      expires 1y;
+      add_header Cache-Control "public, immutable";
+    }
+
+    location /workspace/ {
+      root /usr/share/nginx/html;
+      try_files $uri $uri/ /workspace/index.html;
+    }
+
+    location / {
+      proxy_pass http://127.0.0.1:8081;
+      proxy_http_version 1.1;
+      proxy_buffering off;
+      proxy_request_buffering off;
+      proxy_read_timeout 3600s;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+  }
+}
+"#
+    .replace("    # CLINICAL_ROOT\n", &clinical_root)
+}
+
+fn runtime_start_script() -> String {
+    r#"#!/bin/sh
+set -eu
+
+app &
+app_pid=$!
+nginx -g 'daemon off;' &
+nginx_pid=$!
+
+shutdown() {
+  trap - INT TERM
+  kill -TERM "$app_pid" "$nginx_pid" 2>/dev/null || true
+  wait "$app_pid" "$nginx_pid" 2>/dev/null || true
+  exit 0
+}
+trap shutdown INT TERM
+
+while kill -0 "$app_pid" 2>/dev/null && kill -0 "$nginx_pid" 2>/dev/null; do
+  sleep 1
+done
+kill -TERM "$app_pid" "$nginx_pid" 2>/dev/null || true
+wait "$app_pid" "$nginx_pid" 2>/dev/null || true
+exit 1
+"#
+    .to_string()
 }
 
 fn render_yaml(app: &AppRecord) -> String {
@@ -1277,6 +1410,7 @@ mod tests {
         let main_rs = &bundle.files["server/src/main.rs"];
         assert!(main_rs.contains("PAIN_ESCALATION_THRESHOLD"));
         assert!(bundle.files["server/Cargo.toml"].contains("post-op-monitor-scaffold"));
+        assert!(bundle.files["server/Cargo.lock"].contains("name = \"axum\""));
         // The synthetic seed rides along where the app's loader expects it.
         assert!(bundle.files["synthetic/post-op-demo.json"]
             .contains("SYNTHETIC DATA — generated, not derived from any real person"));
@@ -1285,13 +1419,23 @@ mod tests {
         let runbook = &bundle.files["README.md"];
         assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
         assert!(runbook.contains("The app source is real"));
-        assert!(runbook.contains("cd server && cargo run"));
+        assert!(runbook.contains("cd server"));
+        assert!(runbook.contains("APP_BIND=127.0.0.1:8080 cargo run"));
 
         // And the Dockerfile builds the real crate instead of the stub.
         let dockerfile = &bundle.files["Dockerfile"];
-        assert!(dockerfile.contains("FROM rust:1-alpine AS build"));
+        assert!(dockerfile.contains("FROM node:22-alpine AS web-build"));
+        assert!(dockerfile.contains("FROM rust:1-alpine AS server-build"));
+        assert!(dockerfile.contains("FROM nginxinc/nginx-unprivileged:1.29-alpine"));
+        assert!(dockerfile.contains("cargo build --release --locked"));
+        assert!(dockerfile
+            .contains("COPY --from=web-build /src/web/build /usr/share/nginx/html/workspace"));
         assert!(dockerfile.contains("SYNTHETIC_DATA=/srv/synthetic/post-op-demo.json"));
         assert!(!dockerfile.contains("python3"));
+        assert!(bundle.files["config/nginx.conf"].contains("include /etc/nginx/mime.types"));
+        assert!(bundle.files["config/nginx.conf"].contains("absolute_redirect off"));
+        assert!(bundle.files["config/nginx.conf"].contains("return 302 /login"));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("href=\"/login\""));
     }
 
     #[test]
@@ -1317,7 +1461,7 @@ mod tests {
         assert!(customize.contains("## Make the next change"));
         assert!(customize.contains("## Export or share the next version"));
         assert!(customize.contains("web/src/clinician.css"));
-        assert!(customize.contains("the design system section below"));
+        assert!(customize.contains("Theme tokens and reusable component classes"));
         let css = &bundle.files["web/src/clinician.css"];
         assert!(css.contains("--hc-brand:"), "semantic brand token missing");
         assert!(css.contains("--hc-target: 44px"), "minimum target missing");
@@ -1332,12 +1476,14 @@ mod tests {
         assert!(!css.contains("Tailwind"));
         assert!(!css.contains("Shakti"));
         let design_docs = &bundle.files["README.md"];
-        assert!(design_docs.contains("**opt-in**"));
-        assert!(design_docs.contains("include_str!(\"../assets/clinician.css\")"));
-        assert!(design_docs.contains("/assets/clinician.css"));
-        assert!(design_docs.contains("<link rel=\"stylesheet\""));
+        assert!(design_docs.contains("Project-owned clinician design system"));
+        assert!(design_docs.contains("web/src/clinician.css"));
+        assert!(design_docs.contains("The Svelte layout already imports this file"));
+        assert!(!design_docs.contains("include_str!(\"../assets/clinician.css\")"));
         assert!(!bundle.files.keys().any(|path| path.starts_with("docs/")));
-        assert!(bundle.files["Dockerfile"].contains("FROM rust:1-alpine AS build"));
+        assert!(bundle.files["Dockerfile"].contains("FROM node:22-alpine AS web-build"));
+        assert!(bundle.files.contains_key("config/nginx.conf"));
+        assert!(bundle.files.contains_key("config/start.sh"));
     }
 
     #[test]
@@ -1345,8 +1491,25 @@ mod tests {
         let pack = post_op_pack();
         let bundle = bundle(&sample_app(&pack), &pack, &[]);
 
-        assert!(bundle.files["web/package.json"].contains("\"svelte\": \"^5"));
+        assert!(bundle.files["web/package.json"].contains("\"svelte\": \"5.56.4\""));
+        assert!(bundle.files.contains_key("web/package-lock.json"));
+        let lock: serde_json::Value =
+            serde_json::from_str(&bundle.files["web/package-lock.json"]).unwrap();
+        assert!(lock["packages"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|path| path.is_empty() || path.starts_with("node_modules/")));
+        assert!(bundle.files["web/svelte.config.js"].contains("adapter-static"));
+        assert!(bundle.files["web/svelte.config.js"].contains("base: '/workspace'"));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("fetch('/health',"));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("Rust service connected"));
         assert!(bundle.files["web/src/routes/+page.svelte"].contains("$state"));
+        assert!(bundle.files["README.md"].contains("cd server && cargo fmt --check"));
+        assert!(bundle.files["README.md"].contains("Gemma as its only application model"));
+        assert!(!bundle.files["README.md"].contains("LangChain"));
+        assert!(!bundle.files["README.md"].contains("Deep Agents"));
+        assert!(!bundle.files["README.md"].contains("Open SWE"));
         assert!(bundle.files.contains_key("server/Cargo.toml"));
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&bundle.files[".mcp.json"]).unwrap()

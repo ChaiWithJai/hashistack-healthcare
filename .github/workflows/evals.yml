@@ -25,6 +25,10 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/evals.sh
+      # Prove the exported Docker image is one product: the pack-specific
+      # clinical workflow at / and its connected Svelte workspace at
+      # /workspace/ share the same Rust service and origin.
+      - run: node evals/export-runtime/proof.mjs
       - run: ./scripts/journey.sh
       # The regenerated scorecard + full screenshot evidence, reviewable per
       # run without committing from CI.
@@ -37,4 +41,5 @@ jobs:
             docs/evals/scorecard.json
             docs/evals/journey/
             .evals/screenshots/
+            .evals/export-runtime/
           if-no-files-found: warn

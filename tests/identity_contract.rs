@@ -441,6 +441,39 @@ async fn owned_bundle_import_belongs_only_to_the_importing_practice() {
 }
 
 #[tokio::test]
+async fn strict_hosted_import_refuses_the_non_executable_verifier() {
+    let dev = dev_router();
+    let source_id = create_app(&dev, OSEI, "post-op-monitor", "import verifier proof").await;
+    let (status, bundle, _) = call(
+        &dev,
+        "GET",
+        &format!("/api/apps/{source_id}/export"),
+        Some(OSEI),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let strict = strict_router(None);
+    let (status, refused, _) = call(
+        &strict,
+        "POST",
+        "/api/apps/import",
+        Some(OSEI),
+        Some(json!({"files": bundle["files"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("executable OCI verifier"),
+        "{refused}"
+    );
+}
+
+#[tokio::test]
 async fn create_ignores_nothing_a_mismatched_tenant_field_is_refused() {
     let router = dev_router();
     // Matching the principal's tenant is fine (old clients keep working)…

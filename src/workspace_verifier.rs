@@ -40,6 +40,14 @@ pub type VerifyFuture<'a> = Pin<Box<dyn Future<Output = VerificationReport> + Se
 
 pub trait WorkspaceVerifier: Send + Sync {
     fn verify<'a>(&'a self, request: VerifyRequest) -> VerifyFuture<'a>;
+
+    /// True only when the verifier actually compiles/tests submitted source
+    /// inside the fixed, platform-owned execution profile. The deterministic
+    /// checker is useful for local treatment iteration, but cannot authorize
+    /// an externally supplied repository in hosted mode.
+    fn executes_source(&self) -> bool {
+        false
+    }
 }
 
 pub fn from_env() -> Result<Arc<dyn WorkspaceVerifier>> {
@@ -169,6 +177,10 @@ impl OciWorkspaceVerifier {
 }
 
 impl WorkspaceVerifier for OciWorkspaceVerifier {
+    fn executes_source(&self) -> bool {
+        true
+    }
+
     fn verify<'a>(&'a self, request: VerifyRequest) -> VerifyFuture<'a> {
         Box::pin(async move {
             let (files, workspace_digest) = merged_files(&request);
@@ -557,6 +569,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             CHECK_IDS
         );
+    }
+
+    #[test]
+    fn only_the_oci_profile_claims_to_execute_source() {
+        let deterministic = DeterministicWorkspaceVerifier;
+        assert!(!deterministic.executes_source());
+
+        let oci = OciWorkspaceVerifier {
+            runtime: "docker".into(),
+            image: "registry.example/practice-verifier@sha256:deadbeef".into(),
+            timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+            profile_digest: "sha256:test-profile".into(),
+        };
+        assert!(oci.executes_source());
     }
 
     #[test]

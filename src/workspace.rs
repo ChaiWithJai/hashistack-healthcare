@@ -38,6 +38,14 @@ impl TreatmentPlan {
         if !(2..=3).contains(&self.treatments.len()) {
             return Err("a plan must contain two or three treatments".into());
         }
+        for treatment in &self.treatments {
+            if !is_treatment_id(&treatment.id) {
+                return Err(
+                    "treatment ids must be 1 to 64 lowercase ASCII letters, digits, or hyphens"
+                        .into(),
+                );
+            }
+        }
         let ids = self
             .treatments
             .iter()
@@ -54,6 +62,17 @@ impl TreatmentPlan {
         }
         Ok(())
     }
+}
+
+fn is_treatment_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && bytes
+            .first()
+            .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -648,6 +667,44 @@ mod tests {
     }
 
     #[test]
+    fn treatment_ids_are_bounded_opaque_slugs() {
+        for valid in ["guided-worklist", "a", "2-step-view", &"a".repeat(64)] {
+            let mut value = plan();
+            value.treatments[0].id = valid.to_string();
+            value.recommended_treatment_id = valid.to_string();
+            assert!(value.validate().is_ok(), "valid id was rejected: {valid:?}");
+        }
+        for invalid in [
+            "",
+            "Guided",
+            "-leading",
+            "has space",
+            "has\ttab",
+            "x');globalThis.pwned=1;//",
+            "quote\"",
+            "back\\slash",
+            "slash/value",
+            "unicode-é",
+            &"a".repeat(65),
+        ] {
+            let mut value = plan();
+            value.treatments[0].id = invalid.to_string();
+            value.recommended_treatment_id = invalid.to_string();
+            assert!(
+                value.validate().is_err(),
+                "unsafe id was accepted: {invalid:?}"
+            );
+        }
+
+        let mut value = plan();
+        value.treatments[1].id = "x');globalThis.pwned=1;//".into();
+        assert!(
+            value.validate().is_err(),
+            "an unsafe non-recommended treatment id was accepted"
+        );
+    }
+
+    #[test]
     fn failed_or_rejected_candidate_never_changes_the_checkpoint() {
         let mut workspace = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
         workspace.set_plan(plan(), 2).unwrap();
@@ -731,6 +788,14 @@ mod tests {
         let mut contradictory = workspace;
         contradictory.phase = WorkspacePhase::Accepted;
         assert!(contradictory.validate_restored().is_err());
+
+        let mut unsafe_id = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
+        let mut unsafe_plan = plan();
+        unsafe_plan.treatments[0].id = "x');globalThis.pwned=1;//".into();
+        unsafe_plan.recommended_treatment_id = unsafe_plan.treatments[0].id.clone();
+        unsafe_id.treatment_plan = Some(unsafe_plan);
+        unsafe_id.phase = WorkspacePhase::TreatmentsReady;
+        assert!(unsafe_id.validate_restored().is_err());
     }
 
     #[test]

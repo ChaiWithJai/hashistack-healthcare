@@ -964,7 +964,7 @@ function shaktiTreatments() {
     const recommended = treatment.id === plan.recommended_treatment_id;
     const selected = treatment.id === S.selectedTreatmentId;
     return `<label class="treatment-card" data-testid="treatment-card">
-      <input type="radio" name="treatment" value="${esc(treatment.id)}" ${selected ? "checked" : ""} onchange="selectTreatment('${esc(treatment.id)}')">
+      <input type="radio" name="treatment" value="${esc(treatment.id)}" ${selected ? "checked" : ""} onchange="selectTreatment(this.value)">
       <div class="row"><span class="tag tb">Approach</span>${recommended ? `<span class="tag tg" data-testid="treatment-recommended">Recommended</span>` : ""}</div>
       <h3>${esc(treatment.label)}</h3><p>${esc(treatment.user_outcome)}</p>
       <div><b>What changes on screen</b><ul>${treatment.screen_changes.map(item => `<li>${esc(item)}</li>`).join("")}</ul></div>

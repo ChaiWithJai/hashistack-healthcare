@@ -9,7 +9,7 @@
 //! one-liner in the response writes it to disk with stock python3.
 
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::audit::AuditEvent;
 use crate::deploy;
@@ -19,7 +19,7 @@ use crate::state::{AppRecord, DataSource, Stage};
 
 /// Writes the file-map to disk from stdin. Stock python3, no dependencies —
 /// pipe the export JSON through it inside the target directory.
-pub const UNPACK_ONE_LINER: &str = r#"python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,exist_ok=True), q.write_text(c)))(pathlib.Path(p)) for p,c in json.load(sys.stdin)["files"].items()]'"#;
+pub const UNPACK_ONE_LINER: &str = r#"python3 -c 'import json,sys,pathlib; root=pathlib.Path.cwd().resolve(); files=json.load(sys.stdin)["files"]; [(lambda q,c: (_ for _ in ()).throw(ValueError("unsafe export path")) if q == root or root not in q.parents else (q.parent.mkdir(parents=True,exist_ok=True),q.open("x",encoding="utf-8").write(c)))((root/pathlib.Path(p)).resolve(),c) for p,c in files.items()]'"#;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct EjectionBundle {
@@ -27,6 +27,75 @@ pub struct EjectionBundle {
     pub files: BTreeMap<String, String>,
     /// Copy-paste command that unpacks this bundle into the current directory.
     pub unpack: String,
+}
+
+/// Validate the inert file map before the control plane verifies or stores an
+/// owned import. This is a source contract, not a signer or release decision.
+pub fn validate_owned_bundle(files: &BTreeMap<String, String>) -> Result<(), String> {
+    let workspace =
+        crate::workspace::WorkspaceRecord::new("owned-import-validation".into(), files.clone(), 0);
+    workspace.validate_restored()?;
+
+    let required = [
+        "README.md",
+        "pack.hcl",
+        ".mcp.json",
+        ".gitignore",
+        ".dockerignore",
+        "Dockerfile",
+        "artifact-quality.json",
+        "server/Cargo.toml",
+        "server/Cargo.lock",
+        "server/src/main.rs",
+        "web/package.json",
+        "web/package-lock.json",
+        "web/src/routes/+page.svelte",
+        "web/tests/owned-app.mjs",
+        "scripts/reimport.mjs",
+    ];
+    if let Some(path) = required.iter().find(|path| !files.contains_key(**path)) {
+        return Err(format!("owned bundle is missing {path}"));
+    }
+    if !files.keys().any(|path| path.starts_with("synthetic/")) {
+        return Err("owned bundle is missing a synthetic fixture".into());
+    }
+    if files.keys().any(|path| {
+        path.starts_with("docs/")
+            || path == ".practice-verifier-report.json"
+            || path.ends_with("/.practice-verifier-report.json")
+            || path.starts_with("server/target/")
+            || path.starts_with("web/node_modules/")
+            || path.starts_with("web/build/")
+            || path.starts_with("web/test-results/")
+    }) {
+        return Err("owned bundle contains a reserved path".into());
+    }
+    let markdown = files
+        .keys()
+        .filter(|path| path.ends_with(".md"))
+        .collect::<Vec<_>>();
+    if markdown.len() != 1 || markdown[0].as_str() != "README.md" {
+        return Err("owned bundle must contain README.md as its only Markdown file".into());
+    }
+    let diagrams = files
+        .keys()
+        .filter(|path| path.ends_with(".tldr"))
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let expected = BTreeSet::from([
+        "diagrams/service-map.tldr",
+        "diagrams/system-architecture.tldr",
+        "diagrams/workspace-state-machine.tldr",
+    ]);
+    if diagrams != expected {
+        return Err("owned bundle must contain the three required tldraw diagrams".into());
+    }
+    let mcp: serde_json::Value = serde_json::from_str(&files[".mcp.json"])
+        .map_err(|_| ".mcp.json is not valid JSON".to_string())?;
+    if mcp["mcpServers"]["svelte"]["url"] != "https://mcp.svelte.dev/mcp" {
+        return Err("owned bundle must keep the official Svelte MCP endpoint".into());
+    }
+    Ok(())
 }
 
 /// Build the ejection bundle. Pure over its inputs: the same record and
@@ -93,6 +162,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         );
     }
     files.insert(".mcp.json".to_string(), svelte_mcp_config());
+    files.insert("scripts/reimport.mjs".to_string(), owned_reimport_script());
     files.insert(".gitignore".to_string(), exported_gitignore());
     files.insert(".dockerignore".to_string(), exported_dockerignore());
     files.insert(
@@ -367,13 +437,60 @@ try {
 }
 
 fn exported_gitignore() -> String {
-    "server/target/\nweb/.svelte-kit/\nweb/build/\nweb/node_modules/\nweb/test-results/\n"
+    "reimport-result.json\nserver/target/\nweb/.svelte-kit/\nweb/build/\nweb/node_modules/\nweb/test-results/\n"
         .to_string()
 }
 
 fn exported_dockerignore() -> String {
-    ".git\nserver/target\nweb/.svelte-kit\nweb/build\nweb/node_modules\nweb/test-results\n"
+    ".git\nreimport-result.json\nserver/target\nweb/.svelte-kit\nweb/build\nweb/node_modules\nweb/test-results\n"
         .to_string()
+}
+
+fn owned_reimport_script() -> String {
+    r#"import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const baseUrl = (process.env.PRACTICE_STUDIO_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+const token = process.env.PRACTICE_STUDIO_TOKEN;
+const ignored = new Set([
+  '.git',
+  'server/target',
+  'web/.svelte-kit',
+  'web/build',
+  'web/node_modules',
+  'web/test-results',
+]);
+const files = {};
+
+function walk(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
+    if (ignored.has(relative) || relative === '.DS_Store' || relative === 'reimport-result.json') continue;
+    if (entry.isSymbolicLink()) throw new Error(`Refusing symbolic link: ${relative}`);
+    if (entry.isDirectory()) walk(absolute);
+    else if (entry.isFile()) files[relative] = fs.readFileSync(absolute, 'utf8');
+    else throw new Error(`Refusing non-file entry: ${relative}`);
+  }
+}
+
+walk(root);
+const headers = { 'content-type': 'application/json' };
+if (token) headers.authorization = `Bearer ${token}`;
+const response = await fetch(`${baseUrl}/api/apps/import`, {
+  method: 'POST',
+  headers,
+  body: JSON.stringify({ files }),
+});
+const body = await response.json();
+if (!response.ok) throw new Error(body.error || `Import failed with HTTP ${response.status}`);
+fs.writeFileSync(path.join(root, 'reimport-result.json'), `${JSON.stringify(body, null, 2)}\n`);
+console.log(`Imported ${body.app.id} as a private synthetic starter.`);
+console.log(`Open ${baseUrl}/ and select ${body.app.id}.`);
+"#
+    .to_string()
 }
 
 fn svelte_package_lock() -> &'static str {
@@ -866,10 +983,17 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          The Nomad job is the platform's own rendered allocation spec; the Vault\n\
          `{{{{ with secret … }}}}` blocks resolve against your Vault at runtime.\n\
          Render/Fly/Kamal manifests build from the Dockerfile in this bundle.\n\n\
-         ## Re-import as a template\n\n\
-         `pack.hcl` at the bundle root is this app expressed in the platform's pack\n\
-         schema — drop it into a platform's `packs/` directory (or submit it to the\n\
-         registry) and \"{name}\" becomes a starting point instead of a one-off.\n",
+         ## Import as a private starter\n\n\
+         Start Practice Studio, then run this command from the bundle root:\n\n\
+         ```bash\n\
+         PRACTICE_STUDIO_URL=http://127.0.0.1:3000 node scripts/reimport.mjs\n\
+         ```\n\n\
+         Set `PRACTICE_STUDIO_TOKEN` when the platform requires a bearer token.\n\
+         Rust validates the file map, resolves `based_on` against the trusted built-in\n\
+         registry, and verifies the exact source digest. The import receives a new id\n\
+         in your tenant. It starts with synthetic data and receives no prior release,\n\
+         deployment, credential, or signer authority. The command writes the result to\n\
+         the ignored `reimport-result.json` file.\n",
         name = app.name,
         unpack = unpack_command(id),
         id = id,
@@ -956,8 +1080,8 @@ control is production-ready. Keep the known limitations in
 - Commit the whole repository so source, fixture, contract, and evidence move
   together.
 - Deploy with one of the manifests documented in `docs/RUNBOOK.md`.
-- Re-import or share `pack.hcl` to use this customized app as the next
-  practice-owned starter.
+- Run `node scripts/reimport.mjs` to import the exact customized bundle as
+  your next private synthetic starter.
 
 Before real patient use, replace process-local state and demo credentials,
 configure durable audit/storage/backups, enforce workload identity and egress,
@@ -1442,7 +1566,7 @@ fn nomad_job(app: &AppRecord) -> String {
 
 /// Derive a pack manifest from the app: scaffold = what they built, gates =
 /// what their pack demanded, prewired = the controls they actually wired that
-/// are gates. Parses with the platform's own `packs::parse_pack`.
+/// are gates. Parses only through the untrusted owned-pack parser.
 fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
     let prewired: Vec<&str> = app
         .controls
@@ -1456,14 +1580,15 @@ fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
     );
     format!(
         "// Derived from app \"{id}\" at ejection — the doctor's own re-usable template.\n\
-         // Same schema as the platform's packs/*/pack.hcl; re-import or share as-is.\n\n\
+         // Practice-owned metadata. This is not a trusted registry signature.\n\n\
          pack \"{id}-template\" {{\n\
          \x20 name        = \"{name}\"\n\
          \x20 description = \"{description}\"\n\
          \x20 profile     = \"{profile}\"\n\
          \x20 tier        = {tier}\n\
          \x20 wave        = {wave}\n\
-         \x20 signed_by   = \"platform-root-v1\"\n\n\
+         \x20 signed_by   = \"untrusted-practice-export\"\n\
+         \x20 based_on    = \"{base_pack}\"\n\n\
          \x20 # What this template scaffolds: the app's features as built, v{version}.\n\
          \x20 scaffold = [\n{scaffold}\x20 ]\n\n\
          \x20 # Controls wired at ejection that the gate set checks.\n\
@@ -1483,6 +1608,7 @@ fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
         prewired = hcl_list(prewired.iter().copied()),
         gates = hcl_list(pack.gates.iter().map(String::as_str)),
         pack_id = pack.id,
+        base_pack = hcl_str(&pack.id),
         dataset = hcl_str(&pack.synthetic_dataset),
     )
 }
@@ -1594,9 +1720,14 @@ mod tests {
         let app = sample_app(&pack);
         let hcl = derived_pack_hcl(&app, &pack);
 
-        let template = packs::parse_pack(&hcl).expect("derived pack.hcl must parse and verify");
+        assert!(
+            packs::parse_pack(&hcl).is_err(),
+            "owned metadata is not trusted"
+        );
+        let template = packs::parse_owned_pack(&hcl).expect("derived owned pack must parse");
         assert_eq!(template.id, "post-op-tracker-template");
-        assert_eq!(template.signed_by, "platform-root-v1");
+        assert_eq!(template.signed_by, "untrusted-practice-export");
+        assert_eq!(template.based_on.as_deref(), Some(pack.id.as_str()));
         assert_eq!(
             template.scaffold, app.features,
             "scaffold = features as built"
@@ -1677,6 +1808,21 @@ mod tests {
         assert!(bundle.files[".gitignore"].contains("web/test-results/"));
         assert!(bundle.files[".dockerignore"].contains("web/node_modules"));
         assert!(bundle.files[".dockerignore"].contains("web/test-results"));
+        assert!(bundle.files.contains_key("scripts/reimport.mjs"));
+        validate_owned_bundle(&bundle.files).unwrap();
+
+        let mut traversal = bundle.files.clone();
+        traversal.insert("../escape".into(), "no".into());
+        assert!(validate_owned_bundle(&traversal).is_err());
+        let mut collision = bundle.files.clone();
+        collision.insert("readme.md".into(), "collision".into());
+        assert!(validate_owned_bundle(&collision).is_err());
+        let mut generated = bundle.files.clone();
+        generated.insert("web/node_modules/rogue.js".into(), "no".into());
+        assert!(validate_owned_bundle(&generated).is_err());
+        let mut incomplete = bundle.files.clone();
+        incomplete.remove("web/tests/owned-app.mjs");
+        assert!(validate_owned_bundle(&incomplete).is_err());
     }
 
     #[test]

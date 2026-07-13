@@ -79,7 +79,5 @@ rejection, at least 70% held-out semantic acceptance, and no regression in
 the exported Rust test matrix. Model terms and the adapter's base-model
 dependency must ship with any distributed adapter.
 
-The parsimonious product decision is therefore: rules remain authoritative;
-Hermes is opt-in for bounded fill on capable local machines; LFM2 remains an
-experimental low-memory rung; no model or adapter is bundled in the initial
-repository.
+This experiment is retired. Gemma 4 is the only application model. The
+repository does not bundle or activate either model from this experiment.

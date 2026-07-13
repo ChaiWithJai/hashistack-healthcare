@@ -23,7 +23,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, RwLock};
 
 use crate::agent::ScaffoldStep;
@@ -84,6 +84,7 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
             resolve_workspace,
         ));
     let owned = Router::new()
+        .route("/api/apps/import", post(import_owned_app))
         .route("/api/apps/:id/claim", post(claim_app))
         .route("/api/apps/:id/operations", get(app_operations))
         .route("/api/apps/:id/export", get(export_app))
@@ -610,6 +611,165 @@ fn restore_if_unchanged(
 async fn list_packs(State(platform): State<SharedPlatform>) -> ApiResult<serde_json::Value> {
     let plat = platform.read().unwrap();
     Ok(Json(json!({ "packs": plat.packs })))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportOwnedApp {
+    files: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct ImportedApp {
+    app: AppRecord,
+    source_digest: String,
+    verification: crate::workspace::VerificationReport,
+}
+
+async fn import_owned_app(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Json(req): Json<ImportOwnedApp>,
+) -> ApiResult<ImportedApp> {
+    if principal.role == crate::identity::Role::Guest {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "sign in before importing an owned bundle".into(),
+        ));
+    }
+    eject::validate_owned_bundle(&req.files)
+        .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+    let owned = packs::parse_owned_pack(&req.files["pack.hcl"])
+        .map_err(|error| ApiError(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
+    if owned.name.trim().is_empty()
+        || owned.name.len() > 100
+        || owned.name.chars().any(char::is_control)
+        || owned.scaffold.is_empty()
+        || owned.scaffold.len() > 64
+        || owned.scaffold.iter().any(|item| {
+            item.trim().is_empty() || item.len() > 500 || item.chars().any(char::is_control)
+        })
+    {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "owned pack scaffold must contain 1 to 64 bounded feature names".into(),
+        ));
+    }
+    let (base_pack, id, verifier) = {
+        let mut plat = platform.write().unwrap();
+        let base_id = owned
+            .based_on
+            .as_deref()
+            .expect("owned parser requires based_on");
+        let base = plat
+            .pack(base_id)
+            .cloned()
+            .ok_or_else(|| not_found("based_on pack"))?;
+        let preferred = owned.id.strip_suffix("-template").unwrap_or(&owned.id);
+        let id = plat.reserve_app_id(preferred);
+        (base, id, plat.workspace_verifier.clone())
+    };
+
+    let now = now_unix();
+    let accepted = crate::workspace::Checkpoint::new(0, req.files.clone(), now);
+    let page = req.files["web/src/routes/+page.svelte"].clone();
+    let verification = verifier
+        .verify(crate::workspace_verifier::VerifyRequest {
+            accepted: accepted.clone(),
+            candidate: crate::workspace::CandidatePatch {
+                summary: "verify the exact owned import".into(),
+                files: vec![crate::workspace::CandidateFile {
+                    path: "web/src/routes/+page.svelte".into(),
+                    content: page,
+                    reason: "bind verification to the submitted file map".into(),
+                }],
+                verification_commands: Vec::new(),
+            },
+        })
+        .await;
+    if !verification.passed || verification.workspace_digest != accepted.digest {
+        platform.write().unwrap().release_app_id(&id);
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "owned bundle failed the fixed Rust verification profile".into(),
+        ));
+    }
+    let workspace = crate::workspace::WorkspaceRecord::new_owned_import(
+        id.clone(),
+        req.files,
+        verification.clone(),
+        now,
+    )
+    .map_err(|reason| {
+        platform.write().unwrap().release_app_id(&id);
+        ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason)
+    })?;
+    let source_digest = workspace.accepted.digest.clone();
+    let app = AppRecord {
+        id: id.clone(),
+        name: owned.name,
+        prompt: format!("Imported from owned bundle {}", owned.id),
+        pack: base_pack.id.clone(),
+        stage: Stage::Sandbox,
+        data_source: DataSource::Synthetic(base_pack.synthetic_dataset.clone()),
+        controls: base_pack.prewired.iter().cloned().collect(),
+        external_calls: Vec::new(),
+        features: owned.scaffold,
+        routes: base_pack.scaffold.len() as u32,
+        addenda: vec![Addendum {
+            version: 1,
+            instruction: "import owned bundle".into(),
+            reply: format!(
+                "verified exact source {} against trusted base pack {}",
+                source_digest, base_pack.id
+            ),
+            added_feature: None,
+            wired_controls: Vec::new(),
+            at: now,
+        }],
+        current_version: 1,
+        reviewer_note: None,
+        allocation: None,
+        attestation: None,
+        tenant: principal.tenant.clone(),
+    };
+    {
+        let mut plat = platform.write().unwrap();
+        plat.apps.insert(id.clone(), app.clone());
+        plat.workspaces.insert(id.clone(), workspace);
+        plat.release_app_id(&id);
+        plat.audit.record(
+            &principal.id,
+            "app.imported",
+            format!(
+                "owned bundle {} imported as private synthetic starter from trusted base {} at {}",
+                owned.id, base_pack.id, source_digest
+            ),
+            Some(&id),
+        );
+    }
+    if let Err(cause) = settle_durable(
+        &platform,
+        &[&id],
+        Some(StageTransition {
+            app_id: id.clone(),
+            prior: None,
+            next: Stage::Sandbox,
+            operation_id: None,
+        }),
+    )
+    .await
+    {
+        let mut plat = platform.write().unwrap();
+        plat.apps.remove(&id);
+        plat.workspaces.remove(&id);
+        return Err(audit_unavailable("owned import withdrawn", cause));
+    }
+    Ok(Json(ImportedApp {
+        app,
+        source_digest,
+        verification,
+    }))
 }
 
 // ---------- describe → generate ----------
@@ -1628,6 +1788,40 @@ async fn promote(
     ensure_tenant(&platform, &id, &principal)?;
     let _serial = serialize_app_mutation(&platform, &id).await;
     refuse_during_cleanup(&platform, &id)?;
+    {
+        let plat = platform.read().unwrap();
+        if let Some(workspace) = plat.workspaces.get(&id) {
+            if matches!(
+                workspace.origin,
+                crate::workspace::WorkspaceOrigin::OwnedImportUnverified
+            ) {
+                return Err(ApiError(
+                    StatusCode::CONFLICT,
+                    "owned import has no accepted source verification".into(),
+                ));
+            }
+            if workspace.origin == crate::workspace::WorkspaceOrigin::OwnedImportVerified {
+                let report = workspace.accepted_verification.as_ref().ok_or_else(|| {
+                    ApiError(
+                        StatusCode::CONFLICT,
+                        "owned import has no accepted source verification".into(),
+                    )
+                })?;
+                if !report.passed || report.workspace_digest != workspace.accepted.digest {
+                    return Err(ApiError(
+                        StatusCode::CONFLICT,
+                        "owned import verification does not match the accepted source".into(),
+                    ));
+                }
+                if !req.synthetic_demo {
+                    return Err(ApiError(
+                        StatusCode::CONFLICT,
+                        "owned imports can release only to the synthetic demo pool until customized source gates inspect the accepted workspace".into(),
+                    ));
+                }
+            }
+        }
+    }
     if principal.role == crate::identity::Role::Guest {
         if !req.synthetic_demo {
             return Err(ApiError(
@@ -2216,10 +2410,16 @@ async fn export_app(
         let mut bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
         if let Some(workspace) = plat.workspaces.get(&id) {
             for (path, content) in &workspace.accepted.files {
-                if ["web/", "server/", "tests/", "synthetic/"]
+                let source_path = ["web/", "server/", "tests/", "synthetic/"]
                     .iter()
-                    .any(|prefix| path.starts_with(prefix))
-                {
+                    .any(|prefix| path.starts_with(prefix));
+                let owned_path = workspace.origin
+                    == crate::workspace::WorkspaceOrigin::OwnedImportVerified
+                    && !matches!(
+                        path.as_str(),
+                        "README.md" | "pack.hcl" | "reimport-result.json"
+                    );
+                if source_path || owned_path {
                     bundle.files.insert(path.clone(), content.clone());
                 }
             }

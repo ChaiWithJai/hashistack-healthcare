@@ -300,6 +300,15 @@ async fn strict_mode_answers_401_for_missing_and_invalid_tokens() {
     let router = strict_router(None);
     let (status, err, _) = call(&router, "GET", "/api/apps", None, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{err}");
+    let (status, _, _) = call(
+        &router,
+        "POST",
+        "/api/apps/import",
+        None,
+        Some(json!({"files": {}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, _, _) = call(&router, "GET", "/api/apps", Some("nope"), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, _, _) = call(&router, "GET", "/api/apps", Some(OSEI), None).await;
@@ -383,6 +392,52 @@ async fn cross_tenant_access_answers_404_and_lands_in_the_audit_stream() {
             .any(|e| e["action"] == "auth.cross_tenant_denied" && e["actor"] == "dr-osei"),
         "the owning tenant sees who knocked: {park_audit}"
     );
+}
+
+#[tokio::test]
+async fn owned_bundle_import_belongs_only_to_the_importing_practice() {
+    let router = dev_router();
+    let source_id = create_app(&router, OSEI, "post-op-monitor", "meridian starter").await;
+    let (status, bundle, _) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{source_id}/export"),
+        Some(OSEI),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, imported, _) = call(
+        &router,
+        "POST",
+        "/api/apps/import",
+        Some(PARK),
+        Some(json!({"files": bundle["files"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{imported}");
+    assert_eq!(imported["app"]["tenant"], "lakeside");
+    let imported_id = imported["app"]["id"].as_str().unwrap();
+
+    let (status, _, _) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{imported_id}"),
+        Some(PARK),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, hidden, _) = call(
+        &router,
+        "GET",
+        &format!("/api/apps/{imported_id}"),
+        Some(OSEI),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(hidden["error"], "app not found");
 }
 
 #[tokio::test]

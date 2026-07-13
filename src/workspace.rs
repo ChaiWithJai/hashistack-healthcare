@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_SOURCE_FILES: usize = 64;
 pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
+pub const MAX_SOURCE_FILE_BYTES: usize = 256 * 1024;
 pub const MAX_TREATMENT_PLAN_BYTES: usize = 16 * 1024;
 pub const MAX_REFINEMENT_BYTES: usize = 500;
 
@@ -224,12 +225,17 @@ fn validate_path(path: &str) -> Result<(), String> {
 
 fn validate_safe_path(path: &str) -> Result<(), String> {
     if path.is_empty()
+        || path.len() > 240
         || path.starts_with('/')
         || path.contains('\\')
         || path.contains('\0')
+        || !path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/._-+".contains(&byte))
+        || path.split('/').count() > 8
         || path
             .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
+            .any(|part| part.is_empty() || part == "." || part == ".." || part.len() > 96)
     {
         return Err(format!("unsafe candidate path: {path}"));
     }
@@ -242,16 +248,28 @@ fn validate_checkpoint_files(files: &BTreeMap<String, String>) -> Result<(), Str
             "accepted workspace exceeds {MAX_SOURCE_FILES} files"
         ));
     }
-    let bytes = files
-        .values()
-        .try_fold(0usize, |total, content| total.checked_add(content.len()));
-    if bytes.is_none_or(|bytes| bytes > MAX_SOURCE_BYTES) {
+    let mut folded_paths = BTreeSet::new();
+    let mut bytes = 0usize;
+    for (path, content) in files {
+        validate_safe_path(path)?;
+        if content.len() > MAX_SOURCE_FILE_BYTES {
+            return Err(format!(
+                "accepted workspace file {path} exceeds {MAX_SOURCE_FILE_BYTES} bytes"
+            ));
+        }
+        if !folded_paths.insert(path.to_ascii_lowercase()) {
+            return Err(format!(
+                "accepted workspace contains a case-colliding path: {path}"
+            ));
+        }
+        bytes = bytes
+            .checked_add(content.len())
+            .ok_or_else(|| "accepted workspace size overflow".to_string())?;
+    }
+    if bytes > MAX_SOURCE_BYTES {
         return Err(format!(
             "accepted workspace exceeds {MAX_SOURCE_BYTES} bytes"
         ));
-    }
-    for path in files.keys() {
-        validate_safe_path(path)?;
     }
     Ok(())
 }
@@ -269,6 +287,15 @@ pub enum WorkspacePhase {
     Accepted,
     Failed,
     Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceOrigin {
+    #[default]
+    Platform,
+    OwnedImportUnverified,
+    OwnedImportVerified,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -414,6 +441,8 @@ impl AgentProvenance {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceRecord {
     pub app_id: String,
+    #[serde(default)]
+    pub origin: WorkspaceOrigin,
     pub phase: WorkspacePhase,
     pub treatment_plan: Option<TreatmentPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,6 +451,8 @@ pub struct WorkspaceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_treatment: Option<TreatmentSelection>,
     pub accepted: Checkpoint,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_verification: Option<VerificationReport>,
     pub candidate: Option<Candidate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation_agent: Option<AgentProvenance>,
@@ -433,17 +464,32 @@ impl WorkspaceRecord {
     pub fn new(app_id: String, files: BTreeMap<String, String>, now: u64) -> Self {
         Self {
             app_id,
+            origin: WorkspaceOrigin::Platform,
             phase: WorkspacePhase::Described,
             treatment_plan: None,
             plan_agent: None,
             selected_treatment_id: None,
             selected_treatment: None,
             accepted: Checkpoint::new(0, files, now),
+            accepted_verification: None,
             candidate: None,
             generation_agent: None,
             failure: None,
             updated_at: now,
         }
+    }
+
+    pub fn new_owned_import(
+        app_id: String,
+        files: BTreeMap<String, String>,
+        verification: VerificationReport,
+        now: u64,
+    ) -> Result<Self, String> {
+        let mut workspace = Self::new(app_id, files, now);
+        workspace.origin = WorkspaceOrigin::OwnedImportVerified;
+        workspace.accepted_verification = Some(verification);
+        workspace.validate_restored()?;
+        Ok(workspace)
     }
 
     /// Re-establish every trust-boundary invariant before a JSONB record is
@@ -458,6 +504,17 @@ impl WorkspaceRecord {
             return Err("accepted checkpoint digest does not match its files".into());
         }
         validate_checkpoint_files(&self.accepted.files)?;
+        if let Some(report) = &self.accepted_verification {
+            report.validate()?;
+            if !report.passed || report.workspace_digest != self.accepted.digest {
+                return Err("accepted verification does not match accepted source".into());
+            }
+        }
+        if self.origin == WorkspaceOrigin::OwnedImportVerified
+            && self.accepted_verification.is_none()
+        {
+            return Err("verified owned import is missing accepted verification".into());
+        }
         if let Some(plan) = &self.treatment_plan {
             plan.validate()?;
         }
@@ -673,7 +730,12 @@ impl WorkspaceRecord {
         for file in &candidate.files {
             files.insert(file.path.clone(), file.content.clone());
         }
+        let verification = candidate.verification.clone();
         self.accepted = Checkpoint::new(self.accepted.version + 1, files, now);
+        self.accepted_verification = Some(verification);
+        if self.origin == WorkspaceOrigin::OwnedImportUnverified {
+            self.origin = WorkspaceOrigin::OwnedImportVerified;
+        }
         self.candidate = None;
         self.phase = WorkspacePhase::Accepted;
         self.updated_at = now;
@@ -980,6 +1042,27 @@ mod tests {
         assert_eq!(accepted.version, 1);
         assert_eq!(accepted.files["web/x"], "good");
         assert!(workspace.accept("good", 6).is_err());
+    }
+
+    #[test]
+    fn owned_import_requires_verification_for_the_exact_checkpoint() {
+        let files = BTreeMap::from([("web/x".to_string(), "good".to_string())]);
+        let workspace =
+            WorkspaceRecord::new_owned_import("imported".into(), files, pass(4), 4).unwrap();
+        assert_eq!(workspace.origin, WorkspaceOrigin::OwnedImportVerified);
+        assert!(workspace.validate_restored().is_ok());
+
+        let mut tampered = workspace.clone();
+        tampered
+            .accepted
+            .files
+            .insert("web/x".into(), "changed".into());
+        tampered.accepted.digest = source_digest(&tampered.accepted.files);
+        assert!(tampered.validate_restored().is_err());
+
+        let mut missing = workspace;
+        missing.accepted_verification = None;
+        assert!(missing.validate_restored().is_err());
     }
 
     #[test]

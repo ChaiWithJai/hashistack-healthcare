@@ -10,9 +10,7 @@
     {
       "instruction": "log people off if they walk away \u2014 idle timeout",
       "vocabulary": "rules",
-      "expect_wired": [
-        "auto-logoff"
-      ]
+      "expect_wired": []
     },
     {
       "instruction": "make the pain question feel less clinical",

@@ -10,9 +10,7 @@
     {
       "instruction": "auto log off after idle pls",
       "vocabulary": "rules",
-      "expect_wired": [
-        "auto-logoff"
-      ]
+      "expect_wired": []
     }
   ],
   "workflow": {

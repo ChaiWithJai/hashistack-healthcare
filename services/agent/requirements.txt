@@ -1,0 +1,5 @@
+deepagents==0.6.12
+gradient-adk==0.2.12
+langchain-gradient==0.2.0
+langgraph==1.2.9
+pydantic==2.12.5

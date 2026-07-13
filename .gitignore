@@ -10,6 +10,10 @@ target/
 /.journey
 /.journey-target
 /node_modules
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
 /.playwright-cli
 /output
 /playwright-report

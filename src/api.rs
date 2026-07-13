@@ -2386,8 +2386,9 @@ async fn app_audit(
 }
 
 /// Ejection (#11): the whole app as an owned, documented, extendable bundle.
-/// Docs are generated from the doctor's record; live apps embed the release
-/// attestation, sandbox apps export too but marked draft — not released.
+/// New workspace docs are generated from the doctor's record; a verified
+/// owned import keeps its submitted README as part of the exact reviewed
+/// source. Runtime authority still comes only from the app record.
 async fn export_app(
     State(platform): State<SharedPlatform>,
     Extension(principal): Extension<Principal>,
@@ -2417,10 +2418,7 @@ async fn export_app(
                     .any(|prefix| path.starts_with(prefix));
                 let owned_path = workspace.origin
                     == crate::workspace::WorkspaceOrigin::OwnedImportVerified
-                    && !matches!(
-                        path.as_str(),
-                        "README.md" | "pack.hcl" | "reimport-result.json"
-                    );
+                    && !matches!(path.as_str(), "pack.hcl" | "reimport-result.json");
                 if source_path || owned_path {
                     bundle.files.insert(path.clone(), content.clone());
                 }

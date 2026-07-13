@@ -806,7 +806,7 @@ fn post_op_checkin_component() -> String {
       <h2>{treatment.treatment.user_outcome}</h2>
       {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
       <div class="hc-notice"><b>What happens next</b><p>Concerning synthetic answers are evaluated by Rust and, when required, queued to the practice inbox with a visible reason.</p></div>
-      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · Rust owns the current clinical threshold.</p>
     </article>
   {/if}
   <div class="hc-workflow-grid">
@@ -884,7 +884,7 @@ fn post_op_checkin_component() -> String {
       <div class="hc-actions"><span class="hc-badge">Gemma-planned treatment</span><b>{treatment.treatment.label}</b></div>
       <h2>{treatment.treatment.user_outcome}</h2>
       {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
-      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · Rust owns the current clinical threshold.</p>
     </article>
   {/if}
 </section>

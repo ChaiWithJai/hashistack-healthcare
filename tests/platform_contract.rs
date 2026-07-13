@@ -779,6 +779,7 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
             "<!-- imported-svelte-sentinel -->",
         ),
         ("web/tests/owned-app.mjs", "// imported-browser-sentinel"),
+        ("README.md", "Owned customization record."),
     ] {
         let changed = format!("{}\n{sentinel}\n", files[path].as_str().unwrap());
         files.insert(path.into(), Value::String(changed));
@@ -845,6 +846,7 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
         "web/tests/owned-app.mjs",
         "synthetic/post-op-demo.json",
         "artifact-quality.json",
+        "README.md",
     ] {
         assert_eq!(reexported["files"][path], expected[path], "changed {path}");
     }

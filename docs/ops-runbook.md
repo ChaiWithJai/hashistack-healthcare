@@ -431,9 +431,12 @@ deterministic treatments and records the fallback. Environment variables
 cannot add a second model provider to the application edit runner.
 
 The planner instructions live in
-`prompts/digitalocean-treatment-planner-v1.txt`. Hash that exact file and set
-the result as `DIGITALOCEAN_PLANNER_VERSION` after you update the DigitalOcean
-agent. Staging proof must report the same version with no fallback.
+`prompts/digitalocean-treatment-planner-v1.txt`. Configure the DigitalOcean
+agent with a 64-token response limit: the contract is one small JSON decision,
+and a larger budget can leave Gemma reasoning past the preview timeout. After
+an agent update, copy the currently applied DigitalOcean agent version hash to
+`DIGITALOCEAN_PLANNER_VERSION`. Staging proof must report that version with no
+fallback.
 
 ```bash
 # Inspect the stored provider, model, fallback, and verification evidence.

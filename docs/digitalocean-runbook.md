@@ -128,8 +128,11 @@ runs the checks, stores the accepted checkpoint, and creates the export. The
 repository does not deploy a second model worker or an agent framework.
 
 Use `prompts/digitalocean-treatment-planner-v1.txt` as the exact DigitalOcean
-agent instruction text. After any change, hash that file and store the digest
-in `DIGITALOCEAN_PLANNER_VERSION`. Deploy the same digest with the application.
+agent instruction text and set the agent response limit to 64 tokens. The
+planner returns one bounded JSON decision; this limit keeps Gemma inside the
+preview request budget. After any change, store the currently applied agent
+version hash in `DIGITALOCEAN_PLANNER_VERSION`. Deploy that same version with
+the application.
 
 The DigitalOcean agent must receive synthetic data only. Do not send patient
 data to the agent until DigitalOcean confirms the required health care terms

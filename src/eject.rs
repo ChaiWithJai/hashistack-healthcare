@@ -32,6 +32,9 @@ pub struct EjectionBundle {
 /// Validate the inert file map before the control plane verifies or stores an
 /// owned import. This is a source contract, not a signer or release decision.
 pub fn validate_owned_bundle(files: &BTreeMap<String, String>) -> Result<(), String> {
+    for path in files.keys() {
+        crate::workspace::validate_owned_source_path(path)?;
+    }
     let workspace =
         crate::workspace::WorkspaceRecord::new("owned-import-validation".into(), files.clone(), 0);
     workspace.validate_restored()?;
@@ -1944,6 +1947,23 @@ mod tests {
         let mut generated = bundle.files.clone();
         generated.insert("web/node_modules/rogue.js".into(), "no".into());
         assert!(validate_owned_bundle(&generated).is_err());
+        for path in [
+            ".github/workflows/imported.yml",
+            ".git/hooks/post-checkout",
+            "web/.git/hooks/post-checkout",
+            ".cargo/config.toml",
+            "server/.cargo/config.toml",
+            ".npmrc",
+            "web/.npmrc",
+            ".gitlab-ci.yml",
+            ".gitattributes",
+            ".gitmodules",
+        ] {
+            let mut controlled = bundle.files.clone();
+            controlled.insert(path.into(), "malicious = true".into());
+            let error = validate_owned_bundle(&controlled).unwrap_err();
+            assert!(error.contains("repository-control path"), "{path}: {error}");
+        }
         let mut incomplete = bundle.files.clone();
         incomplete.remove("web/tests/owned-app.mjs");
         assert!(validate_owned_bundle(&incomplete).is_err());

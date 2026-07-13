@@ -242,6 +242,41 @@ fn validate_safe_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Reject files that Git, CI systems, or package managers can execute merely
+/// because an imported bundle was unpacked or pushed. Owned source remains
+/// editable after ejection, but importing it must not silently install
+/// repository-level automation into the recipient's project.
+pub(crate) fn validate_owned_source_path(path: &str) -> Result<(), String> {
+    validate_safe_path(path)?;
+    let folded = path.to_ascii_lowercase();
+    let components = folded.split('/').collect::<Vec<_>>();
+    let first = components.first().copied().unwrap_or_default();
+    let file_name = folded.rsplit('/').next().unwrap_or_default();
+    let repository_control = components
+        .iter()
+        .any(|part| matches!(*part, ".git" | ".github" | ".cargo"))
+        || matches!(first, ".gitlab" | ".circleci")
+        || matches!(
+            folded.as_str(),
+            ".gitlab-ci.yml"
+                | ".gitattributes"
+                | ".gitmodules"
+                | "jenkinsfile"
+                | "azure-pipelines.yml"
+                | "bitbucket-pipelines.yml"
+        )
+        || matches!(
+            file_name,
+            ".npmrc" | ".yarnrc" | ".yarnrc.yml" | ".pnpmfile.cjs"
+        );
+    if repository_control {
+        return Err(format!(
+            "owned workspace contains repository-control path: {path}"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_checkpoint_files(files: &BTreeMap<String, String>) -> Result<(), String> {
     if files.len() > MAX_SOURCE_FILES {
         return Err(format!(
@@ -251,7 +286,7 @@ fn validate_checkpoint_files(files: &BTreeMap<String, String>) -> Result<(), Str
     let mut folded_paths = BTreeSet::new();
     let mut bytes = 0usize;
     for (path, content) in files {
-        validate_safe_path(path)?;
+        validate_owned_source_path(path)?;
         if content.len() > MAX_SOURCE_FILE_BYTES {
             return Err(format!(
                 "accepted workspace file {path} exceeds {MAX_SOURCE_FILE_BYTES} bytes"
@@ -1063,6 +1098,18 @@ mod tests {
         let mut missing = workspace;
         missing.accepted_verification = None;
         assert!(missing.validate_restored().is_err());
+
+        for path in [
+            ".github/workflows/imported.yml",
+            "web/.git/hooks/post-checkout",
+            "server/.cargo/config.toml",
+            "web/.npmrc",
+        ] {
+            let files = BTreeMap::from([(path.to_string(), "malicious = true".to_string())]);
+            let restored = WorkspaceRecord::new("imported".into(), files, 4);
+            let error = restored.validate_restored().unwrap_err();
+            assert!(error.contains("repository-control path"), "{path}: {error}");
+        }
     }
 
     #[test]

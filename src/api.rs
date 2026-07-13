@@ -881,60 +881,65 @@ async fn plan_source_workspace(
         ));
     }
     let _serial = serialize_app_mutation(&platform, &id).await;
-    let plan = crate::workspace::TreatmentPlan {
-        problem: req.task.trim().to_string(),
-        recommended_treatment_id: "guided-worklist".into(),
-        treatments: vec![
-            crate::workspace::Treatment {
-                id: "guided-worklist".into(),
-                label: "Guided worklist".into(),
-                user_outcome: "See the next safe action without scanning the whole record".into(),
-                screen_changes: vec![
-                    "A calm priority list with one clear next action".into(),
-                    "A visible reason for every flagged item".into(),
-                ],
-                data_changes: vec!["Keep status and review notes with each synthetic item".into()],
-                safety_notes: vec!["Keep escalation and synthetic-data labels visible".into()],
+    // Clone the provider and the minimum synthetic workspace context under a
+    // read lock, then release it before awaiting remote I/O.
+    let (agent, request, base_digest) = {
+        let plat = platform.read().unwrap();
+        let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        let workspace = plat
+            .workspaces
+            .get(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        (
+            plat.workspace_agent.clone(),
+            crate::workspace_agent::PlanRequest {
+                thread_id: id.clone(),
+                task: req.task.trim().to_string(),
+                pack: app.pack.clone(),
+                workspace_summary: crate::workspace_agent::workspace_summary(&workspace.accepted),
             },
-            crate::workspace::Treatment {
-                id: "patient-timeline".into(),
-                label: "Patient timeline".into(),
-                user_outcome: "Understand what changed before deciding what to do next".into(),
-                screen_changes: vec![
-                    "A chronological event view".into(),
-                    "Filters for unresolved and reviewed events".into(),
-                ],
-                data_changes: vec!["Record events as append-only synthetic entries".into()],
-                safety_notes: vec!["Do not turn the timeline into clinical advice".into()],
-            },
-            crate::workspace::Treatment {
-                id: "focused-form".into(),
-                label: "Focused form".into(),
-                user_outcome: "Complete one task with fewer fields and a clear confirmation".into(),
-                screen_changes: vec![
-                    "A short step-by-step form".into(),
-                    "A review screen before saving".into(),
-                ],
-                data_changes: vec!["Save only the fields needed for this synthetic workflow".into()],
-                safety_notes: vec!["Show what is saved and who must review it".into()],
-            },
-        ],
-        acceptance_checks: vec![
-            "The chosen workflow is usable with a keyboard".into(),
-            "Synthetic-data and safety limits remain visible".into(),
-            "The Svelte client and Rust server remain independently testable".into(),
-        ],
+            workspace.accepted.digest.clone(),
+        )
     };
+    let output = agent.plan(request).await.map_err(|error| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            format!("workspace planning is temporarily unavailable: {error}"),
+        )
+    })?;
+    // Revalidate at the Rust trust boundary even when the provider already
+    // validated its own response.
+    output
+        .value
+        .validate()
+        .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
     let workspace = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
+        if workspace.accepted.digest != base_digest {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "the workspace changed while treatments were prepared — retry".into(),
+            ));
+        }
         workspace
-            .set_plan(plan, now_unix())
+            .set_plan(output.value, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
         let result = workspace.clone();
+        if let Some(error) = output.fallback {
+            plat.audit.record(
+                "workspace-agent",
+                "workspace.agent_fallback",
+                format!(
+                    "plan fell back to {} after {:?}",
+                    output.provider, error.kind
+                ),
+                Some(&id),
+            );
+        }
         plat.audit.record_sensitive(
             &principal.id,
             "workspace.treatments_planned",
@@ -983,7 +988,49 @@ async fn generate_source_candidate(
     Json(req): Json<GenerateCandidate>,
 ) -> ApiResult<crate::workspace::WorkspaceRecord> {
     ensure_tenant(&platform, &id, &principal)?;
+    if req.task.trim().is_empty() {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "describe the change to generate".into(),
+        ));
+    }
     let _serial = serialize_app_mutation(&platform, &id).await;
+    // No platform lock is held while the provider works. The accepted digest
+    // is checked again before the candidate can enter review.
+    let (agent, request, base_digest) = {
+        let plat = platform.read().unwrap();
+        let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        let workspace = plat
+            .workspaces
+            .get(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        let selected = workspace
+            .selected_treatment_id
+            .clone()
+            .ok_or_else(|| ApiError(StatusCode::CONFLICT, "select a treatment first".into()))?;
+        (
+            plat.workspace_agent.clone(),
+            crate::workspace_agent::GenerateRequest {
+                thread_id: id.clone(),
+                task: req.task.trim().to_string(),
+                pack: app.pack.clone(),
+                workspace_summary: crate::workspace_agent::workspace_summary(&workspace.accepted),
+                selected_treatment_id: selected,
+                accepted_files: workspace.accepted.files.clone(),
+            },
+            workspace.accepted.digest.clone(),
+        )
+    };
+    let output = agent.generate(request).await.map_err(|error| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            format!("workspace generation is temporarily unavailable: {error}"),
+        )
+    })?;
+    output
+        .value
+        .validate()
+        .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
     let workspace = {
         let mut plat = platform.write().unwrap();
         let candidate_id = plat.mint_id("candidate");
@@ -991,40 +1038,12 @@ async fn generate_source_candidate(
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
-        let selected = workspace
-            .selected_treatment_id
-            .clone()
-            .ok_or_else(|| ApiError(StatusCode::CONFLICT, "select a treatment first".into()))?;
-        let current = workspace
-            .accepted
-            .files
-            .get("web/src/routes/+page.svelte")
-            .cloned()
-            .ok_or_else(|| {
-                ApiError(
-                    StatusCode::CONFLICT,
-                    "accepted Svelte page is missing".into(),
-                )
-            })?;
-        let addition = format!(
-            "\n<section class=\"hc-card hc-stack\" data-treatment=\"{}\"><h2>Selected treatment</h2><p>{}</p><p class=\"hc-help\">Synthetic examples only. Review this change before accepting it.</p></section>\n",
-            selected,
-            req.task.trim().replace(['<', '>'], "")
-        );
-        let content = current.replacen("</main>", &format!("{addition}</main>"), 1);
-        let patch = crate::workspace::CandidatePatch {
-            summary: format!("Apply the {selected} treatment to the Svelte screen"),
-            files: vec![crate::workspace::CandidateFile {
-                path: "web/src/routes/+page.svelte".into(),
-                content,
-                reason: "This is the screen treatment the user selected".into(),
-            }],
-            verification_commands: vec![
-                "npm run check".into(),
-                "npm run build".into(),
-                "cargo test --manifest-path server/Cargo.toml".into(),
-            ],
-        };
+        if workspace.accepted.digest != base_digest {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "the workspace changed while the candidate was generated — retry".into(),
+            ));
+        }
         let report = crate::workspace::VerificationReport {
             checks: vec![
                 crate::workspace::VerificationCheck {
@@ -1052,9 +1071,20 @@ async fn generate_source_candidate(
             verified_at: now_unix(),
         };
         workspace
-            .review_candidate(candidate_id.clone(), patch, report, now_unix())
+            .review_candidate(candidate_id.clone(), output.value, report, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
         let result = workspace.clone();
+        if let Some(error) = output.fallback {
+            plat.audit.record(
+                "workspace-agent",
+                "workspace.agent_fallback",
+                format!(
+                    "generate fell back to {} after {:?}",
+                    output.provider, error.kind
+                ),
+                Some(&id),
+            );
+        }
         plat.audit.record(
             "workspace-verifier",
             "workspace.candidate_verified",

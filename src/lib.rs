@@ -30,6 +30,7 @@ pub mod refusals;
 pub mod state;
 pub mod store;
 pub mod workspace;
+pub mod workspace_agent;
 
 use axum::{extract::Path, Json, Router};
 use serde::Serialize;
@@ -93,6 +94,7 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
         .filter(|p| !p.trim().is_empty());
     if db_url.is_none() && audit_file.is_none() {
         let mut platform = state::Platform::new(packs::builtin_packs());
+        platform.workspace_agent = workspace_agent::from_env()?;
         platform.identity = std::sync::Arc::new(registry);
         platform.clerk = clerk;
         platform.anonymous = anonymous;
@@ -102,6 +104,7 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
     }
 
     let mut platform = state::Platform::new(packs::builtin_packs());
+    platform.workspace_agent = workspace_agent::from_env()?;
     platform.identity = std::sync::Arc::new(registry);
     platform.clerk = clerk;
     platform.anonymous = anonymous;

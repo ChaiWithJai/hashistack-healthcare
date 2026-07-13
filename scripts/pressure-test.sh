@@ -116,11 +116,11 @@ ID=$(echo "$APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"
 check "sandbox stage"     "$APP" '"stage":"sandbox"'
 check "synthetic data"    "$APP" '"kind":"synthetic"'
 
-echo "-- gate: auto-logoff failing and fixable; evidence-based verdicts (#3)"
+echo "-- gate: implemented auto-logoff passes; encryption stub stays disclosed (#3)"
 GATE=$(get "/api/apps/$ID/gate")
-check "4 passed"          "$GATE" '"passed":4'
+check "5 passed"          "$GATE" '"passed":5'
 check "1 stubbed"         "$GATE" '"stubbed":1'
-check "not green"         "$GATE" '"green":false'
+check "synthetic-demo green" "$GATE" '"green":true'
 check "names auto-logoff" "$GATE" '"id":"auto-logoff"'
 # Evidence over claims: verdicts say what they rest on, and the scaffold's
 # labeled encryption stub is reported stubbed — never as a pass.
@@ -132,13 +132,12 @@ check "citation on audit-log"   "$GATE" '"citation":"45 CFR §164.312(b)"'
 
 echo "-- false-pass guard: promotion locked while failing"
 LOCKED=$(post "/api/apps/$ID/promote" '{"cosigner":"Dr. A. Osei"}')
-check "409 names check"   "$LOCKED" 'auto-logoff'
+check "409 names production blocker" "$LOCKED" 'phi-encryption'
 STILL=$(get "/api/apps/$ID")
 check "still sandboxed"   "$STILL" '"stage":"sandbox"'
 check "no allocation"     "$STILL" '"allocation":null'
 
-echo "-- fix it for me, refuse blank co-sign, then promote"
-post "/api/apps/$ID/gate/auto-logoff/fix" >/dev/null
+echo "-- refuse blank co-sign, then promote disclosed synthetic demo"
 NOSIGN=$(post "/api/apps/$ID/promote" '{"cosigner":"  ","synthetic_demo":true}')
 check "blank co-sign refused" "$NOSIGN" 'co-signature'
 # #10: the typed field is only a display-name check against the
@@ -452,7 +451,7 @@ check "pack routing policy cited"    "$(get "/api/apps/$ID2/audit")" 'per pack i
 
 echo "-- audit stream: complete story, strictly increasing"
 AUDIT=$(get "/api/apps/$ID/audit")
-for action in app.created agent.scaffolded gate.fixed gate.passed app.promoted app.rolled_back; do
+for action in app.created agent.scaffolded gate.promotion_denied gate.passed app.promoted app.rolled_back; do
   check "audit has $action" "$AUDIT" "\"$action\""
 done
 if [[ -n "${NOMAD_ADDR:-}" ]]; then

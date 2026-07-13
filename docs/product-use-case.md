@@ -25,7 +25,7 @@ answer is a reportable incident:
 
 - A gate verdict must be reproducible evidence: same app state in, same verdict
   out, no false pass. The promotion path must be impossible to reach with a
-  failing check (`tests/platform_contract.rs::gate_blocks_promotion_until_fixed_then_admits_with_cosign`).
+  production blocker (`tests/platform_contract.rs::gate_blocks_real_data_then_admits_disclosed_synthetic_demo`).
 - The audit stream must be append-only and complete: every scaffold, edit, gate
   result, deploy, and rollback lands in one exportable sequence
   (`audit_stream_records_the_whole_story_append_only`).

@@ -69,6 +69,10 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     files.insert("web/tsconfig.json".to_string(), svelte_tsconfig());
     files.insert("web/src/app.html".to_string(), svelte_app_html());
     files.insert("web/src/app.d.ts".to_string(), svelte_app_types());
+    files.insert(
+        "web/tests/owned-app.mjs".to_string(),
+        owned_app_browser_test(pack),
+    );
     files.insert("web/src/routes/+layout.svelte".to_string(), svelte_layout());
     files.insert(
         "web/src/routes/+layout.ts".to_string(),
@@ -89,6 +93,8 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         );
     }
     files.insert(".mcp.json".to_string(), svelte_mcp_config());
+    files.insert(".gitignore".to_string(), exported_gitignore());
+    files.insert(".dockerignore".to_string(), exported_dockerignore());
     files.insert(
         "diagrams/system-architecture.tldr".to_string(),
         tldraw_diagram(
@@ -268,12 +274,14 @@ fn svelte_package_json() -> String {
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test:journey": "node tests/owned-app.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.69.2",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "playwright": "1.61.1",
     "svelte": "5.56.4",
     "svelte-check": "4.4.5",
     "typescript": "5.9.3",
@@ -282,6 +290,90 @@ fn svelte_package_json() -> String {
 }
 "#
     .to_string()
+}
+
+fn owned_app_browser_test(pack: &PackManifest) -> String {
+    r#"import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const baseUrl = (process.env.OWNED_APP_URL || 'http://127.0.0.1:8080').replace(/\/$/, '');
+const postOp = __POST_OP__;
+const resultDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'test-results');
+const allowedHosts = new Set(['127.0.0.1', 'localhost', new URL(baseUrl).hostname]);
+fs.rmSync(resultDir, { recursive: true, force: true });
+fs.mkdirSync(resultDir, { recursive: true });
+
+const browser = await chromium.launch({ headless: true });
+const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const page = await context.newPage();
+const externalHosts = new Set();
+page.on('request', (request) => {
+  const host = new URL(request.url()).hostname;
+  if (!allowedHosts.has(host)) externalHosts.add(host);
+});
+
+try {
+  const health = await context.request.get(`${baseUrl}/health`);
+  assert.equal(health.ok(), true, 'Rust health check failed');
+  assert.equal((await health.json()).status, 'ok', 'Rust returned an unhealthy status');
+
+  const workspace = await page.goto(`${baseUrl}/workspace/`, { waitUntil: 'networkidle' });
+  assert.equal(workspace?.ok(), true, 'Svelte workspace did not load');
+  await page.getByText('Rust service connected', { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(resultDir, 'workspace.png'), fullPage: true });
+
+  if (postOp) {
+    await page.getByRole('button', { name: 'Pain 8', exact: true }).click();
+    await page.getByRole('button', { name: 'Send today’s check-in', exact: true }).click();
+    const patientLink = page.getByRole('link', { name: 'Sign in as the synthetic patient', exact: true });
+    await patientLink.waitFor();
+    await patientLink.click();
+    await page.getByLabel('username').fill('demo-patient');
+    await page.getByLabel('password').fill('learn-patient');
+    await page.getByRole('button', { name: 'sign in', exact: false }).click();
+    await page.waitForURL(`${baseUrl}/workspace/`);
+
+    await page.getByRole('button', { name: 'Pain 8', exact: true }).click();
+    await page.getByRole('button', { name: 'Send today’s check-in', exact: true }).click();
+    await page.getByText('Queued in the synthetic practice inbox.', { exact: true }).waitFor();
+    await page.getByText(/Pain 8\/10 was evaluated by Rust/).waitFor();
+    await page.screenshot({ path: path.join(resultDir, 'patient-escalation.png'), fullPage: true });
+
+    await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('username').fill('demo-clinician');
+    await page.getByLabel('password').fill('learn-clinician');
+    await page.getByRole('button', { name: 'sign in', exact: false }).click();
+    await page.waitForURL(`${baseUrl}/clinician`);
+    await page.getByText(/pain 8\/10 at or over threshold 7/).first().waitFor();
+    await page.screenshot({ path: path.join(resultDir, 'clinician-inbox.png'), fullPage: true });
+  }
+
+  assert.deepEqual([...externalHosts], [], `The app contacted external hosts: ${[...externalHosts].join(', ')}`);
+  fs.writeFileSync(path.join(resultDir, 'report.json'), `${JSON.stringify({ passed: true, baseUrl, postOp }, null, 2)}\n`);
+  console.log(`Owned app journey passed. Evidence is in ${resultDir}`);
+} catch (error) {
+  await page.screenshot({ path: path.join(resultDir, 'failure.png'), fullPage: true }).catch(() => {});
+  fs.writeFileSync(path.join(resultDir, 'report.json'), `${JSON.stringify({ passed: false, error: String(error) }, null, 2)}\n`);
+  throw error;
+} finally {
+  await context.close();
+  await browser.close();
+}
+"#
+    .replace("__POST_OP__", if pack.id == "post-op-monitor" { "true" } else { "false" })
+}
+
+fn exported_gitignore() -> String {
+    "server/target/\nweb/.svelte-kit/\nweb/build/\nweb/node_modules/\nweb/test-results/\n"
+        .to_string()
+}
+
+fn exported_dockerignore() -> String {
+    ".git\nserver/target\nweb/.svelte-kit\nweb/build\nweb/node_modules\nweb/test-results\n"
+        .to_string()
 }
 
 fn svelte_package_lock() -> &'static str {
@@ -754,6 +846,16 @@ fn runbook_md(app: &AppRecord, _pack: &PackManifest, real_source: bool) -> Strin
          Open `http://127.0.0.1:8080/` for the clinical workflow. Open\n\
          `http://127.0.0.1:8080/workspace/` for the Svelte extension workspace.\n\
          Both use the same origin and the same Rust service.\n\n\
+         ## Run the browser journey\n\n\
+         Keep the Docker container running. In another terminal, run:\n\n\
+         ```bash\n\
+         cd web\n\
+         npm ci\n\
+         npm exec playwright install chromium\n\
+         npm run test:journey\n\
+         ```\n\n\
+         Set `OWNED_APP_URL` if the app is not at `http://127.0.0.1:8080`.\n\
+         The test saves its report and screenshots in `web/test-results/`.\n\n\
          ## Deploy targets\n\n\
          | target | manifest | command |\n\
          |---|---|---|\n\
@@ -819,6 +921,7 @@ smallest useful change should remain easy to locate, run, and verify.
 | Svelte dependencies and scripts | `web/package.json` |
 | Safe example records | `{fixture}` |
 | Browser journey and quality rubric | `artifact-quality.json` |
+| Executable browser test | `web/tests/owned-app.mjs` |
 | Pack identity, profile, and required gates | `pack.hcl` |
 | Production limitations and release evidence | `docs/COMPLIANCE.md` |
 
@@ -835,11 +938,12 @@ Runtime profile: **{profile}**. Current workflow:
 3. Implement server behavior in `app/src/main.rs` and screen behavior in
    `web/src/routes/+page.svelte`. Keep authorization checks and safety
    disclosures on every new route.
-4. Extend the journey in `artifact-quality.json` so a browser proves the new
-   outcome. Update required labels and honesty text when the UI changes.
+4. Update the contract in `artifact-quality.json` and the executable test in
+   `web/tests/owned-app.mjs`. The test must prove the user outcome in a browser.
 5. Run `cd app && cargo fmt --check && cargo test`. Then run
    `cd web && npm ci && npm run check && npm run build` from the repository
-   root. Build the Docker image and repeat the browser journey before sharing.
+   root. Build and start the Docker image. Keep it running while you run
+   `cd web && npm run test:journey` from another terminal.
 
 ## Controls that must survive customization
 
@@ -1564,6 +1668,15 @@ mod tests {
         assert!(
             bundle.files["artifact-quality.json"].contains("svelte-pain-eight-reaches-rust-inbox")
         );
+        assert!(bundle.files.contains_key("web/tests/owned-app.mjs"));
+        assert!(bundle.files["web/tests/owned-app.mjs"].contains("const postOp = true"));
+        assert!(bundle.files["web/tests/owned-app.mjs"].contains("Pain 8"));
+        assert!(bundle.files["web/package.json"].contains("\"test:journey\""));
+        assert!(bundle.files["web/package.json"].contains("\"playwright\": \"1.61.1\""));
+        assert!(bundle.files["README.md"].contains("npm run test:journey"));
+        assert!(bundle.files[".gitignore"].contains("web/test-results/"));
+        assert!(bundle.files[".dockerignore"].contains("web/node_modules"));
+        assert!(bundle.files[".dockerignore"].contains("web/test-results"));
     }
 
     #[test]
@@ -1580,6 +1693,8 @@ mod tests {
         assert!(bundle.files.contains_key("server/src/main.rs"));
         assert!(bundle.files.contains_key("web/src/routes/+page.svelte"));
         assert!(bundle.files.contains_key("artifact-quality.json"));
+        assert!(bundle.files.contains_key("web/tests/owned-app.mjs"));
+        assert!(bundle.files["web/tests/owned-app.mjs"].contains("const postOp = false"));
         let runbook = &bundle.files["README.md"];
         assert!(!runbook.contains("scaffold placeholder"));
         assert!(!runbook.contains("photo upload stub"));

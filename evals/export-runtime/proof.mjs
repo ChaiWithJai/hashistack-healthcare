@@ -149,6 +149,30 @@ async function main() {
 
     await context.close();
     await browser.close();
+
+    const ownedWeb = path.join(BUNDLE, 'web');
+    const ownedEvidence = path.join(ownedWeb, 'test-results');
+    try {
+      execFileSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
+        cwd: ownedWeb,
+        stdio: 'inherit',
+      });
+      execFileSync('npm', ['run', 'test:journey'], {
+        cwd: ownedWeb,
+        env: { ...process.env, OWNED_APP_URL: base },
+        stdio: 'inherit',
+      });
+      checks.push({
+        id: 'owned-export-journey',
+        passed: true,
+        detail: 'the browser test shipped inside the export passed against its Docker product',
+      });
+    } catch (error) {
+      checks.push({ id: 'owned-export-journey', passed: false, detail: String(error) });
+    }
+    if (fs.existsSync(ownedEvidence)) {
+      fs.cpSync(ownedEvidence, path.join(EVIDENCE, 'owned-journey'), { recursive: true });
+    }
     fs.writeFileSync(REPORT, `${JSON.stringify({ image: IMAGE, checks }, null, 2)}\n`);
     if (!checks.every((check) => check.passed)) throw new Error(`combined export checks failed; see ${REPORT}`);
   } finally {

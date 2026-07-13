@@ -1104,6 +1104,7 @@ async fn plan_source_workspace(
     let (agent, request, base_digest) = {
         let plat = platform.read().unwrap();
         let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
+        let pack = plat.pack(&app.pack).ok_or_else(|| not_found("pack"))?;
         let workspace = plat
             .workspaces
             .get(&id)
@@ -1115,6 +1116,7 @@ async fn plan_source_workspace(
                 task: req.task.trim().to_string(),
                 pack: app.pack.clone(),
                 workspace_summary: crate::workspace_agent::workspace_summary(&workspace.accepted),
+                pack_context: crate::workspace_agent::PackPlanningContext::from_pack(pack),
             },
             workspace.accepted.digest.clone(),
         )

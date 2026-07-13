@@ -67,6 +67,8 @@ impl WorkspaceVerifier for DeterministicWorkspaceVerifier {
                     let required = [
                         "web/package.json",
                         "web/src/routes/+page.svelte",
+                        "web/src/lib/treatment.json",
+                        "web/src/lib/TreatmentWorkspace.svelte",
                         "server/Cargo.toml",
                     ];
                     if let Some(path) = required
@@ -74,6 +76,8 @@ impl WorkspaceVerifier for DeterministicWorkspaceVerifier {
                         .find(|path| !materialized.path().join(path).is_file())
                     {
                         fail_from(&mut checks, 0, &format!("required file is missing: {path}"));
+                    } else if let Err(error) = verify_treatment_recipe(&files) {
+                        fail_from(&mut checks, 0, &error.to_string());
                     } else {
                         let page = files
                             .get("web/src/routes/+page.svelte")
@@ -92,6 +96,36 @@ impl WorkspaceVerifier for DeterministicWorkspaceVerifier {
             report(profile_digest, workspace_digest, checks)
         })
     }
+}
+
+fn verify_treatment_recipe(files: &BTreeMap<String, String>) -> Result<()> {
+    let config: serde_json::Value = serde_json::from_str(
+        files
+            .get("web/src/lib/treatment.json")
+            .context("treatment configuration is missing")?,
+    )
+    .context("treatment configuration is invalid JSON")?;
+    let id = config["treatment"]["id"]
+        .as_str()
+        .context("treatment recipe id is missing")?;
+    if !crate::packs::TREATMENT_RECIPE_IDS.contains(&id) {
+        bail!("treatment recipe is not signed by the pack");
+    }
+    let component = files
+        .get("web/src/lib/TreatmentWorkspace.svelte")
+        .context("treatment workspace component is missing")?;
+    for recipe_id in crate::packs::TREATMENT_RECIPE_IDS {
+        if !component.contains(&format!("recipe.id === '{recipe_id}'")) {
+            bail!("treatment workspace cannot materialize {recipe_id}");
+        }
+    }
+    let page = files
+        .get("web/src/routes/+page.svelte")
+        .context("Svelte page is missing")?;
+    if !page.contains("<TreatmentWorkspace") {
+        bail!("Svelte page does not render the treatment workspace");
+    }
+    Ok(())
 }
 
 pub struct OciWorkspaceVerifier {
@@ -476,7 +510,15 @@ mod tests {
                 ("web/package.json".into(), "{}".into()),
                 (
                     "web/src/routes/+page.svelte".into(),
-                    "<script>let x = $state(1)</script><p>Synthetic examples only</p>".into(),
+                    "<script>import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte'; let x = $state(1)</script><p>Synthetic examples only</p><TreatmentWorkspace />".into(),
+                ),
+                (
+                    "web/src/lib/treatment.json".into(),
+                    r#"{"treatment":{"id":"guided-worklist"}}"#.into(),
+                ),
+                (
+                    "web/src/lib/TreatmentWorkspace.svelte".into(),
+                    "{#if recipe.id === 'guided-worklist'}a{:else if recipe.id === 'event-timeline'}b{:else if recipe.id === 'focused-task'}c{/if}".into(),
                 ),
                 (
                     "server/Cargo.toml".into(),
@@ -491,8 +533,7 @@ mod tests {
                 summary: "change".into(),
                 files: vec![CandidateFile {
                     path: "web/src/routes/+page.svelte".into(),
-                    content: "<script>let x = $state(2)</script><p>Synthetic examples only</p>"
-                        .into(),
+                    content: "<script>import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte'; let x = $state(2)</script><p>Synthetic examples only</p><TreatmentWorkspace />".into(),
                     reason: "selected".into(),
                 }],
                 verification_commands: vec![command.into()],

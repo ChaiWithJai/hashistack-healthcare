@@ -155,6 +155,10 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         "web/src/lib/treatment.json".to_string(),
         default_treatment_config(),
     );
+    files.insert(
+        "web/src/lib/TreatmentWorkspace.svelte".to_string(),
+        treatment_workspace_component(),
+    );
     if pack.id == "post-op-monitor" {
         files.insert(
             "web/src/lib/PostOpCheckIn.svelte".to_string(),
@@ -532,17 +536,16 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
     let features = app
         .features
         .iter()
-        .map(|feature| format!("    {{ label: {:?}, done: true }}", feature))
+        .map(|feature| format!("    {:?}", feature))
         .collect::<Vec<_>>()
         .join(",\n");
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
-  import treatment from '../lib/treatment.json';
-  let items = $state([
+  import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte';
+  const features = [
 {features}
-  ]);
-  let note = $state('');
+  ];
   let rustStatus = $state('Checking the Rust service');
 
   onMount(async () => {{
@@ -558,12 +561,6 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
     }}
   }});
 
-  function addItem() {{
-    const label = note.trim();
-    if (!label) return;
-    items.push({{ label, done: false }});
-    note = '';
-  }}
 </script>
 
 <svelte:head><title>{name}</title></svelte:head>
@@ -579,34 +576,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
       </div>
     </header>
-    {{#if treatment.refinement.presentation === 'context-first'}}
-      <section class="hc-card hc-stack" data-testid="treatment-context">
-        <span class="hc-badge">{{treatment.treatment.label}}</span>
-        <h2>{{treatment.treatment.user_outcome}}</h2>
-        {{#if treatment.refinement.emphasis}}<p>{{treatment.refinement.emphasis}}</p>{{/if}}
-        <p class="hc-help">Planned by {{treatment.planner.model}} · materialized by Rust</p>
-      </section>
-    {{/if}}
-    <section class="hc-card hc-stack" aria-labelledby="workflow-title">
-      <h2 id="workflow-title">Current workflow</h2>
-      {{#each items as item}}
-        <label class="hc-actions"><input type="checkbox" bind:checked={{item.done}} /> {{item.label}}</label>
-      {{/each}}
-      <label class="hc-label">Add a synthetic workflow step
-        <span class="hc-help">Do not enter patient information.</span>
-        <input class="hc-field" bind:value={{note}} onkeydown={{(event) => event.key === 'Enter' && addItem()}} />
-      </label>
-      <button class="hc-button hc-button--primary" onclick={{addItem}}>Add step</button>
-      <aside class="hc-notice hc-notice--warning" role="note">This starter is not monitored for emergencies or approved for clinical care.</aside>
-    </section>
-    {{#if treatment.refinement.presentation === 'task-first'}}
-      <section class="hc-card hc-stack" data-testid="treatment-context">
-        <span class="hc-badge">{{treatment.treatment.label}}</span>
-        <h2>{{treatment.treatment.user_outcome}}</h2>
-        {{#if treatment.refinement.emphasis}}<p>{{treatment.refinement.emphasis}}</p>{{/if}}
-        <p class="hc-help">Planned by {{treatment.planner.model}} · materialized by Rust</p>
-      </section>
-    {{/if}}
+    <TreatmentWorkspace {{features}} />
   </div>
 </main>
 "#,
@@ -617,10 +587,20 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
 }
 
 fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
+    let features = app
+        .features
+        .iter()
+        .map(|feature| format!("    {:?}", feature))
+        .collect::<Vec<_>>()
+        .join(",\n");
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
   import PostOpCheckIn from '../lib/PostOpCheckIn.svelte';
+  import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte';
+  const features = [
+{features}
+  ];
   let rustStatus = $state('Checking the Rust service');
 
   onMount(async () => {{
@@ -651,6 +631,7 @@ fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &st
       <p>{description}</p>
       <p class="hc-help">This editable Svelte screen submits to the same-origin Rust service. Rust validates the check-in, decides whether escalation is required, and writes the audit trail.</p>
     </header>
+    <TreatmentWorkspace {{features}} />
     <PostOpCheckIn />
     <footer class="hc-card hc-actions">
       <a class="hc-button hc-link" href="{clinical_entry}">Open the role-based clinical view</a>
@@ -662,7 +643,96 @@ fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &st
         name = app.name,
         description = pack.description,
         clinical_entry = clinical_entry,
+        features = features,
     )
+}
+
+fn treatment_workspace_component() -> String {
+    r#"<script lang="ts">
+  import treatment from './treatment.json';
+
+  let { features = [] }: { features?: string[] } = $props();
+  let completed = $state<boolean[]>([]);
+  let timelineFilter = $state<'all' | 'unresolved' | 'reviewed'>('all');
+  let focusedStep = $state(0);
+
+  const recipe = treatment.treatment;
+  const visibleTimeline = $derived(
+    features
+      .map((label, index) => ({ label, index, reviewed: completed[index] ?? false }))
+      .filter((item) => timelineFilter === 'all' || (timelineFilter === 'reviewed' ? item.reviewed : !item.reviewed))
+  );
+
+  function toggle(index: number) {
+    completed[index] = !completed[index];
+  }
+</script>
+
+<section class="hc-card hc-stack" data-testid="treatment-workspace" data-treatment-id={recipe.id}>
+  <div class="hc-actions">
+    <span class="hc-badge">Gemma-selected · Rust-materialized</span>
+    <span class="hc-help">{recipe.label}</span>
+  </div>
+  <div>
+    <h2>{recipe.user_outcome}</h2>
+    {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
+  </div>
+
+  {#if recipe.id === 'guided-worklist'}
+    <div class="recipe-grid" aria-label="Guided synthetic worklist">
+      {#each features as feature, index (feature)}
+        <article class:complete={completed[index]}>
+          <div class="hc-actions"><b>{index + 1}. {feature}</b><span class="hc-badge">{completed[index] ? 'Reviewed' : 'Next'}</span></div>
+          <p class="hc-help">Reason: this capability is already signed into the selected pack.</p>
+          <button class="hc-button" type="button" onclick={() => toggle(index)}>{completed[index] ? 'Mark unresolved' : 'Mark reviewed'}</button>
+        </article>
+      {/each}
+    </div>
+  {:else if recipe.id === 'event-timeline'}
+    <div class="hc-actions" aria-label="Filter synthetic events">
+      {#each ['all', 'unresolved', 'reviewed'] as filter (filter)}
+        <button class="hc-button" class:active={timelineFilter === filter} type="button" onclick={() => timelineFilter = filter as typeof timelineFilter}>{filter}</button>
+      {/each}
+    </div>
+    <ol class="timeline">
+      {#each visibleTimeline as item (item.index)}
+        <li>
+          <div><b>{item.label}</b><p class="hc-help">Synthetic event {item.index + 1} · {item.reviewed ? 'reviewed' : 'unresolved'}</p></div>
+          <button class="hc-button" type="button" onclick={() => toggle(item.index)}>Toggle review</button>
+        </li>
+      {:else}
+        <li><span class="hc-help">No synthetic events match this filter.</span></li>
+      {/each}
+    </ol>
+  {:else if recipe.id === 'focused-task'}
+    <div class="focus-panel">
+      <p class="hc-help">Step {Math.min(focusedStep + 1, features.length || 1)} of {features.length || 1}</p>
+      <h3>{features[focusedStep] ?? 'Review the signed synthetic workflow'}</h3>
+      <p>Use the existing pack capability, then review the result before saving any synthetic action.</p>
+      <div class="hc-actions">
+        <button class="hc-button" type="button" disabled={focusedStep === 0} onclick={() => focusedStep -= 1}>Back</button>
+        <button class="hc-button hc-button--primary" type="button" disabled={focusedStep >= features.length - 1} onclick={() => focusedStep += 1}>Continue</button>
+      </div>
+    </div>
+  {:else}
+    <aside class="hc-notice hc-notice--warning" role="alert">The signed treatment recipe is unavailable. Export is blocked until Rust validates it.</aside>
+  {/if}
+
+  <aside class="hc-notice hc-notice--warning" role="note">Synthetic learning environment only. Do not enter patient information or use this workspace for emergency care.</aside>
+  <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust from a signed pack recipe.</p>
+</section>
+
+<style>
+  .recipe-grid { display: grid; gap: .75rem; }
+  .recipe-grid article, .focus-panel { padding: 1rem; border: 1px solid var(--hc-line); border-radius: 12px; background: var(--hc-surface); }
+  .recipe-grid article.complete { opacity: .72; }
+  .timeline { display: grid; gap: .75rem; margin: 0; padding-left: 1.25rem; }
+  .timeline li { padding: .8rem 0 .8rem .5rem; border-left: 3px solid var(--hc-brand); display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+  .hc-button.active { background: var(--hc-brand); border-color: var(--hc-brand); color: white; }
+  .focus-panel { min-height: 180px; display: grid; align-content: center; gap: .75rem; }
+  @media (max-width: 640px) { .timeline li { align-items: stretch; flex-direction: column; } }
+</style>
+"#.to_string()
 }
 
 fn post_op_checkin_component() -> String {
@@ -848,12 +918,12 @@ fn default_treatment_config() -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": 1,
         "treatment": {
-            "id": "starter-workflow",
-            "label": "Starter workflow",
-            "user_outcome": "Try the signed synthetic workflow before tailoring its presentation.",
-            "screen_changes": ["Keep the starter workflow visible and editable."],
-            "data_changes": [],
-            "safety_notes": ["Synthetic learning environment only."]
+            "id": "guided-worklist",
+            "label": "Guided worklist",
+            "user_outcome": "See the next safe action without scanning every synthetic record.",
+            "screen_changes": ["A priority worklist built from the pack's existing capabilities.", "A visible reason and next action for every synthetic item."],
+            "data_changes": ["Reuse the signed pack's existing synthetic fields; do not invent a new clinical schema."],
+            "safety_notes": ["Keep the synthetic-data boundary and the required human review visible."]
         },
         "refinement": {
             "presentation": "task-first",
@@ -1838,6 +1908,17 @@ mod tests {
 
         assert!(bundle.files.contains_key("server/src/main.rs"));
         assert!(bundle.files.contains_key("web/src/routes/+page.svelte"));
+        assert!(bundle
+            .files
+            .contains_key("web/src/lib/TreatmentWorkspace.svelte"));
+        let treatment_workspace = &bundle.files["web/src/lib/TreatmentWorkspace.svelte"];
+        for recipe_id in packs::TREATMENT_RECIPE_IDS {
+            assert!(
+                treatment_workspace.contains(&format!("recipe.id === '{recipe_id}'")),
+                "missing materializer for {recipe_id}"
+            );
+        }
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("<TreatmentWorkspace"));
         assert!(bundle.files.contains_key("artifact-quality.json"));
         assert!(bundle.files.contains_key("web/tests/owned-app.mjs"));
         assert!(bundle.files["web/tests/owned-app.mjs"].contains("const postOp = false"));

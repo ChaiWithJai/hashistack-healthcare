@@ -188,7 +188,7 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
         "POST",
         &format!("{workspace_url}/select"),
         Some(json!({
-            "treatment_id":"patient-timeline",
+            "treatment_id":"event-timeline",
             "refinement": {"presentation":"context-first", "emphasis":"x".repeat(501)}
         })),
     )
@@ -206,7 +206,7 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
         "POST",
         &format!("{workspace_url}/select"),
         Some(json!({
-            "treatment_id":"patient-timeline",
+            "treatment_id":"event-timeline",
             "refinement": {
                 "presentation": "context-first",
                 "emphasis": "Show exactly why the practice inbox was notified."
@@ -247,7 +247,7 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     );
     let candidate_config: Value =
         serde_json::from_str(review["candidate"]["files"][0]["content"].as_str().unwrap()).unwrap();
-    assert_eq!(candidate_config["treatment"]["id"], "patient-timeline");
+    assert_eq!(candidate_config["treatment"]["id"], "event-timeline");
     assert_eq!(
         candidate_config["refinement"]["presentation"],
         "context-first"
@@ -294,6 +294,14 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     )
     .unwrap();
     assert_eq!(exported_config, candidate_config);
+    assert!(export["files"]["web/src/lib/TreatmentWorkspace.svelte"]
+        .as_str()
+        .unwrap()
+        .contains("recipe.id === 'event-timeline'"));
+    assert!(export["files"]["web/src/routes/+page.svelte"]
+        .as_str()
+        .unwrap()
+        .contains("<TreatmentWorkspace"));
     assert!(export["files"]["web/src/lib/PostOpCheckIn.svelte"]
         .as_str()
         .unwrap()

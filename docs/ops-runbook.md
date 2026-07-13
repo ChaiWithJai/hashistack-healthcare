@@ -410,14 +410,20 @@ cat README.md
 
 ## Gemma planning and deterministic generation
 
-Gemma is the only application model. A hosted environment sends a bounded
-treatment request to the private DigitalOcean planner. Rust checks the typed
-response before showing it to the clinician. Rust then generates source and
-runs the fixed verification profile.
+Gemma is the only application model. A hosted environment sends the private
+DigitalOcean planner three recipes from the signed pack. Gemma returns one
+recipe ID. Rust rejects any other ID and rebuilds the full treatment from the
+pack. Rust then creates the Svelte workspace and runs the fixed verification
+profile.
 
 The core flow still works when Gemma is unavailable. In that case Rust offers
 deterministic treatments and records the fallback. Environment variables
 cannot add a second model provider to the application edit runner.
+
+The planner instructions live in
+`prompts/digitalocean-treatment-planner-v1.txt`. Hash that exact file and set
+the result as `DIGITALOCEAN_PLANNER_VERSION` after you update the DigitalOcean
+agent. Staging proof must report the same version with no fallback.
 
 ```bash
 # Inspect the stored provider, model, fallback, and verification evidence.

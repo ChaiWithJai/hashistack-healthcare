@@ -7,6 +7,7 @@ pack "ambient-scribe" {
   signed_by = "platform-root-v1"
   scaffold_path = "scaffold"
   quality_contract = "artifact-quality.json"
+  treatment_recipes = ["guided-worklist", "event-timeline", "focused-task"]
   scaffold = ["SSE ambient stream", "consent state", "SOAP draft", "sign-off refusal"]
   prewired = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "synthetic-only"]
   gates = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "auto-logoff", "synthetic-only", "human-review", "access-roles"]

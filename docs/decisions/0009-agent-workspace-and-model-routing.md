@@ -14,8 +14,7 @@ The exported application contains:
 - a Rust and Axum server;
 - synthetic fixtures and tests;
 - editable tldraw diagrams for architecture, state, and services;
-- one README that explains running, changing, testing, diagrams, Svelte MCP,
-  and optional LangChain extension.
+- one README that explains how to run, change, test, and export the app.
 
 No other prose document is included.
 
@@ -24,9 +23,12 @@ No other prose document is included.
 The Rust control plane owns identity, tenant scope, workspace state, source
 checkpoints, diffs, validation, release gates, deployment, and audit.
 
-The private DigitalOcean Gemma 4 agent plans two or three treatments. Its
-response is untrusted data. Rust checks the response before the user can choose
-a treatment. Rust then creates source from checked pack rules. Gemma cannot
+Each signed pack owns three treatment recipes. The private DigitalOcean Gemma
+4 agent receives the pack description, existing capabilities, recipe choices,
+and acceptance checks. It returns one recipe ID. Its response is untrusted
+data. Rust checks the ID and rebuilds the full treatment from the signed pack
+before the user can choose it. Rust then creates source from checked pack
+rules. Gemma cannot
 write files, run commands, deploy, read production data, use GitHub, or receive
 platform secrets.
 
@@ -36,9 +38,10 @@ diff before acceptance.
 
 ## Model routing
 
-Gemma 4 is the only application model. It plans treatments through a private
-DigitalOcean endpoint. Deterministic pack rules create source and keep the core
-workflow available when the planner is down.
+Gemma 4 is the only application model. It chooses among signed treatment
+recipes through a private DigitalOcean endpoint. Rust turns the selected recipe
+into a visible Svelte workspace. Deterministic pack rules keep the core workflow
+available when the planner is down.
 
 ## Framework comparison
 
@@ -48,14 +51,16 @@ are comparison points, not dependencies or deployed services.
 
 | Comparison point | Practice Studio choice | Proof |
 |---|---|---|
-| Repository context | Send a checkpoint digest and allowed paths, not source files | Planner request test |
+| Repository context | Send the pack description, existing capabilities, signed recipes, a checkpoint digest, and allowed paths. Do not send source files. | Planner request test |
 | Planning state | Store the plan, the selected treatment, and agent version | Workspace persistence test |
 | Tool access | Give Gemma no tools or file access | Planner request schema and DigitalOcean agent settings |
 | Verification | Let Rust choose and run every check | Workspace verifier tests |
-| User handoff | Export owned source, one README, and three diagrams | Export contract test |
+| User handoff | Export owned source, one README, three diagrams, and the selected recipe component | Export contract test |
 
-This keeps the useful controls from those frameworks without adding a Python
-worker, another state store, or another model.
+Open SWE and Deep Agents provide comparison points for repository context,
+state, tools, review, and user handoff. Practice Studio does not install or
+deploy either framework. This avoids a Python worker, another state store, and
+another model.
 
 ## Workspace state machine
 

@@ -7,6 +7,7 @@ pack "clinical-dashboard" {
   signed_by = "platform-root-v1"
   scaffold_path = "scaffold"
   quality_contract = "artifact-quality.json"
+  treatment_recipes = ["guided-worklist", "event-timeline", "focused-task"]
   scaffold = ["metric cards", "service filter", "encounter table", "demo staff authentication"]
   prewired = ["audit-log", "synthetic-only", "access-roles"]
   gates = ["audit-log", "auto-logoff", "synthetic-only", "access-roles"]

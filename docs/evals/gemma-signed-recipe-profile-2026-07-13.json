@@ -1,0 +1,46 @@
+{
+  "date": "2026-07-13",
+  "environment": "DigitalOcean staging",
+  "url": "https://138-197-27-225.sslip.io",
+  "model": "gemma-4-31B-it",
+  "planner_version": "5797ec5a682a742049e32df165b7344cefd8d3b24a42269be83fd8d749a63da7",
+  "sample_size": 10,
+  "before": {
+    "gemma_successes": 7,
+    "fallbacks": 3,
+    "fallbacks_by_kind": {
+      "schema": 2,
+      "timeout": 1
+    },
+    "median_elapsed_ms": 36000,
+    "minimum_elapsed_ms": 34000,
+    "maximum_elapsed_ms": 45000,
+    "contract": "Gemma wrote three full free form treatments"
+  },
+  "after": {
+    "gemma_successes": 10,
+    "fallbacks": 0,
+    "signed_recipe_contracts": 10,
+    "median_elapsed_ms": 3306,
+    "minimum_elapsed_ms": 2966,
+    "maximum_elapsed_ms": 3873,
+    "recommendations": {
+      "guided-worklist": 8,
+      "event-timeline": 1,
+      "focused-task": 1
+    }
+  },
+  "samples": [
+    {"pack":"post-op-monitor","elapsed_ms":3082,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"hypertension-tracker","elapsed_ms":3114,"provider":"digitalocean","recommended":"event-timeline","signed_recipe_contract":true},
+    {"pack":"patient-intake","elapsed_ms":2966,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"insurance-verification","elapsed_ms":3383,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"patient-portal","elapsed_ms":3229,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"inbound-scheduling","elapsed_ms":3629,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"outbound-followup","elapsed_ms":3223,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"rpm-wearables","elapsed_ms":3873,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true},
+    {"pack":"visit-notes","elapsed_ms":3669,"provider":"digitalocean","recommended":"focused-task","signed_recipe_contract":true},
+    {"pack":"deid-local","elapsed_ms":3464,"provider":"digitalocean","recommended":"guided-worklist","signed_recipe_contract":true}
+  ],
+  "method_limit": "The first run did not save its exact task text. Both runs used the same ten packs and the same task intent. Treat the latency change as directional rather than a controlled benchmark. The checked profiling script fixes this for future runs."
+}

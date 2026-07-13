@@ -57,7 +57,7 @@ pub fn app() -> Router {
 
 /// The control plane as `main` boots it: with `CONTROL_DB_URL` set (#7),
 /// connect to the Postgres control store, apply migrations idempotently,
-/// and load the durable state back — apps, operations, audit stream, and
+/// and load the durable state back — apps, source workspaces, operations, audit stream, and
 /// the id counter all survive a restart. With `AUDIT_FILE` set (#8), a
 /// JSONL file sink joins the audit broker. Each durable sink must pass its
 /// registration probe or the boot fails loudly. Neither set → identical to
@@ -114,14 +114,14 @@ pub async fn app_from_env() -> anyhow::Result<Router> {
     let mut broker = audit::Broker::new();
     if let Some(url) = db_url {
         let pg = store::PgStore::connect(&url).await?;
-        let (apps, ops, events) = pg.load(&mut platform).await?;
+        let (apps, workspaces, ops, events) = pg.load(&mut platform).await?;
         let pg = std::sync::Arc::new(pg);
         platform.store = Some(pg.clone());
         broker
             .register(std::sync::Arc::new(store::PgSink::new(pg)))
             .await?;
         tracing::info!(
-            "control DB attached — restored {apps} apps, {ops} operations, {events} audit events"
+            "control DB attached — restored {apps} apps, {workspaces} source workspaces, {ops} operations, {events} audit events"
         );
     }
     if let Some(path) = audit_file {

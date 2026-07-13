@@ -102,6 +102,17 @@ impl CandidatePatch {
 }
 
 fn validate_path(path: &str) -> Result<(), String> {
+    validate_safe_path(path)?;
+    if !["web/", "server/", "tests/", "synthetic/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+    {
+        return Err(format!("candidate path is outside the workspace: {path}"));
+    }
+    Ok(())
+}
+
+fn validate_safe_path(path: &str) -> Result<(), String> {
     if path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
@@ -112,11 +123,25 @@ fn validate_path(path: &str) -> Result<(), String> {
     {
         return Err(format!("unsafe candidate path: {path}"));
     }
-    if !["web/", "server/", "tests/", "synthetic/"]
-        .iter()
-        .any(|prefix| path.starts_with(prefix))
-    {
-        return Err(format!("candidate path is outside the workspace: {path}"));
+    Ok(())
+}
+
+fn validate_checkpoint_files(files: &BTreeMap<String, String>) -> Result<(), String> {
+    if files.len() > MAX_SOURCE_FILES {
+        return Err(format!(
+            "accepted workspace exceeds {MAX_SOURCE_FILES} files"
+        ));
+    }
+    let bytes = files
+        .values()
+        .try_fold(0usize, |total, content| total.checked_add(content.len()));
+    if bytes.is_none_or(|bytes| bytes > MAX_SOURCE_BYTES) {
+        return Err(format!(
+            "accepted workspace exceeds {MAX_SOURCE_BYTES} bytes"
+        ));
+    }
+    for path in files.keys() {
+        validate_safe_path(path)?;
     }
     Ok(())
 }
@@ -263,6 +288,83 @@ impl WorkspaceRecord {
         }
     }
 
+    /// Re-establish every trust-boundary invariant before a JSONB record is
+    /// admitted after restart. Durable bytes are not trusted merely because
+    /// they came from our database: a stale migration, operator edit, or bug
+    /// must fail boot rather than silently changing accepted source.
+    pub fn validate_restored(&self) -> Result<(), String> {
+        if self.app_id.trim().is_empty() {
+            return Err("workspace app id is missing".into());
+        }
+        if self.accepted.digest != source_digest(&self.accepted.files) {
+            return Err("accepted checkpoint digest does not match its files".into());
+        }
+        validate_checkpoint_files(&self.accepted.files)?;
+        if let Some(plan) = &self.treatment_plan {
+            plan.validate()?;
+        }
+        if let Some(selected) = &self.selected_treatment_id {
+            let plan = self
+                .treatment_plan
+                .as_ref()
+                .ok_or_else(|| "selected treatment has no plan".to_string())?;
+            if !plan.treatments.iter().any(|item| item.id == *selected) {
+                return Err("selected treatment is not in the restored plan".into());
+            }
+        }
+        if let Some(candidate) = &self.candidate {
+            CandidatePatch {
+                summary: candidate.summary.clone(),
+                files: candidate.files.clone(),
+                verification_commands: Vec::new(),
+            }
+            .validate()?;
+            candidate.verification.validate()?;
+            if candidate.base_version != self.accepted.version {
+                return Err("restored candidate is stale".into());
+            }
+            if self.selected_treatment_id.as_deref() != Some(candidate.treatment_id.as_str()) {
+                return Err("restored candidate treatment does not match the selection".into());
+            }
+            if candidate.diff != diff_files(&self.accepted.files, &candidate.files) {
+                return Err("restored candidate diff does not match its files".into());
+            }
+            let mut candidate_files = self.accepted.files.clone();
+            for file in &candidate.files {
+                candidate_files.insert(file.path.clone(), file.content.clone());
+            }
+            if candidate.verification.workspace_digest != source_digest(&candidate_files) {
+                return Err("restored verification does not match candidate bytes".into());
+            }
+        }
+        match self.phase {
+            WorkspacePhase::Described
+                if self.treatment_plan.is_none()
+                    && self.selected_treatment_id.is_none()
+                    && self.candidate.is_none() => {}
+            WorkspacePhase::TreatmentsReady
+                if self.treatment_plan.is_some()
+                    && self.selected_treatment_id.is_none()
+                    && self.candidate.is_none() => {}
+            WorkspacePhase::TreatmentSelected
+                if self.selected_treatment_id.is_some() && self.candidate.is_none() => {}
+            WorkspacePhase::ReviewRequired
+                if self
+                    .candidate
+                    .as_ref()
+                    .is_some_and(|item| item.verification.passed) => {}
+            WorkspacePhase::Failed
+                if self
+                    .candidate
+                    .as_ref()
+                    .is_some_and(|item| !item.verification.passed)
+                    || self.failure.is_some() => {}
+            WorkspacePhase::Accepted if self.candidate.is_none() => {}
+            _ => return Err("restored workspace phase contradicts its contents".into()),
+        }
+        Ok(())
+    }
+
     pub fn set_plan(&mut self, plan: TreatmentPlan, now: u64) -> Result<(), String> {
         plan.validate()?;
         self.treatment_plan = Some(plan);
@@ -305,6 +407,7 @@ impl WorkspaceRecord {
         for file in &patch.files {
             verified_files.insert(file.path.clone(), file.content.clone());
         }
+        validate_checkpoint_files(&verified_files)?;
         if report.workspace_digest != source_digest(&verified_files) {
             return Err("verification report does not match candidate bytes".into());
         }
@@ -543,5 +646,57 @@ mod tests {
         let mut changed = b;
         changed.insert("web/b".into(), "3".into());
         assert_ne!(source_digest(&a), source_digest(&changed));
+    }
+
+    #[test]
+    fn restored_workspace_revalidates_digest_candidate_and_phase() {
+        let mut workspace = WorkspaceRecord::new("app".into(), BTreeMap::new(), 1);
+        assert!(workspace.validate_restored().is_ok());
+
+        let mut bad_digest = workspace.clone();
+        bad_digest.accepted.digest = "sha256:tampered".into();
+        assert!(bad_digest.validate_restored().is_err());
+
+        workspace.set_plan(plan(), 2).unwrap();
+        workspace.select("calm-list", 3).unwrap();
+        workspace
+            .review_candidate("good".into(), patch("web/x", "good"), pass(4), 4)
+            .unwrap();
+        assert!(workspace.validate_restored().is_ok());
+
+        let mut stale = workspace.clone();
+        stale.candidate.as_mut().unwrap().base_version += 1;
+        assert!(stale.validate_restored().is_err());
+
+        let mut wrong_treatment = workspace.clone();
+        wrong_treatment.candidate.as_mut().unwrap().treatment_id = "daily-view".into();
+        assert!(wrong_treatment.validate_restored().is_err());
+
+        let mut contradictory = workspace;
+        contradictory.phase = WorkspacePhase::Accepted;
+        assert!(contradictory.validate_restored().is_err());
+    }
+
+    #[test]
+    fn valid_patch_cannot_grow_the_merged_workspace_past_its_budget() {
+        let files = (0..MAX_SOURCE_FILES)
+            .map(|index| (format!("web/file-{index}.txt"), "x".to_string()))
+            .collect();
+        let mut workspace = WorkspaceRecord::new("app".into(), files, 1);
+        workspace.set_plan(plan(), 2).unwrap();
+        workspace.select("calm-list", 3).unwrap();
+        let patch = patch("web/one-too-many.txt", "good");
+        assert!(patch.validate().is_ok(), "the patch alone is within budget");
+        let mut merged = workspace.accepted.files.clone();
+        merged.insert("web/one-too-many.txt".into(), "good".into());
+        let report = VerificationReport {
+            workspace_digest: source_digest(&merged),
+            ..pass(4)
+        };
+        assert!(workspace
+            .review_candidate("too-large".into(), patch, report, 4)
+            .is_err());
+        assert_eq!(workspace.phase, WorkspacePhase::TreatmentSelected);
+        assert!(workspace.candidate.is_none());
     }
 }

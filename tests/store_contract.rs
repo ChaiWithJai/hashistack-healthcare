@@ -6,18 +6,23 @@
 //! impossible in memory (the DB trigger enforces the same table server-side;
 //! the staging pressure test exercises that path).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rust_proof_service::deploy;
 use rust_proof_service::gates;
 use rust_proof_service::identity::{Principal, Registry};
+use rust_proof_service::packs;
 use rust_proof_service::state::{
     valid_transition, Allocation, AppRecord, DataSource, Platform, SharedPlatform, Stage,
     OP_STATUSES, VALID_STAGE_TRANSITIONS,
 };
 use rust_proof_service::store::{self, PgStore, MIGRATION};
+use rust_proof_service::workspace::{
+    source_digest, CandidateFile, CandidatePatch, CheckStatus, Treatment, TreatmentPlan,
+    VerificationCheck, VerificationReport, WorkspaceRecord, EXECUTABLE_CHECK_IDS,
+};
 
 /// The dev registry's meridian clinician — the co-signing principal (#10).
 fn dr_osei() -> Principal {
@@ -119,6 +124,13 @@ fn sql_stage_and_status_spellings_match_the_enums() {
             status.as_str()
         );
     }
+}
+
+#[test]
+fn migration_owns_the_editable_source_workspace() {
+    assert!(MIGRATION.contains("CREATE TABLE IF NOT EXISTS source_workspaces"));
+    assert!(MIGRATION.contains("REFERENCES apps(app_id) ON DELETE CASCADE"));
+    assert!(MIGRATION.contains("record     JSONB NOT NULL"));
 }
 
 // ---------- the in-memory enforcement consults the same table ----------
@@ -263,7 +275,7 @@ async fn assert_rollback_state_survives_pg_restart(workload_stopped: bool) {
     let second_store = PgStore::connect(&url)
         .await
         .expect("connect restarted PgStore");
-    let mut restarted = Platform::new(Vec::new());
+    let mut restarted = Platform::new(packs::builtin_packs());
     second_store
         .load(&mut restarted)
         .await
@@ -301,4 +313,159 @@ async fn postgres_restart_recovers_rollback_requested_before_workload_stop() {
 #[ignore = "requires TEST_CONTROL_DB_URL pointing to disposable Postgres"]
 async fn postgres_restart_recovers_rollback_verified_cleanup_before_sandbox_transition() {
     assert_rollback_state_survives_pg_restart(true).await;
+}
+
+#[tokio::test]
+#[ignore = "requires TEST_CONTROL_DB_URL pointing to disposable Postgres"]
+async fn postgres_restart_recovers_the_editable_source_workspace() {
+    let url = test_control_db_url();
+    let _serial = postgres_test_lock().lock().await;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let id = format!("workspace-restart-{}-{nonce}", std::process::id());
+    let app = {
+        let mut app = app_in(Stage::Sandbox);
+        app.id = id.clone();
+        app
+    };
+    let mut workspace = WorkspaceRecord::new(
+        id.clone(),
+        BTreeMap::from([
+            ("README.md".to_string(), "# Durable workspace\n".to_string()),
+            (
+                "web/src/App.svelte".to_string(),
+                "<h1>Ready</h1>\n".to_string(),
+            ),
+        ]),
+        1,
+    );
+    workspace
+        .set_plan(
+            TreatmentPlan {
+                problem: "Make follow-up safer".to_string(),
+                recommended_treatment_id: "guided".to_string(),
+                treatments: vec![
+                    Treatment {
+                        id: "calm".to_string(),
+                        label: "Calm follow-up".to_string(),
+                        user_outcome: "Keep the next action visible.".to_string(),
+                        screen_changes: vec!["Add one focused step.".to_string()],
+                        data_changes: vec![],
+                        safety_notes: vec!["Synthetic data only.".to_string()],
+                    },
+                    Treatment {
+                        id: "guided".to_string(),
+                        label: "Guided follow-up".to_string(),
+                        user_outcome: "Explain why the next action matters.".to_string(),
+                        screen_changes: vec!["Use a guided panel.".to_string()],
+                        data_changes: vec![],
+                        safety_notes: vec!["Synthetic data only.".to_string()],
+                    },
+                    Treatment {
+                        id: "compact".to_string(),
+                        label: "Compact follow-up".to_string(),
+                        user_outcome: "Fit the action into the existing card.".to_string(),
+                        screen_changes: vec!["Use the existing card.".to_string()],
+                        data_changes: vec![],
+                        safety_notes: vec!["Synthetic data only.".to_string()],
+                    },
+                ],
+                acceptance_checks: vec!["The next action is visible.".to_string()],
+            },
+            2,
+        )
+        .expect("valid treatment plan");
+    workspace.select("guided", 3).expect("select treatment");
+    let candidate_files = BTreeMap::from([
+        ("README.md".to_string(), "# Durable workspace\n".to_string()),
+        (
+            "web/src/App.svelte".to_string(),
+            "<h1>Durably reviewed</h1>\n".to_string(),
+        ),
+    ]);
+    workspace
+        .review_candidate(
+            "candidate-restart-proof".to_string(),
+            CandidatePatch {
+                summary: "Make the accepted source survive restart.".to_string(),
+                files: vec![CandidateFile {
+                    path: "web/src/App.svelte".to_string(),
+                    content: "<h1>Durably reviewed</h1>\n".to_string(),
+                    reason: "The clinician selected the guided treatment.".to_string(),
+                }],
+                verification_commands: vec![],
+            },
+            VerificationReport {
+                id: "verify-v1-restart-proof".to_string(),
+                workspace_digest: source_digest(&candidate_files),
+                profile_digest: "sha256:restart-profile".to_string(),
+                checks: EXECUTABLE_CHECK_IDS
+                    .iter()
+                    .map(|id| VerificationCheck {
+                        id: (*id).to_string(),
+                        status: CheckStatus::Pass,
+                        detail: "passed in the bounded verifier".to_string(),
+                    })
+                    .collect(),
+                passed: true,
+                verified_at: 4,
+            },
+            4,
+        )
+        .expect("review verified candidate");
+
+    let first_store = Arc::new(PgStore::connect(&url).await.expect("connect first PgStore"));
+    let mut first_state = Platform::new(Vec::new());
+    first_state.apps.insert(id.clone(), app);
+    first_state.workspaces.insert(id.clone(), workspace.clone());
+    first_state.store = Some(first_store);
+    let first: SharedPlatform = Arc::new(RwLock::new(first_state));
+    store::write_through(&first, &[&id], None)
+        .await
+        .expect("persist editable workspace");
+    drop(first);
+
+    let second_store = Arc::new(
+        PgStore::connect(&url)
+            .await
+            .expect("connect restarted PgStore"),
+    );
+    let mut restarted = Platform::new(packs::builtin_packs());
+    let counts = second_store
+        .load(&mut restarted)
+        .await
+        .expect("load restarted platform");
+    assert!(counts.1 >= 1, "load reports durable workspaces");
+    assert_eq!(restarted.workspaces.get(&id), Some(&workspace));
+
+    // Continue after restart: accepting the recovered candidate must produce
+    // another durable checkpoint that a third process loads byte-for-byte.
+    restarted
+        .workspaces
+        .get_mut(&id)
+        .expect("recovered workspace")
+        .accept("candidate-restart-proof", 5)
+        .expect("accept recovered candidate");
+    let accepted = restarted.workspaces[&id].clone();
+    restarted.store = Some(second_store);
+    let second: SharedPlatform = Arc::new(RwLock::new(restarted));
+    store::write_through(&second, &[&id], None)
+        .await
+        .expect("persist accepted checkpoint");
+    drop(second);
+
+    let third_store = PgStore::connect(&url).await.expect("connect third PgStore");
+    let mut third = Platform::new(packs::builtin_packs());
+    third_store
+        .load(&mut third)
+        .await
+        .expect("load accepted checkpoint");
+    assert_eq!(third.workspaces.get(&id), Some(&accepted));
+    assert_eq!(accepted.accepted.version, 1);
+    assert_eq!(
+        accepted.accepted.files["web/src/App.svelte"],
+        "<h1>Durably reviewed</h1>\n"
+    );
 }

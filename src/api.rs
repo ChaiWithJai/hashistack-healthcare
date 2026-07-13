@@ -450,11 +450,20 @@ async fn settle_durable(
     app_ids: &[&str],
     transition: Option<StageTransition>,
 ) -> Result<(), String> {
+    settle_durable_with_policy(platform, app_ids, transition, false).await
+}
+
+async fn settle_durable_with_policy(
+    platform: &SharedPlatform,
+    app_ids: &[&str],
+    transition: Option<StageTransition>,
+    strict_control_write: bool,
+) -> Result<(), String> {
     let is_stage_transition = transition.as_ref().is_some_and(|t| t.prior.is_some());
     if let Err(e) = store::write_through(platform, app_ids, transition).await {
-        if is_stage_transition {
+        if is_stage_transition || strict_control_write {
             return Err(format!(
-                "control DB refused or missed the stage transition: {e:#}"
+                "control DB refused or missed the durable state: {e:#}"
             ));
         }
         // Elsewhere a control-store miss degrades durability (retried on
@@ -499,6 +508,49 @@ async fn settle_durable(
         ));
     }
     Ok(())
+}
+
+/// Source files are the clinician's work product, not a disposable cache.
+/// With a control store configured, a workspace mutation only stands after
+/// Postgres and the audit broker confirm it. On failure, restore the exact
+/// pre-mutation record while the per-app serialization lock is still held.
+async fn settle_workspace_durable(
+    platform: &SharedPlatform,
+    app_id: &str,
+    before: crate::workspace::WorkspaceRecord,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    if let Err(cause) = settle_durable_with_policy(platform, &[app_id], None, true).await {
+        {
+            let mut plat = platform.write().unwrap();
+            plat.workspaces.insert(app_id.to_string(), before);
+            plat.audit.record(
+                "control-plane",
+                "workspace.change_reverted",
+                "restored the prior workspace after durable settlement failed",
+                Some(app_id),
+            );
+        }
+        // The first transaction may have committed before a separate audit
+        // sink failed. Compensate Postgres before claiming the change was
+        // reverted; otherwise a restart could resurrect a rejected decision.
+        if let Err(compensation) = store::write_through(platform, &[app_id], None).await {
+            return Err(audit_unavailable(
+                "workspace durability is uncertain",
+                format!(
+                    "settlement failed: {cause}; restoring the prior workspace also failed: {compensation:#}"
+                ),
+            ));
+        }
+        return Err(audit_unavailable("workspace change reverted", cause));
+    }
+    platform
+        .read()
+        .unwrap()
+        .workspaces
+        .get(app_id)
+        .cloned()
+        .map(Json)
+        .ok_or_else(|| not_found("workspace"))
 }
 
 async fn serialize_app_mutation(
@@ -817,7 +869,9 @@ async fn claim_app(
         );
         (snapshot, claimed)
     };
-    if let Err(cause) = settle_durable(&platform, &[&id], None).await {
+    // Ownership is a durable security boundary. An audit confirmation alone
+    // is insufficient if a restart could restore the anonymous tenant.
+    if let Err(cause) = settle_durable_with_policy(&platform, &[&id], None, true).await {
         let mut plat = platform.write().unwrap();
         if let Some(app) = plat.apps.get_mut(&id) {
             if app.tenant == principal.tenant {
@@ -913,22 +967,23 @@ async fn plan_source_workspace(
         .value
         .validate()
         .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
-    let workspace = {
+    let before = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
+        let before = workspace.clone();
         if workspace.accepted.digest != base_digest {
             return Err(ApiError(
                 StatusCode::CONFLICT,
                 "the workspace changed while treatments were prepared — retry".into(),
             ));
         }
+        let treatment_count = output.value.treatments.len();
         workspace
             .set_plan(output.value, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
-        let result = workspace.clone();
         if let Some(error) = output.fallback {
             plat.audit.record(
                 "workspace-agent",
@@ -943,13 +998,13 @@ async fn plan_source_workspace(
         plat.audit.record_sensitive(
             &principal.id,
             "workspace.treatments_planned",
-            "prepared three bounded treatments",
+            format!("prepared {treatment_count} bounded treatments"),
             Some(&id),
             &[("task", req.task)],
         );
-        result
+        before
     };
-    Ok(Json(workspace))
+    settle_workspace_durable(&platform, &id, before).await
 }
 
 async fn select_source_treatment(
@@ -960,25 +1015,25 @@ async fn select_source_treatment(
 ) -> ApiResult<crate::workspace::WorkspaceRecord> {
     ensure_tenant(&platform, &id, &principal)?;
     let _serial = serialize_app_mutation(&platform, &id).await;
-    let workspace = {
+    let before = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
+        let before = workspace.clone();
         workspace
             .select(&req.treatment_id, now_unix())
             .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
-        let result = workspace.clone();
         plat.audit.record(
             &principal.id,
             "workspace.treatment_selected",
             format!("selected treatment {}", req.treatment_id),
             Some(&id),
         );
-        result
+        before
     };
-    Ok(Json(workspace))
+    settle_workspace_durable(&platform, &id, before).await
 }
 
 async fn generate_source_candidate(
@@ -997,7 +1052,7 @@ async fn generate_source_candidate(
     let _serial = serialize_app_mutation(&platform, &id).await;
     // No platform lock is held while the provider works. The accepted digest
     // is checked again before the candidate can enter review.
-    let (agent, request, base_digest) = {
+    let (agent, request, base_digest, before) = {
         let plat = platform.read().unwrap();
         let app = plat.apps.get(&id).ok_or_else(|| not_found("app"))?;
         let workspace = plat
@@ -1019,6 +1074,7 @@ async fn generate_source_candidate(
                 accepted_files: workspace.accepted.files.clone(),
             },
             workspace.accepted.digest.clone(),
+            workspace.clone(),
         )
     };
     let output = agent.generate(request).await.map_err(|error| {
@@ -1057,7 +1113,7 @@ async fn generate_source_candidate(
             candidate: output.value.clone(),
         })
         .await;
-    let workspace = {
+    {
         let mut plat = platform.write().unwrap();
         let candidate_id = plat.mint_id("candidate");
         let workspace = plat
@@ -1082,7 +1138,6 @@ async fn generate_source_candidate(
         workspace
             .review_candidate(candidate_id.clone(), output.value, report, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
-        let result = workspace.clone();
         if let Some(error) = output.fallback {
             plat.audit.record(
                 "workspace-agent",
@@ -1108,9 +1163,8 @@ async fn generate_source_candidate(
             },
             Some(&id),
         );
-        result
-    };
-    Ok(Json(workspace))
+    }
+    settle_workspace_durable(&platform, &id, before).await
 }
 
 async fn accept_source_candidate(
@@ -1121,12 +1175,13 @@ async fn accept_source_candidate(
 ) -> ApiResult<crate::workspace::WorkspaceRecord> {
     ensure_tenant(&platform, &id, &principal)?;
     let _serial = serialize_app_mutation(&platform, &id).await;
-    let workspace = {
+    let before = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
+        let before = workspace.clone();
         let checkpoint = workspace
             .accept(&req.candidate_id, now_unix())
             .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
@@ -1134,16 +1189,15 @@ async fn accept_source_candidate(
             "accepted candidate {} as checkpoint v{} ({})",
             req.candidate_id, checkpoint.version, checkpoint.digest
         );
-        let result = workspace.clone();
         plat.audit.record(
             &principal.id,
             "workspace.candidate_accepted",
             detail,
             Some(&id),
         );
-        result
+        before
     };
-    Ok(Json(workspace))
+    settle_workspace_durable(&platform, &id, before).await
 }
 
 async fn reject_source_candidate(
@@ -1154,16 +1208,16 @@ async fn reject_source_candidate(
 ) -> ApiResult<crate::workspace::WorkspaceRecord> {
     ensure_tenant(&platform, &id, &principal)?;
     let _serial = serialize_app_mutation(&platform, &id).await;
-    let workspace = {
+    let before = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
             .workspaces
             .get_mut(&id)
             .ok_or_else(|| not_found("workspace"))?;
+        let before = workspace.clone();
         workspace
             .reject(&req.candidate_id, now_unix())
             .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
-        let result = workspace.clone();
         plat.audit.record(
             &principal.id,
             "workspace.candidate_rejected",
@@ -1173,9 +1227,9 @@ async fn reject_source_candidate(
             ),
             Some(&id),
         );
-        result
+        before
     };
-    Ok(Json(workspace))
+    settle_workspace_durable(&platform, &id, before).await
 }
 
 // ---------- iterate ----------

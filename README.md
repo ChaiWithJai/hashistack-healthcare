@@ -1,8 +1,10 @@
 # Practice Studio
 
-[![Rust checks](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/ci.yml/badge.svg)](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/ci.yml)
-[![User journey](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/evals.yml/badge.svg)](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/evals.yml)
-[![Netlify Status](https://api.netlify.com/api/v1/badges/8956042c-9a19-49f0-9a4c-31f808cff96e/deploy-status)](https://app.netlify.com/projects/gethoursback/deploys)
+> **Archived project.** Development stopped on July 13, 2026 because the
+> product and infrastructure scope exceeded the proof-of-concept boundary.
+> This repository is retained as evidence, not as a supported clinical system.
+> Read the [project postmortem](docs/postmortems/2026-07-13-scope-failure-and-shutdown.md)
+> and [shutdown record](docs/operations/2026-07-13-shutdown-record.md).
 
 Practice Studio helps clinicians build small practice tools with synthetic data.
 A clinician can describe a tool, compare three proposed treatments, review the
@@ -14,17 +16,17 @@ sign in only when you claim a workspace or export its source and audit record.
 > Practice Studio is a learning environment. It is not approved for patient
 > data, clinical care, or production use.
 
-## Project links
+## Archive links
 
-* [Netlify production candidate](https://gethoursback.netlify.app)
-* [DigitalOcean staging](https://138-197-27-225.sslip.io)
-* [Documentation](docs/README.md)
-* [Current evidence and limits](docs/evidence-index.md)
-* [Issue board](https://github.com/ChaiWithJai/hashistack-healthcare/issues)
+- [Postmortem](docs/postmortems/2026-07-13-scope-failure-and-shutdown.md)
+- [Shutdown record](docs/operations/2026-07-13-shutdown-record.md)
+- [Documentation](docs/README.md)
+- [Historical evidence and limits](docs/evidence-index.md)
+- [Closed issue board](https://github.com/ChaiWithJai/hashistack-healthcare/issues)
 
-The Netlify site and DigitalOcean staging service currently share the same Rust
-backend. Keep all data synthetic. Read [Deploy Practice Studio](docs/deployment.md)
-before you create another hosted environment.
+The former Netlify sites and DigitalOcean staging service were deleted on July
+13, 2026. Deployment instructions below are retained as historical evidence and
+must not be treated as a supported runbook.
 
 ## Run the local demo
 

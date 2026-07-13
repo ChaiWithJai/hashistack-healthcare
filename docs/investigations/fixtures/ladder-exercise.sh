@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Historical experiment fixture. The production application no longer has a
+# local or frontier model ladder. Decision 0009 supersedes this workflow.
 # ladder-exercise.sh — drive the verified escalation ladder with a batch of
 # iterate instructions and report REAL per-tier numbers (attempts, verdicts,
 # reject reasons, wall latency). Written for the first live staging model

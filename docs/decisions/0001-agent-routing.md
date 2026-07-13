@@ -1,6 +1,12 @@
 # Decision 0001 — Agent routing architecture (#4, treatment round 1)
 
-Status: decided · Inputs: treatments 4a/4b/4c on the historical
+Status: superseded by [decision 0009](0009-agent-workspace-and-model-routing.md).
+
+This record explains an earlier experiment. The production platform no longer
+loads local or frontier model endpoints. Gemma is the only application model,
+and Rust owns source generation and verification.
+
+Inputs: treatments 4a/4b/4c on the historical
 `claude/issue-4-treatment-{a,b,c}` branches ·
 Rubric: [investigation 0001](../investigations/0001-enable-all-use-cases.md) ·
 Framing: [investigation 0002](../investigations/0002-local-model-simplifiers.md) D1.

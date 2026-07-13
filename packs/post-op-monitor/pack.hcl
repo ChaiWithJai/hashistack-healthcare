@@ -44,5 +44,4 @@ pack "post-op-monitor" {
   ]
 
   synthetic_dataset = "post-op demo (12 pts)"
-  input_capabilities = ["local-image-description"]
 }

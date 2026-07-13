@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use crate::audit::AuditEvent;
 use crate::deploy;
 use crate::gates::{self, GateReport, GateStatus};
-use crate::packs::{InputCapability, PackManifest};
+use crate::packs::PackManifest;
 use crate::state::{AppRecord, DataSource, Stage};
 
 /// Writes the file-map to disk from stdin. Stock python3, no dependencies —
@@ -33,13 +33,6 @@ pub struct EjectionBundle {
 /// audit slice always produce the same bundle, so an export is evidence.
 pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> EjectionBundle {
     let (report, provenance) = preflight_report(app, pack);
-    let has_audio = pack
-        .input_capabilities
-        .contains(&InputCapability::LocalAudioTranscription);
-    let has_image = pack
-        .input_capabilities
-        .contains(&InputCapability::LocalImageDescription);
-    let has_local_media = has_audio || has_image;
     // Packs converted to the full spec (#5) ship a runnable scaffold whose
     // sources are compile-time embedded next to the manifests (packs.rs) —
     // the same no-drift guarantee PACK_SOURCES gives. `scaffold_path` on the
@@ -59,25 +52,11 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
                 Some(rest) => format!("server/{rest}"),
                 None => (*path).to_string(),
             };
-            let content = if dest == "server/src/main.rs" && has_local_media {
-                content.replace(
-                    "#[path = \"../../../visit-notes/scaffold/src/local_media.rs\"]\n",
-                    "",
-                )
-            } else {
-                (*content).to_string()
-            };
-            files.insert(dest, content);
+            files.insert(dest, (*content).to_string());
         }
         files.insert(
             "web/src/clinician.css".to_string(),
             clinician_design_system_css().to_string(),
-        );
-    }
-    if has_local_media {
-        files.insert(
-            "server/src/local_media.rs".to_string(),
-            crate::packs::local_media_source().to_string(),
         );
     }
     files.insert("web/package.json".to_string(), svelte_package_json());
@@ -99,12 +78,6 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         "web/src/routes/+page.svelte".to_string(),
         svelte_page(app, pack, &clinical_entry),
     );
-    if has_local_media {
-        files.insert(
-            "web/src/lib/LocalMediaInput.svelte".to_string(),
-            local_media_input_component(),
-        );
-    }
     files.insert(".mcp.json".to_string(), svelte_mcp_config());
     files.insert(
         "diagrams/system-architecture.tldr".to_string(),
@@ -115,10 +88,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
                 "Rust and Axum server",
                 "Synthetic data",
                 "Owned deployment",
-            ]
-            .into_iter()
-            .chain(has_local_media.then_some("Optional same-host Liquid (local dev only)"))
-            .collect::<Vec<_>>(),
+            ],
         ),
     );
     files.insert(
@@ -146,10 +116,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
                 "Gemma planner",
                 "Gate",
                 "Runtime",
-            ]
-            .into_iter()
-            .chain(has_local_media.then_some("Optional same-host Liquid (local dev only)"))
-            .collect::<Vec<_>>(),
+            ],
         ),
     );
     let mut readme = readme_md(app, pack);
@@ -175,9 +142,6 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     readme.push_str("\n\n");
     readme.push_str(&compliance_md(app, &report, provenance, audit));
     readme.push_str("\n\n## Extend with Gemma planning\n\nThe platform uses Gemma as its only application model. The exported app does not phone home to that planner. The `.mcp.json` file connects compatible editors to the official Svelte MCP server for API documentation and component repair; it is not a second model runtime. If you connect your own Gemma endpoint, keep it behind the Rust API. Do not give it production secrets, deployment authority, file access, or patient data.\n");
-    if has_local_media {
-        readme.push_str(&local_media_readme(has_audio, has_image));
-    }
     files.insert("README.md".to_string(), readme);
     files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
     files.insert(
@@ -349,29 +313,9 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         .map(|feature| format!("    {{ label: {:?}, done: true }}", feature))
         .collect::<Vec<_>>()
         .join(",\n");
-    let local_media = if pack
-        .input_capabilities
-        .contains(&InputCapability::LocalAudioTranscription)
-    {
-        (
-            "  import LocalMediaInput from '../lib/LocalMediaInput.svelte';\n",
-            "\n    <LocalMediaInput kind=\"audio\" onaccept={(text) => { note = text; addItem(); }} />",
-        )
-    } else if pack
-        .input_capabilities
-        .contains(&InputCapability::LocalImageDescription)
-    {
-        (
-            "  import LocalMediaInput from '../lib/LocalMediaInput.svelte';\n",
-            "\n    <LocalMediaInput kind=\"image\" onaccept={(text) => { note = text; addItem(); }} />",
-        )
-    } else {
-        ("", "")
-    };
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
-{media_import}
   let items = $state([
 {features}
   ]);
@@ -422,7 +366,6 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         <input class="hc-field" bind:value={{note}} onkeydown={{(event) => event.key === 'Enter' && addItem()}} />
       </label>
       <button class="hc-button hc-button--primary" onclick={{addItem}}>Add step</button>
-{media_control}
       <aside class="hc-notice hc-notice--warning" role="note">This starter is not monitored for emergencies or approved for clinical care.</aside>
     </section>
   </div>
@@ -430,103 +373,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
 "#,
         name = app.name,
         description = pack.description,
-        media_import = local_media.0,
-        media_control = local_media.1,
         clinical_entry = clinical_entry,
-    )
-}
-
-fn local_media_input_component() -> String {
-    r#"<script lang="ts">
-  let { kind, onaccept }: { kind: 'audio' | 'image'; onaccept: (text: string) => void } = $props();
-  let file: File | undefined = $state();
-  let input: HTMLInputElement;
-  let acknowledged = $state(false);
-  let observation = $state('');
-  let model = $state('');
-  let digest = $state('');
-  let error = $state('');
-  let working = $state(false);
-  let controller: AbortController | undefined = $state();
-  let isAudio = $derived(kind === 'audio');
-  let label = $derived(isAudio ? 'synthetic WAV recording' : 'synthetic PNG image');
-
-  async function analyze() {
-    if (!file || !acknowledged || working) return;
-    working = true;
-    error = '';
-    observation = '';
-    model = '';
-    digest = '';
-    controller = new AbortController();
-    try {
-      const response = await fetch(`/api/local-media/${kind}`, {
-        method: 'POST',
-        headers: {
-          'content-type': file.type || 'application/octet-stream',
-          'x-synthetic-workflow': 'true'
-        },
-        body: file,
-        signal: controller.signal
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.message || body.error || 'The local model is unavailable.');
-      observation = body.text;
-      model = body.model;
-      digest = body.sha256;
-    } catch (cause) {
-      error = cause instanceof DOMException && cause.name === 'AbortError'
-        ? 'Stopped waiting for local analysis. The local model may finish before its 30-second limit.'
-        : cause instanceof Error ? cause.message : 'The local model is unavailable.';
-    } finally {
-      working = false;
-      controller = undefined;
-      file = undefined;
-      input.value = '';
-    }
-  }
-
-  function useObservation() {
-    onaccept(observation);
-    observation = '';
-    model = '';
-    digest = '';
-  }
-</script>
-
-<section class="hc-stack" aria-labelledby="local-media-title">
-  <h3 id="local-media-title">Add a local model observation</h3>
-  <p class="hc-help">Same-device development only. Your browser sends the {kind} to this local Rust server, which accepts only a loopback Liquid process. It is never sent to the hosted workspace agent. The result is an untrusted draft—verify it.</p>
-  <label class="hc-actions"><input type="checkbox" bind:checked={acknowledged} /> I confirm this is synthetic learning media, not patient data.</label>
-  <label class="hc-label">Choose a {label}
-    <input bind:this={input} class="hc-field" type="file" accept={isAudio ? '.wav,audio/wav' : '.png,image/png'} onchange={(event) => file = event.currentTarget.files?.[0]} />
-  </label>
-  <div class="hc-actions">
-    <button class="hc-button" disabled={!file || !acknowledged || working} onclick={analyze}>{working ? 'Analyzing locally…' : 'Analyze locally'}</button>
-    {#if working}<button class="hc-button" onclick={() => controller?.abort()}>Stop waiting</button>{/if}
-  </div>
-  {#if error}<p class="hc-notice hc-notice--warning" role="alert">{error} The text-only workflow still works.</p>{/if}
-  {#if observation}
-    <label class="hc-label">Local model observation—verify before use
-      <textarea class="hc-field" bind:value={observation} rows="6"></textarea>
-    </label>
-    <p class="hc-help">Model: {model}. Source digest: {digest}. The Rust server does not retain the raw file or this draft.</p>
-    <button class="hc-button hc-button--primary" onclick={useObservation}>Add observation to workflow</button>
-  {/if}
-</section>
-"#.to_string()
-}
-
-fn local_media_readme(audio: bool, image: bool) -> String {
-    let model = if audio {
-        "`LFM2.5-Audio-1.5B` through `LIQUID_AUDIO_URL`"
-    } else if image {
-        "`LFM2.5-VL-1.6B` through `LIQUID_VISION_URL`"
-    } else {
-        unreachable!("local media README requires a capability")
-    };
-    format!(
-        "\n\n## Local audio and vision\n\nThis optional local-development path asks {model} for one bounded, non-diagnostic observation. It is not enabled by the Docker or cloud deploy files. Run the Rust server with `cargo run --manifest-path server/Cargo.toml` (port 8080), run the Svelte UI with `cd web && npm install && npm run dev`, and set the model URL to a same-host adapter such as `http://127.0.0.1:8081/infer`. The adapter accepts the raw request body and returns JSON shaped as `{{\"text\":\"…\"}}`. For the post-op pack, sign in at `http://127.0.0.1:8080/login` before using the Vite UI.\n\n“Local” means the browser, Rust server, and Liquid process run on the same device or network namespace. Do not enable this path on Render, Fly, DigitalOcean, or a separate frontend. Rust accepts only `127.0.0.1`, `localhost`, or `[::1]`, never falls back to a hosted model, and does not write or log the raw body. Configure the Liquid adapter for no retention; this repository cannot control another process's logs. Only synthetic examples are allowed. Verify and edit every result. If Liquid is stopped, continue with the text-only workflow.\n"
     )
 }
 
@@ -1229,13 +1076,6 @@ fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
         "Template derived from {} (built from: {})",
         app.name, app.prompt
     );
-    let input_capabilities = pack
-        .input_capabilities
-        .iter()
-        .map(|capability| match capability {
-            crate::packs::InputCapability::LocalAudioTranscription => "local-audio-transcription",
-            crate::packs::InputCapability::LocalImageDescription => "local-image-description",
-        });
     format!(
         "// Derived from app \"{id}\" at ejection — the doctor's own re-usable template.\n\
          // Same schema as the platform's packs/*/pack.hcl; re-import or share as-is.\n\n\
@@ -1252,8 +1092,6 @@ fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
          \x20 prewired = [\n{prewired}\x20 ]\n\n\
          \x20 # Gates that must be green before promotion, carried from pack {pack_id}.\n\
          \x20 gates = [\n{gates}\x20 ]\n\n\
-         \x20 # Local media reach carried from the signed source pack.\n\
-         \x20 input_capabilities = [\n{input_capabilities}\x20 ]\n\n\
          \x20 synthetic_dataset = \"{dataset}\"\n\
          }}\n",
         id = app.id,
@@ -1266,7 +1104,6 @@ fn derived_pack_hcl(app: &AppRecord, pack: &PackManifest) -> String {
         scaffold = hcl_list(app.features.iter().map(String::as_str)),
         prewired = hcl_list(prewired.iter().copied()),
         gates = hcl_list(pack.gates.iter().map(String::as_str)),
-        input_capabilities = hcl_list(input_capabilities),
         pack_id = pack.id,
         dataset = hcl_str(&pack.synthetic_dataset),
     )
@@ -1389,7 +1226,6 @@ mod tests {
         assert_eq!(template.gates, pack.gates, "gates carried from the pack");
         assert_eq!(template.synthetic_dataset, pack.synthetic_dataset);
         assert_eq!(template.tier, pack.tier);
-        assert_eq!(template.input_capabilities, pack.input_capabilities);
         // prewired = wired controls that are also gates, and nothing else.
         for control in &template.prewired {
             assert!(pack.gates.contains(control));
@@ -1540,12 +1376,9 @@ mod tests {
     }
 
     #[test]
-    fn all_seventeen_exports_prove_three_media_opt_ins_and_fourteen_absences() {
+    fn all_seventeen_exports_use_no_secondary_model_runtime() {
         let packs = packs::builtin_packs();
         assert_eq!(packs.len(), 17);
-        let mut audio = 0;
-        let mut image = 0;
-        let mut ordinary = 0;
         for pack in &packs {
             let bundle = bundle(&sample_app(pack), pack, &[]);
             let prose = bundle
@@ -1565,55 +1398,20 @@ mod tests {
                 pack.id
             );
             let all = bundle.files.values().cloned().collect::<String>();
-            let has_audio = pack
-                .input_capabilities
-                .contains(&InputCapability::LocalAudioTranscription);
-            let has_image = pack
-                .input_capabilities
-                .contains(&InputCapability::LocalImageDescription);
-            if has_audio || has_image {
-                assert!(bundle.files.contains_key("server/src/local_media.rs"));
-                assert!(bundle
-                    .files
-                    .contains_key("web/src/lib/LocalMediaInput.svelte"));
-                assert!(
-                    all.contains("Optional same-host Liquid (local dev only)"),
-                    "{}",
-                    pack.id
-                );
-                assert!(all.contains("x-synthetic-workflow"), "{}", pack.id);
-                assert!(all.contains("127.0.0.1"), "{}", pack.id);
-                assert!(all.contains("The text-only workflow still works"));
-                if has_audio {
-                    audio += 1;
-                    assert!(all.contains("LFM2.5-Audio-1.5B"));
-                    assert!(all.contains("/api/local-media/audio"));
-                    assert!(!all.contains("/api/local-media/image\", post"));
-                } else {
-                    image += 1;
-                    assert!(all.contains("LFM2.5-VL-1.6B"));
-                    assert!(all.contains("/api/local-media/image"));
-                    assert!(!all.contains("/api/local-media/audio\", post"));
-                }
-            } else {
-                ordinary += 1;
-                assert!(!bundle.files.contains_key("server/src/local_media.rs"));
-                assert!(!bundle
-                    .files
-                    .contains_key("web/src/lib/LocalMediaInput.svelte"));
-                for forbidden in [
-                    "LFM2.5-Audio-1.5B",
-                    "LFM2.5-VL-1.6B",
-                    "LIQUID_AUDIO_URL",
-                    "LIQUID_VISION_URL",
-                    "/api/local-media/",
-                    "Optional same-host Liquid (local dev only)",
-                ] {
-                    assert!(!all.contains(forbidden), "{} leaked {forbidden}", pack.id);
-                }
+            assert!(!bundle.files.contains_key("server/src/local_media.rs"));
+            assert!(!bundle
+                .files
+                .contains_key("web/src/lib/LocalMediaInput.svelte"));
+            for forbidden in [
+                "LFM2",
+                "LIQUID_AUDIO_URL",
+                "LIQUID_VISION_URL",
+                "/api/local-media/",
+                "Optional same-host Liquid",
+            ] {
+                assert!(!all.contains(forbidden), "{} leaked {forbidden}", pack.id);
             }
         }
-        assert_eq!((audio, image, ordinary), (2, 1, 14));
     }
 
     #[test]

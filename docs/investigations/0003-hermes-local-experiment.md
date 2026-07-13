@@ -56,7 +56,7 @@ Total experiment downloads ≈ 1.1 GB; disk high-water ≈ 2.8 GB (under budget)
 
 ## PART A — the ladder against a real local tier (first live data)
 
-Method: `scripts/ladder-exercise.sh` (committed) creates a post-op-monitor
+Method: the archived `docs/investigations/fixtures/ladder-exercise.sh` created a post-op-monitor
 app and runs 8 iterate instructions of varying difficulty, then reads
 `/api/apps/:id/operations` and the audit stream back. post-op-monitor
 declares no `routing`, so platform defaults applied: scaffold→frontier
@@ -273,7 +273,7 @@ its commercial-use threshold and notice requirements.
 ## Recommendation
 
 Merge the `--models` step and driver fixes; keep SmolLM2 as the default
-staging rung and re-run `ladder-exercise.sh` unchanged when (a) an LFM2-1.2B
+staging rung and re-run the archived experiment when (a) an LFM2-1.2B
 GGUF becomes fetchable and (b) a Qwen3-Coder-class endpoint exists for the
 prod-tier routing spike — those two runs produce the numbers decision 0001's
 kill thresholds actually bind on. Add `response_format: json_object` to the

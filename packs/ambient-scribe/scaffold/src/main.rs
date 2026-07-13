@@ -1,13 +1,10 @@
 use axum::{
-    extract::{DefaultBodyLimit, Form, State},
+    extract::{Form, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-#[path = "../../../visit-notes/scaffold/src/local_media.rs"]
-#[allow(dead_code)]
-mod local_media;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 const DATA: &str = include_str!("../../synthetic/demo.json");
@@ -85,13 +82,7 @@ fn app(s: App) -> Router {
         .route("/stream", get(stream))
         .route("/draft", post(draft))
         .route("/sign", post(sign))
-        .route(
-            "/api/local-media/capabilities",
-            get(local_media::capabilities_audio),
-        )
-        .route("/api/local-media/audio", post(local_media::audio))
         .route("/health", get(health))
-        .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
         .with_state(s)
 }
 #[tokio::main]

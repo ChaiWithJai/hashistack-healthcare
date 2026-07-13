@@ -408,41 +408,25 @@ python3 -c 'import json,sys,pathlib; [(lambda q: (q.parent.mkdir(parents=True,ex
 cat README.md
 ```
 
-## Agent routing ladder (#4, [decision 0001](decisions/0001-agent-routing.md))
+## Gemma planning and deterministic generation
 
-Every agent action (scaffold, iterate, fix) is a Waypoint-style operation —
-upserted `running` before any driver runs, settled after each attempt —
-climbing the verified ladder rules → local → frontier. A deterministic
-verifier (gate preflight on a cloned record) judges every tier's output;
-routing emerges from verdicts, not prediction. Pack `routing` policy in
-pack.hcl picks each action's first tier and consents to frontier escalation.
+Gemma is the only application model. A hosted environment sends a bounded
+treatment request to the private DigitalOcean planner. Rust checks the typed
+response before showing it to the clinician. Rust then generates source and
+runs the fixed verification profile.
+
+The core flow still works when Gemma is unavailable. In that case Rust offers
+deterministic treatments and records the fallback. Environment variables
+cannot add a second model provider to the application edit runner.
 
 ```bash
-# both unset (default): rules-only ladder, exactly today's behavior
-# local tier: any in-VPC OpenAI-compatible endpoint (vLLM, llama.cpp, LM Studio)
-LOCAL_MODEL_URL=http://127.0.0.1:8080 \
-FRONTIER_MODEL_URL=http://127.0.0.1:8090 \
-  cargo run
-
-# the routing record for one app: attempt history, tiers, verdicts
-curl -s localhost:3000/api/apps/post-op-tracker/operations
-# every decision is also in the audit stream:
-#   agent.routed  — "per pack ... routing policy: iterate→local"
-#   agent.attempt — "op op-1234 iterate v2 tier=local verdict=accepted → applied"
+# Inspect the stored provider, model, fallback, and verification evidence.
+curl -s localhost:3000/api/apps/post-op-tracker/workspace
 ```
 
-Plain `http://` only (refusing TLS refuses off-VPC by construction); debug
-and test builds additionally refuse non-loopback endpoints (decision 0002).
-Offline or misbehaving model tiers cost rejected attempts, never a broken
-app — the rules floor still lands the doctor's edit. Staging model serving
-is stubbed at `scripts/staging-up.sh --models` (decision 0002).
-
-F4 (resolved in #7): model calls run on the blocking pool with NO platform
-lock held — a slow tier can never stall unrelated requests (asserted by
-`slow_local_tier_does_not_block_a_concurrent_unrelated_request`). If the
-record changes while a tier thinks, the verified edit is not applied; the
-operation settles `concurrent-edit` and the API returns 409 — retry the
-instruction. Setting `LOCAL_MODEL_URL` in a shared environment is safe now.
+Read [decision 0009](decisions/0009-agent-workspace-and-model-routing.md) for
+the authority boundary. Decisions 0001 and 0002 are retained as historical
+records and are no longer active architecture.
 
 ## Recover a pending rollback
 

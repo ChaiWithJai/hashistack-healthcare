@@ -1,12 +1,9 @@
-//! Verified escalation ladder (#4, decision 0001): routing emerges from
-//! **verification, not prediction**.
+//! Verified operation runner for deterministic application edits.
 //!
-//! The supervisor climbs the fixed ladder rules → local → frontier. After
-//! each attempt it runs a deterministic verifier (gates preflight
-//! before/after on a cloned app record, plus cheap structural checks) and
-//! the verdict decides: accept, or record the failed attempt and climb. No
-//! tier is trusted; every tier is checked the same way — so a wrong, empty,
-//! or unreachable model can only ever cost an attempt, never corrupt an app.
+//! The production platform runs the rule driver only. Gemma planning lives
+//! behind the separate typed boundary in `workspace_agent.rs`. Test code may
+//! inject additional drivers to prove failure, verification, and concurrency
+//! behavior, but environment variables cannot add another production model.
 //!
 //! The ladder is the outer authority; the pack's signed `routing` policy
 //! expresses consent within it: which tier tries each action FIRST, and
@@ -27,10 +24,9 @@
 //! `current_version` first: if it changed, the operation settles as failed
 //! with reason `concurrent-edit` instead of clobbering the newer record.
 
-use std::env;
 use std::sync::Arc;
 
-use crate::agent::{AgentDriver, AgentReply, HttpModelDriver, RuleBasedDriver, ScaffoldStep};
+use crate::agent::{AgentDriver, AgentReply, RuleBasedDriver, ScaffoldStep};
 use crate::gates::{self, GateReport};
 use crate::packs::{EscalationReason, PackManifest, RoutingPolicy, RoutingTier};
 use crate::state::{
@@ -69,30 +65,19 @@ impl LadderFailure {
     }
 }
 
-/// The fixed ladder the agent supervisor climbs, cheapest tier first.
+/// The verified driver sequence. Production contains the rules driver only.
 pub struct EscalationLadder {
     tiers: Vec<(String, Box<dyn AgentDriver>)>,
 }
 
 impl EscalationLadder {
-    /// Rules always; `LOCAL_MODEL_URL` adds the in-VPC local tier;
-    /// `FRONTIER_MODEL_URL` adds the frontier tier. No env vars → rules-only,
-    /// and behavior is byte-identical to the pre-ladder platform (the rules
-    /// driver always verifies today).
-    pub fn from_env() -> Self {
-        let var = |name: &str| env::var(name).ok().filter(|v| !v.trim().is_empty());
-        let mut tiers: Vec<(String, Box<dyn AgentDriver>)> =
-            vec![("rules".to_string(), Box::new(RuleBasedDriver))];
-        if let Some(url) = var("LOCAL_MODEL_URL") {
-            tiers.push(("local".to_string(), Box::new(HttpModelDriver::local(url))));
+    /// The only production sequence. It is deliberately not configurable by
+    /// environment variables. Gemma is the application's sole model and only
+    /// proposes typed treatment plans through `workspace_agent.rs`.
+    pub fn rules_only() -> Self {
+        Self {
+            tiers: vec![("rules".to_string(), Box::new(RuleBasedDriver))],
         }
-        if let Some(url) = var("FRONTIER_MODEL_URL") {
-            tiers.push((
-                "frontier".to_string(),
-                Box::new(HttpModelDriver::frontier(url)),
-            ));
-        }
-        Self { tiers }
     }
 
     /// Custom ladders — how tests compose mock tiers. Order low → high.

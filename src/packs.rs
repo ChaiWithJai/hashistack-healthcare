@@ -6,7 +6,7 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::LazyLock;
 
@@ -14,27 +14,18 @@ use std::sync::LazyLock;
 /// Open question 2 in the RFC — clinician identity in the chain — lands here.
 const TRUSTED_SIGNERS: &[&str] = &["platform-root-v1"];
 
-/// Model tiers a pack may route an agent operation to. Serde rejects any
-/// other name, so a typoed tier fails at registry load — same loud path as
-/// the signature check, never a silent default at request time.
+/// Historical routing values retained so existing signed packs still parse.
+/// Production resolves every application edit to deterministic rules. Gemma
+/// treatment planning uses the separate workspace provider boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RoutingTier {
     /// Deterministic keyword rules — the offline/CI floor.
     Rules,
-    /// OpenAI-compatible endpoint inside our VPC (`LOCAL_MODEL_URL`).
+    /// Historical value. Production resolves it to rules.
     Local,
-    /// Frontier model under BAA (`FRONTIER_MODEL_URL`; stubbed in Phase 0).
+    /// Historical value. Production resolves it to rules.
     Frontier,
-}
-
-/// Local-only media reach granted by a signed pack revision. Unknown strings
-/// fail manifest parsing instead of silently widening an exported app.
-#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InputCapability {
-    LocalAudioTranscription,
-    LocalImageDescription,
 }
 
 impl fmt::Display for RoutingTier {
@@ -161,9 +152,6 @@ pub struct PackManifest {
     pub prewired: Vec<String>,
     pub gates: Vec<String>,
     pub synthetic_dataset: String,
-    /// Raw media stays local and never enters the hosted workspace agent.
-    #[serde(default)]
-    pub input_capabilities: BTreeSet<InputCapability>,
     /// Optional routing override. Lives inside the signed manifest, so where
     /// a model runs is reviewed and attested exactly like the gate list.
     /// Absent → platform defaults ([`RoutingPolicy::default`]).
@@ -217,12 +205,6 @@ const PACK_SOURCES: &[&str] = &[
 
 /// One embedded pack file: (path relative to the pack directory, content).
 pub type PackSourceFile = (&'static str, &'static str);
-
-/// One reviewed local-media boundary shared by the three signed opt-in packs.
-/// Ejection copies it into the owned server so exported crates stay standalone.
-pub fn local_media_source() -> &'static str {
-    include_str!("../packs/visit-notes/scaffold/src/local_media.rs")
-}
 
 /// Runnable-scaffold sources, embedded at compile time exactly like
 /// [`PACK_SOURCES`] so the ejection bundle and the git tree can never
@@ -645,47 +627,6 @@ mod tests {
         // loudly as a bad signature — never a silent default at request time.
         assert!(parse_pack(&template(r#"{ iterate = "gpu-cluster" }"#)).is_err());
         assert!(parse_pack(&template(r#"{ escalate_on = ["vibes"] }"#)).is_err());
-    }
-
-    #[test]
-    fn local_media_reach_is_signed_closed_and_exact() {
-        let packs = builtin_packs();
-        assert_eq!(packs.len(), 17);
-        let opted_in = packs
-            .iter()
-            .filter(|pack| !pack.input_capabilities.is_empty())
-            .map(|pack| (pack.id.as_str(), pack.input_capabilities.clone()))
-            .collect::<BTreeMap<_, _>>();
-        assert_eq!(opted_in.len(), 3);
-        assert_eq!(
-            opted_in["visit-notes"],
-            BTreeSet::from([InputCapability::LocalAudioTranscription])
-        );
-        assert_eq!(
-            opted_in["ambient-scribe"],
-            BTreeSet::from([InputCapability::LocalAudioTranscription])
-        );
-        assert_eq!(
-            opted_in["post-op-monitor"],
-            BTreeSet::from([InputCapability::LocalImageDescription])
-        );
-
-        let unknown = r#"
-            pack "unknown-media" {
-              name = "unknown media"
-              description = "must fail closed"
-              profile = "web"
-              tier = 2
-              wave = 1
-              signed_by = "platform-root-v1"
-              scaffold = []
-              prewired = []
-              gates = []
-              synthetic_dataset = "none"
-              input_capabilities = ["remote-diagnostic-camera"]
-            }
-        "#;
-        assert!(parse_pack(unknown).is_err());
     }
 
     #[test]

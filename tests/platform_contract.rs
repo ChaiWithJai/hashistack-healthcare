@@ -883,6 +883,7 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
         1,
     );
     files.insert("pack.hcl".into(), Value::String(owned_manifest));
+    assert!(files.remove("render.yaml").is_some());
     let expected = files.clone();
 
     for path in [
@@ -961,16 +962,18 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    for path in [
-        "server/src/main.rs",
-        "web/src/routes/+page.svelte",
-        "web/tests/owned-app.mjs",
-        "synthetic/post-op-demo.json",
-        "artifact-quality.json",
-        "README.md",
-    ] {
-        assert_eq!(reexported["files"][path], expected[path], "changed {path}");
-    }
+    assert_eq!(reexported["files"], json!(expected));
+    let reexported_files = serde_json::from_value(reexported["files"].clone()).unwrap();
+    assert_eq!(
+        json!(rust_proof_service::workspace::source_digest(
+            &reexported_files
+        )),
+        imported["source_digest"]
+    );
+    assert!(reexported["files"]["pack.hcl"]
+        .as_str()
+        .unwrap()
+        .contains("rogue-control"));
 
     let (status, packs) = call(&router, "GET", "/api/packs", None).await;
     assert_eq!(status, StatusCode::OK);

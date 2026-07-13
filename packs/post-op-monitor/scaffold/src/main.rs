@@ -30,13 +30,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Extension, Form, Multipart, Request, State};
+use axum::extract::{DefaultBodyLimit, Extension, Form, Multipart, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+
+#[path = "../../../visit-notes/scaffold/src/local_media.rs"]
+#[allow(dead_code)]
+mod local_media;
 
 /// Compile-time copy of the pack's synthetic seed. The boot path prefers the
 /// file on disk (`../synthetic/post-op-demo.json`, or `$SYNTHETIC_DATA`) so
@@ -74,11 +78,12 @@ struct Patient {
     // phi-encryption: stub — in-memory over the synthetic seed only;
     // hipaa-core encryptField via Vault transit before any real storage.
     id: String,
-    name: String,         // phi: patient name
-    age: u8,              // phi: age
-    procedure: String,    // phi: procedure performed
+    name: String, // phi: patient name
+    #[allow(dead_code)] // retained in the synthetic fixture's PHI inventory
+    age: u8, // phi: age
+    procedure: String, // phi: procedure performed
     surgery_date: String, // phi: date of surgery
-    surgeon: String,      // phi: treating surgeon
+    surgeon: String, // phi: treating surgeon
     #[serde(default)]
     checkins: Vec<SeedCheckin>,
 }
@@ -241,8 +246,8 @@ fn session_from_headers(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-/// Explicit auth boundary. Health and login are public; every app route
-/// requires a role-bearing session created by a successful demo login.
+/// Explicit auth boundary. Health and login are public; every workflow and
+/// local-model route requires a role-bearing session.
 async fn auto_logoff(State(state): State<AppState>, request: Request, next: Next) -> Response {
     if matches!(request.uri().path(), "/health" | "/login") {
         return next.run(request).await;
@@ -722,7 +727,13 @@ fn app(state: AppState) -> Router {
         .route("/clinician", get(clinician))
         .route("/checkin", post(checkin))
         .route("/photos", post(photos))
+        .route(
+            "/api/local-media/capabilities",
+            get(local_media::capabilities_image),
+        )
+        .route("/api/local-media/image", post(local_media::image))
         .route("/health", get(health))
+        .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
         // Layer order: last added runs first, so audit wraps auto-logoff —
         // even a logged-off attempt leaves an audit line.
         .layer(middleware::from_fn_with_state(state.clone(), auto_logoff))

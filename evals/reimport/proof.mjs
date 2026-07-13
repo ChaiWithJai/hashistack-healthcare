@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const evidence = path.join(root, '.evals', 'reimport');
@@ -129,6 +130,7 @@ async function main() {
     });
     const exported = await api('GET', `/api/apps/${created.app.id}/export`);
     writeBundle(exported.files);
+    fs.rmSync(path.join(bundleDir, 'render.yaml'));
 
     // Follow the exported README's change map: change one observable behavior
     // across Rust, Svelte, the synthetic fixture, and its executable browser
@@ -184,6 +186,9 @@ async function main() {
       { id: 'private-synthetic-sandbox', passed: importedResult.app.stage === 'sandbox' && importedResult.app.data_source.kind === 'synthetic' },
       { id: 'no-inherited-authority', passed: importedResult.app.attestation === null && importedResult.app.allocation === null },
       { id: 'exact-verification-digest', passed: importedResult.verification.passed && importedResult.source_digest === importedResult.verification.workspace_digest },
+      { id: 'exact-file-map-round-trip', passed: isDeepStrictEqual(reexported.files, workspace.accepted.files) },
+      { id: 'owned-pack-record-preserved', passed: reexported.files['pack.hcl'] === workspace.accepted.files['pack.hcl'] && reexported.files['pack.hcl'].includes('untrusted-practice-export') },
+      { id: 'removed-optional-file-stays-removed', passed: reexported.files['render.yaml'] === undefined },
       { id: 'changed-app-journey-passed', passed: changedAppReport.passed === true },
       { id: 'rust-behavior-preserved', passed: workspace.accepted.files['server/src/main.rs'].includes('PAIN_ESCALATION_THRESHOLD: u8 = 6') && reexported.files['server/src/main.rs'] === workspace.accepted.files['server/src/main.rs'] },
       { id: 'svelte-treatment-preserved', passed: workspace.accepted.files['web/src/lib/treatment.json'].includes('Owned recovery worklist') && reexported.files['web/src/lib/treatment.json'] === workspace.accepted.files['web/src/lib/treatment.json'] },

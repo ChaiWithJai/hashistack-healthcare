@@ -2424,15 +2424,19 @@ async fn export_app(
             .ok_or_else(|| not_found("pack"))?;
         let mut bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
         if let Some(workspace) = plat.workspaces.get(&id) {
-            for (path, content) in &workspace.accepted.files {
-                let source_path = ["web/", "server/", "tests/", "synthetic/"]
-                    .iter()
-                    .any(|prefix| path.starts_with(prefix));
-                let owned_path = workspace.origin
-                    == crate::workspace::WorkspaceOrigin::OwnedImportVerified
-                    && !matches!(path.as_str(), "pack.hcl" | "reimport-result.json");
-                if source_path || owned_path {
-                    bundle.files.insert(path.clone(), content.clone());
+            if workspace.origin == crate::workspace::WorkspaceOrigin::OwnedImportVerified {
+                // The accepted checkpoint is the verified owned repository. Rebuilding
+                // around it would inject current generator files or replace inert owned
+                // metadata such as pack.hcl, breaking the exact digest we admitted.
+                bundle.files = workspace.accepted.files.clone();
+            } else {
+                for (path, content) in &workspace.accepted.files {
+                    if ["web/", "server/", "tests/", "synthetic/"]
+                        .iter()
+                        .any(|prefix| path.starts_with(prefix))
+                    {
+                        bundle.files.insert(path.clone(), content.clone());
+                    }
                 }
             }
         }

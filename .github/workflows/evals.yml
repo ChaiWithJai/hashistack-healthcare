@@ -29,6 +29,9 @@ jobs:
       # clinical workflow at / and its connected Svelte workspace at
       # /workspace/ share the same Rust service and origin.
       - run: node evals/export-runtime/proof.mjs
+      # Prove that a clinician can change an owned export, import it as a new
+      # private synthetic starter, and export the same source bytes again.
+      - run: node evals/reimport/proof.mjs
       - run: ./scripts/journey.sh
       # The regenerated scorecard + full screenshot evidence, reviewable per
       # run without committing from CI.
@@ -42,4 +45,5 @@ jobs:
             docs/evals/journey/
             .evals/screenshots/
             .evals/export-runtime/
+            .evals/reimport/
           if-no-files-found: warn

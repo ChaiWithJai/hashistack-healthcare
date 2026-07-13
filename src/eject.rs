@@ -347,7 +347,7 @@ try {
     await page.getByLabel('password').fill('learn-clinician');
     await page.getByRole('button', { name: 'sign in', exact: false }).click();
     await page.waitForURL(`${baseUrl}/clinician`);
-    await page.getByText(/pain 8\/10 at or over threshold 7/).waitFor();
+    await page.getByText(/pain 8\/10 at or over threshold 7/).first().waitFor();
     await page.screenshot({ path: path.join(resultDir, 'clinician-inbox.png'), fullPage: true });
   }
 

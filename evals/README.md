@@ -6,7 +6,7 @@ realistic sampling of scenarios, and emits a portable scorecard baseline:
 ```bash
 ./scripts/evals.sh
 # → docs/evals/scorecard.md (human) + docs/evals/scorecard.json (machine)
-# → .evals/screenshots/ (full evidence, gitignored; 3 best committed under docs/evals/screenshots/)
+# → .evals/screenshots/ (full evidence, gitignored and published as a CI artifact)
 ```
 
 - **Layer 1 — the job to be done.** Can a doctor/CHP vibe-code this tool?
@@ -25,11 +25,12 @@ realistic sampling of scenarios, and emits a portable scorecard baseline:
   harness—contains pack-specific thresholds, selectors, and expected outcomes.
 
 **The journey profiler is the harness's single-journey sibling**: where the
-scorecard samples 30 scenarios for a regression baseline, `scripts/journey.sh`
-(→ `evals/journey/profile.mjs`, ports 39400/39450) runs THE flagship journey
-once — describe → iterate → failing gate → fix → co-sign → eject → the
-ejected app compiled, booted, and driven — timing every step, cross-
-referencing each to its audit seqs, and emitting a narrative anyone can be
+scorecard samples 78 scenarios for a regression baseline, `scripts/journey.sh`
+(→ `evals/journey/profile.mjs`, process-specific high ports) runs THE flagship
+journey once — describe → iterate → review the disclosed gate → enforce the
+real-data lock → co-sign a synthetic demo → eject → compile, boot, and drive
+the ejected app — timing every step, linking each to its audit sequence, and
+emitting a narrative anyone can be
 shown: [docs/evals/journey/journey.md](../docs/evals/journey/journey.md)
 (+ journey.json and six stage screenshots).
 
@@ -43,7 +44,7 @@ since the refusal surface landed (src/refusals.rs, #12).
 
 ## The corpus (evals/scenarios/*.json)
 
-30 scenarios: for each of the 5 packs, 4+ describe-phrasing variants across
+78 scenarios across the runnable packs, with describe-phrasing variants across
 personas (precise physician, colloquial physician, community health worker
 in home-visit idiom, terse/typo'd — post-op-monitor, the flagship, carries
 two extra), plus 4 refusal scenarios, 2 edges (duplicate app names;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Journey profiler — ONE real clinician journey, end to end, profiled.
 //
-// Where the eval harness (evals/harness/run.mjs) samples 30 scenarios for a
+// Where the eval harness (evals/harness/run.mjs) samples 78 scenarios for a
 // scorecard, this runs the single flagship journey — Dr. Osei vibe-coding a
 // post-op recovery tracker on the fully-real pack — and captures BOTH the
 // final artifact and the profiled path to it: every step timed (wall ms
@@ -19,9 +19,9 @@
 // the dev fallback and the audit stream shows one clean actor.
 //
 // Invoked by scripts/journey.sh (which builds the control plane and pins
-// the worktree-local target dirs). Ports: 39400 control plane, 39450
-// ejected app — clear of the eval harness (39200/39300) and the staging
-// pressure test (39000+).
+// the worktree-local target dirs). It chooses process-specific high ports by
+// default so it can run after or beside the larger eval suite; explicit ports
+// remain available through JOURNEY_CP_PORT and JOURNEY_APP_PORT.
 
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -37,8 +37,8 @@ const LOGS_DIR = path.join(WORK_DIR, 'logs');
 const CONTROL_PLANE_BIN = path.join(
   process.env.CARGO_TARGET_DIR || path.join(ROOT, 'target'), 'debug', 'rust-proof-service');
 const EJECT_TARGET_DIR = process.env.JOURNEY_EJECT_TARGET_DIR || path.join(ROOT, '.journey-target');
-const CP_PORT = Number(process.env.JOURNEY_CP_PORT || 39400);
-const APP_PORT = Number(process.env.JOURNEY_APP_PORT || 39450);
+const CP_PORT = Number(process.env.JOURNEY_CP_PORT || 40000 + (process.pid % 10000));
+const APP_PORT = Number(process.env.JOURNEY_APP_PORT || 50000 + (process.pid % 10000));
 const SHOT_BUDGET_BYTES = 900 * 1024; // committed-screenshot budget, total
 const BUNDLE_BUDGET_BYTES = 512 * 1024; // portable source bundle, before compression
 
@@ -86,7 +86,9 @@ async function waitHealthy(base, child, logPath, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`server exited early (code ${child.exitCode}) — see ${logPath}`);
+      const log = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim() : '';
+      const detail = log ? `\n${log.slice(-2000)}` : '';
+      throw new Error(`server exited early (code ${child.exitCode}) — see ${logPath}${detail}`);
     }
     try {
       const res = await fetch(`${base}/health`);

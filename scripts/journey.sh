@@ -14,9 +14,9 @@
 #   # → docs/evals/journey/journey.json (every number, machine-readable)
 #   # → docs/evals/journey/0*.png       (six stage screenshots, <900KB total)
 #
-# Ports: 39400 (control plane) and 39450 (ejected app) — clear of the eval
-# harness (39200/39300) and the staging pressure test (39000+). Prereqs are
-# the eval harness's: cargo, node >= 20, Playwright with Chromium (the dev
+# Process-specific high ports avoid collisions with the eval harness and
+# concurrent worktrees; JOURNEY_CP_PORT/JOURNEY_APP_PORT can pin them. Prereqs
+# are the eval harness's: cargo, node >= 20, Playwright with Chromium (the dev
 # container preinstalls /opt/node22 and /opt/pw-browsers; elsewhere
 # `npm install playwright && npx playwright install chromium`).
 set -euo pipefail

@@ -98,10 +98,14 @@ trap removes the same rule whether deployment passes or fails. The token needs
 only firewall update access. SSH still requires the staging private key and a
 pinned known-host entry; ports 80 and 443 remain the public application path.
 
-Gemma 4 is the only application model. It plans treatments. Rust creates the
-candidate source with checked pack rules. Rust also runs the checks, stores the
-accepted checkpoint, and creates the export. The repository does not deploy a
-second model worker or an agent framework.
+Gemma 4 is the only application model. It chooses one of three recipes from the
+signed pack. Rust rejects any other answer. Rust creates the candidate source,
+runs the checks, stores the accepted checkpoint, and creates the export. The
+repository does not deploy a second model worker or an agent framework.
+
+Use `prompts/digitalocean-treatment-planner-v1.txt` as the exact DigitalOcean
+agent instruction text. After any change, hash that file and store the digest
+in `DIGITALOCEAN_PLANNER_VERSION`. Deploy the same digest with the application.
 
 The DigitalOcean agent must receive synthetic data only. Do not send patient
 data to the agent until DigitalOcean confirms the required health care terms

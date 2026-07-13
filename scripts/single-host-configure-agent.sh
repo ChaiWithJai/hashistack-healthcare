@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Atomically install the bounded agent routing values on one studio host.
+# Secrets travel over SSH stdin and are never command-line arguments.
+set -euo pipefail
+
+host="${1:?usage: scripts/single-host-configure-agent.sh HOST}"
+: "${DIGITALOCEAN_PLANNER_ENDPOINT:?DIGITALOCEAN_PLANNER_ENDPOINT is required}"
+: "${DIGITALOCEAN_PLANNER_ACCESS_KEY:?DIGITALOCEAN_PLANNER_ACCESS_KEY is required}"
+: "${DIGITALOCEAN_PLANNER_VERSION:?DIGITALOCEAN_PLANNER_VERSION is required}"
+
+values=(
+  "WORKSPACE_AGENT_PROVIDER=digitalocean"
+  "DIGITALOCEAN_PLANNER_ENDPOINT=$DIGITALOCEAN_PLANNER_ENDPOINT"
+  "DIGITALOCEAN_PLANNER_ACCESS_KEY=$DIGITALOCEAN_PLANNER_ACCESS_KEY"
+  "DIGITALOCEAN_PLANNER_VERSION=$DIGITALOCEAN_PLANNER_VERSION"
+  "DIGITALOCEAN_GENERATOR_ENDPOINT=${DIGITALOCEAN_GENERATOR_ENDPOINT:-}"
+  "DIGITALOCEAN_GENERATOR_ACCESS_KEY=${DIGITALOCEAN_GENERATOR_ACCESS_KEY:-}"
+  "DIGITALOCEAN_GENERATOR_VERSION=${DIGITALOCEAN_GENERATOR_VERSION:-}"
+)
+
+for value in "${values[@]}"; do
+  if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+    echo "agent environment values must be one line" >&2
+    exit 1
+  fi
+done
+
+printf '%s\n' "${values[@]}" | ssh -o BatchMode=yes "$host" 'set -eu
+  file=/etc/hashistack-studio.env
+  test -f "$file"
+  tmp=$(mktemp)
+  trap '\''rm -f "$tmp"'\'' EXIT
+  cp "$file" "$tmp"
+  while IFS= read -r line; do
+    key=${line%%=*}
+    case "$key" in
+      WORKSPACE_AGENT_PROVIDER|DIGITALOCEAN_PLANNER_ENDPOINT|DIGITALOCEAN_PLANNER_ACCESS_KEY|DIGITALOCEAN_PLANNER_VERSION|DIGITALOCEAN_GENERATOR_ENDPOINT|DIGITALOCEAN_GENERATOR_ACCESS_KEY|DIGITALOCEAN_GENERATOR_VERSION) ;;
+      *) echo "refusing unknown agent environment key" >&2; exit 1 ;;
+    esac
+    sed -i "/^${key}=/d" "$tmp"
+    printf "%s\n" "$line" >> "$tmp"
+  done
+  install -o root -g root -m 0600 "$tmp" "$file"'
+
+echo "installed versioned DigitalOcean agent routing on $host"

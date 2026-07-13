@@ -28,6 +28,44 @@ app=$(curl -fsS "${auth[@]}" "${json[@]}" \
   -d "{\"prompt\":\"a post-op recovery tracker for synthetic practice patients\",\"pack\":\"post-op-monitor\",\"name\":\"$name\"}" \
   "$base/api/apps")
 id=$(printf '%s' "$app" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["id"])')
+
+# Exercise the actual reviewed source-workspace path before release. A staging
+# deployment can make DigitalOcean provenance mandatory; provider-neutral VM
+# checks still accept the deterministic floor.
+workspace=$(curl -fsS "${auth[@]}" "${json[@]}" \
+  -d '{"task":"organize synthetic post-op follow-ups by urgency"}' \
+  "$base/api/apps/$id/workspace/treatments")
+provider=$(printf '%s' "$workspace" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_agent"]["provider"])')
+model=$(printf '%s' "$workspace" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_agent"]["model"])')
+fallback=$(printf '%s' "$workspace" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_agent"].get("fallback_reason", ""))')
+selected=$(printf '%s' "$workspace" | python3 -c 'import json,sys; print(json.load(sys.stdin)["treatment_plan"]["recommended_treatment_id"])')
+test -z "$fallback"
+if [ "${REQUIRE_DIGITALOCEAN_PLANNER:-0}" = 1 ]; then
+  test "$provider" = digitalocean
+  test "$model" = gemma-4-31B-it
+  version=$(printf '%s' "$workspace" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_agent"].get("deployment_version", ""))')
+  test -n "${EXPECTED_PLANNER_VERSION:-}"
+  test "$version" = "$EXPECTED_PLANNER_VERSION"
+fi
+
+curl -fsS "${auth[@]}" "${json[@]}" \
+  -d "{\"treatment_id\":\"$selected\"}" \
+  "$base/api/apps/$id/workspace/select" >/dev/null
+candidate=$(curl -fsS "${auth[@]}" "${json[@]}" \
+  -d '{"task":"build the selected synthetic follow-up workflow"}' \
+  "$base/api/apps/$id/workspace/generate")
+printf '%s' "$candidate" | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["candidate"]["verification"]["passed"] is True'
+generation_provider=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"]["provider"])')
+generation_fallback=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"].get("fallback_reason", ""))')
+test -z "$generation_fallback"
+if [ "${REQUIRE_DIGITALOCEAN_GENERATOR:-0}" = 1 ]; then
+  test "$generation_provider" = digitalocean
+fi
+candidate_id=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["candidate"]["id"])')
+curl -fsS "${auth[@]}" "${json[@]}" \
+  -d "{\"candidate_id\":\"$candidate_id\"}" \
+  "$base/api/apps/$id/workspace/candidate/accept" >/dev/null
+
 curl -fsS "${auth[@]}" "${json[@]}" -d '{}' \
   "$base/api/apps/$id/gate/auto-logoff/fix" >/dev/null
 
@@ -74,4 +112,4 @@ printf '%s' "$bundle" | grep -q 'synthetic demo'
 printf '%s' "$bundle" | grep -q 'server/src/main.rs'
 printf '%s' "$bundle" | grep -q 'web/src/routes/+page.svelte'
 
-echo "remote proof passed at $base: $id is synthetic-only, exportable, and makes no fabricated telemetry claim"
+echo "remote proof passed at $base: $id used $provider/$model planning and $generation_provider generation, is synthetic-only, exportable, and makes no fabricated telemetry claim"

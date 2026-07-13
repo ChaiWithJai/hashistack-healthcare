@@ -79,7 +79,27 @@ The next production topology is two Droplets (or App Platform services), separat
 
 ## Agent and model tier
 
-The control plane already accepts OpenAI-compatible model endpoints. Keep inference outside the trusted control plane:
+The staging planner is a private DigitalOcean agent named
+`practice-studio-treatment-planner` in `tor1`. It uses Gemma 4. The release
+workflow copies its endpoint, scoped key, and immutable version into
+`/etc/hashistack-studio.env`, then the remote proof requires the returned
+workspace to report that exact provider, model, and version with no fallback.
+Configure the GitHub `staging` environment with:
+
+- variable `DIGITALOCEAN_PLANNER_ENDPOINT`;
+- variable `DIGITALOCEAN_PLANNER_VERSION`;
+- secret `DIGITALOCEAN_PLANNER_ACCESS_KEY`;
+- secret `DO_STAGING_HOST`, plus the existing SSH key and known-hosts secrets.
+
+The source-generation worker remains separate. It has distinct endpoint,
+key, and version settings because an ADK worker must never reuse the planner
+credential. Set `DIGITALOCEAN_GENERATOR_REQUIRED=1` only after the deployed
+Deep Agents worker passes the remote generation proof. On 2026-07-13 the
+account rejected `gradient agent deploy` because the ADK public preview was
+not enabled for the team. Until DigitalOcean enables it, the UI labels
+generation as the deterministic safe floor and does not claim GPT-5.6 Sol ran.
+
+Keep inference outside the trusted control plane:
 
 - `llama.cpp` on the CPU Droplet is useful only as a tiny route/canary; 2 vCPU/4 GiB is not a credible coding-model host.
 - Hermes can run as an operator/agent client against an OpenAI-compatible endpoint; it does not create inference capacity.

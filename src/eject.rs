@@ -85,10 +85,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         svelte_package_lock().to_string(),
     );
     files.insert("web/svelte.config.js".to_string(), svelte_config());
-    files.insert(
-        "web/vite.config.ts".to_string(),
-        svelte_vite_config(has_local_media),
-    );
+    files.insert("web/vite.config.ts".to_string(), svelte_vite_config());
     files.insert("web/tsconfig.json".to_string(), svelte_tsconfig());
     files.insert("web/src/app.html".to_string(), svelte_app_html());
     files.insert("web/src/app.d.ts".to_string(), svelte_app_types());
@@ -317,12 +314,8 @@ fn svelte_config() -> String {
     "import adapter from '@sveltejs/adapter-static';\n\nexport default {\n  kit: {\n    adapter: adapter({ fallback: 'index.html' }),\n    paths: { base: '/workspace' }\n  }\n};\n".to_string()
 }
 
-fn svelte_vite_config(local_media: bool) -> String {
-    if local_media {
-        "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [sveltekit()],\n  server: { proxy: { '/health': 'http://127.0.0.1:8080', '/api': 'http://127.0.0.1:8080' } }\n});\n".to_string()
-    } else {
-        "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [sveltekit()],\n  server: { proxy: { '/health': 'http://127.0.0.1:8080', '/api': 'http://127.0.0.1:8080' } }\n});\n".to_string()
-    }
+fn svelte_vite_config() -> String {
+    "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [sveltekit()],\n  server: { proxy: { '/health': 'http://127.0.0.1:8080', '/api': 'http://127.0.0.1:8080' } }\n});\n".to_string()
 }
 
 fn svelte_tsconfig() -> String {

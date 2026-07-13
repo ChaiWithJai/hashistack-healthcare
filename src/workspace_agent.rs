@@ -1,7 +1,7 @@
-//! Typed provider boundary for source-workspace planning and generation.
+//! Typed provider boundary for source-workspace planning.
 //!
 //! Remote agents only propose data. The Rust workspace validates every plan
-//! and patch again and remains the sole authority that verifies, checkpoints,
+//! and remains the sole authority that generates, verifies, checkpoints,
 //! accepts, exports, or deploys source.
 
 use std::collections::BTreeMap;
@@ -21,6 +21,8 @@ const SCHEMA_VERSION: u8 = 1;
 const DEFAULT_TIMEOUT_SECS: u64 = 45;
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 600_000;
 const MAX_CONFIGURED_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+const DETERMINISTIC_MODEL: &str = "convention-floor-v1";
+const DIGITALOCEAN_PLANNER_MODEL: &str = "gemma-4-31B-it";
 
 pub type AgentFuture<'a, T> =
     Pin<Box<dyn Future<Output = std::result::Result<AgentOutput<T>, AgentError>> + Send + 'a>>;
@@ -49,6 +51,8 @@ pub struct GenerateRequest {
 pub struct AgentOutput<T> {
     pub value: T,
     pub provider: &'static str,
+    pub model: &'static str,
+    pub deployment_version: Option<String>,
     pub fallback: Option<AgentError>,
 }
 
@@ -102,6 +106,8 @@ impl WorkspaceAgent for DeterministicWorkspaceAgent {
             Ok(AgentOutput {
                 value: plan,
                 provider: "deterministic",
+                model: DETERMINISTIC_MODEL,
+                deployment_version: None,
                 fallback: None,
             })
         })
@@ -120,6 +126,8 @@ impl WorkspaceAgent for DeterministicWorkspaceAgent {
             Ok(AgentOutput {
                 value: patch,
                 provider: "deterministic",
+                model: DETERMINISTIC_MODEL,
+                deployment_version: None,
                 fallback: None,
             })
         })
@@ -176,30 +184,22 @@ impl fmt::Debug for AccessKey {
 pub struct DigitalOceanWorkspaceAgent {
     client: Client,
     planner_endpoint: Url,
-    generator_endpoint: Option<Url>,
-    access_key: AccessKey,
+    planner_access_key: AccessKey,
+    planner_version: Option<String>,
     max_response_bytes: usize,
 }
 
 impl DigitalOceanWorkspaceAgent {
     pub fn new(
         planner_endpoint: &str,
-        generator_endpoint: Option<&str>,
-        access_key: String,
+        planner_access_key: String,
+        planner_version: Option<String>,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Result<Self> {
         let planner_endpoint = planner_chat_url(planner_endpoint)?;
         validate_private_endpoint(&planner_endpoint, "DIGITALOCEAN_PLANNER_ENDPOINT")?;
-        let generator_endpoint = generator_endpoint
-            .map(|value| {
-                let url =
-                    Url::parse(value).context("DIGITALOCEAN_GENERATOR_ENDPOINT is not a URL")?;
-                validate_private_endpoint(&url, "DIGITALOCEAN_GENERATOR_ENDPOINT")?;
-                Ok::<_, anyhow::Error>(url)
-            })
-            .transpose()?;
-        if access_key.trim().is_empty() {
+        if planner_access_key.trim().is_empty() {
             bail!("DIGITALOCEAN_PLANNER_ACCESS_KEY is required");
         }
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
@@ -218,8 +218,8 @@ impl DigitalOceanWorkspaceAgent {
         Ok(Self {
             client,
             planner_endpoint,
-            generator_endpoint,
-            access_key: AccessKey(access_key),
+            planner_access_key: AccessKey(planner_access_key),
+            planner_version,
             max_response_bytes,
         })
     }
@@ -227,12 +227,13 @@ impl DigitalOceanWorkspaceAgent {
     async fn post_json<T: Serialize + ?Sized>(
         &self,
         endpoint: Url,
+        access_key: &AccessKey,
         request: &T,
     ) -> std::result::Result<Vec<u8>, AgentError> {
         let response = self
             .client
             .post(endpoint)
-            .bearer_auth(&self.access_key.0)
+            .bearer_auth(&access_key.0)
             .json(request)
             .send()
             .await
@@ -277,18 +278,6 @@ impl DigitalOceanWorkspaceAgent {
             body.extend_from_slice(&chunk);
         }
         Ok(body)
-    }
-
-    async fn invoke_generator<T: for<'de> Deserialize<'de>>(
-        &self,
-        endpoint: Url,
-        request: &WireRequest<'_>,
-    ) -> std::result::Result<T, AgentError> {
-        let body = self.post_json(endpoint, request).await?;
-        serde_json::from_slice(&body).map_err(|_| AgentError {
-            kind: AgentErrorKind::Schema,
-            status: Some(200),
-        })
     }
 }
 
@@ -336,9 +325,18 @@ impl WorkspaceAgent for DigitalOceanWorkspaceAgent {
                 }],
                 stream: false,
             };
-            let body = self.post_json(self.planner_endpoint.clone(), &chat).await?;
+            let body = self
+                .post_json(
+                    self.planner_endpoint.clone(),
+                    &self.planner_access_key,
+                    &chat,
+                )
+                .await?;
             let wrapper: ChatCompletion =
                 serde_json::from_slice(&body).map_err(|_| schema_error())?;
+            if wrapper.model != DIGITALOCEAN_PLANNER_MODEL {
+                return Err(schema_error());
+            }
             let content = wrapper
                 .choices
                 .first()
@@ -357,44 +355,15 @@ impl WorkspaceAgent for DigitalOceanWorkspaceAgent {
             Ok(AgentOutput {
                 value: plan,
                 provider: "digitalocean",
+                model: DIGITALOCEAN_PLANNER_MODEL,
+                deployment_version: self.planner_version.clone(),
                 fallback: None,
             })
         })
     }
 
     fn generate<'a>(&'a self, request: GenerateRequest) -> AgentFuture<'a, CandidatePatch> {
-        Box::pin(async move {
-            let Some(endpoint) = self.generator_endpoint.clone() else {
-                let mut output = DeterministicWorkspaceAgent.generate(request).await?;
-                output.provider = "deterministic";
-                return Ok(output);
-            };
-            let wire = WireRequest {
-                schema_version: SCHEMA_VERSION,
-                action: "generate",
-                thread_id: &request.thread_id,
-                task: &request.task,
-                pack: &request.pack,
-                workspace_summary: &request.workspace_summary,
-                selected_treatment_id: Some(&request.selected_treatment_id),
-            };
-            let envelope: GenerateEnvelope = self.invoke_generator(endpoint, &wire).await?;
-            if envelope.schema_version != SCHEMA_VERSION {
-                return Err(schema_error());
-            }
-            envelope
-                .candidate_patch
-                .validate()
-                .map_err(|_| AgentError {
-                    kind: AgentErrorKind::InvalidCandidate,
-                    status: None,
-                })?;
-            Ok(AgentOutput {
-                value: envelope.candidate_patch,
-                provider: "digitalocean",
-                fallback: None,
-            })
-        })
+        DeterministicWorkspaceAgent.generate(request)
     }
 }
 
@@ -412,6 +381,7 @@ struct ChatMessage<'a> {
 
 #[derive(Deserialize)]
 struct ChatCompletion {
+    model: String,
     choices: Vec<ChatChoice>,
 }
 
@@ -445,13 +415,6 @@ struct WireRequest<'a> {
     selected_treatment_id: Option<&'a str>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GenerateEnvelope {
-    schema_version: u8,
-    candidate_patch: CandidatePatch,
-}
-
 fn schema_error() -> AgentError {
     AgentError {
         kind: AgentErrorKind::Schema,
@@ -480,7 +443,7 @@ pub fn from_env() -> Result<Arc<dyn WorkspaceAgent>> {
                 .context("DIGITALOCEAN_PLANNER_ENDPOINT is required")?;
             let access_key = std::env::var("DIGITALOCEAN_PLANNER_ACCESS_KEY")
                 .context("DIGITALOCEAN_PLANNER_ACCESS_KEY is required")?;
-            let generator_endpoint = std::env::var("DIGITALOCEAN_GENERATOR_ENDPOINT")
+            let planner_version = std::env::var("DIGITALOCEAN_PLANNER_VERSION")
                 .ok()
                 .filter(|value| !value.trim().is_empty());
             let timeout =
@@ -493,8 +456,8 @@ pub fn from_env() -> Result<Arc<dyn WorkspaceAgent>> {
             )? as usize;
             let primary = Arc::new(DigitalOceanWorkspaceAgent::new(
                 &planner_endpoint,
-                generator_endpoint.as_deref(),
                 access_key,
+                planner_version,
                 Duration::from_secs(timeout),
                 max,
             )?);
@@ -668,8 +631,8 @@ mod tests {
     fn rejects_public_plain_http() {
         let error = DigitalOceanWorkspaceAgent::new(
             "http://example.com/agent",
-            None,
             "key".into(),
+            None,
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -695,14 +658,15 @@ mod tests {
         let plan = r#"{"schema_version":1,"treatment_plan":{"problem":"queue","recommended_treatment_id":"a","treatments":[{"id":"a","label":"A","user_outcome":"A","screen_changes":["A"]},{"id":"b","label":"B","user_outcome":"B","screen_changes":["B"]}],"acceptance_checks":["works"]}}"#;
         let body = serde_json::json!({
             "id": "completion-1",
+            "model": "gemma-4-31B-it",
             "choices": [{"message": {"role": "assistant", "content": plan}}]
         })
         .to_string();
         let (endpoint, request) = serve_once(body);
         let agent = DigitalOceanWorkspaceAgent::new(
             &endpoint,
-            None,
             "private-key".into(),
+            Some("planner-test-v1".into()),
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -717,6 +681,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(output.provider, "digitalocean");
+        assert_eq!(output.model, "gemma-4-31B-it");
+        assert_eq!(
+            output.deployment_version.as_deref(),
+            Some("planner-test-v1")
+        );
         let raw = request.recv().unwrap();
         let lower = raw.to_ascii_lowercase();
         assert!(lower.contains("authorization: bearer private-key"));
@@ -734,18 +703,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_sends_selected_treatment_but_not_local_files() {
-        let body = r#"{"schema_version":1,"candidate_patch":{"summary":"change","files":[{"path":"web/src/routes/+page.svelte","content":"<p>safe</p>","reason":"screen"}],"verification_commands":["npm run check"]}}"#.to_string();
-        let (endpoint, request) = serve_once(body);
+    async fn generation_is_always_local_and_deterministic() {
         let agent = DigitalOceanWorkspaceAgent::new(
-            &endpoint,
-            Some(&endpoint),
+            "http://127.0.0.1:9",
             "private-key".into(),
-            Duration::from_secs(5),
+            Some("planner-test-v1".into()),
+            Duration::from_secs(1),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
         .unwrap();
-        agent
+        let output = agent
             .generate(GenerateRequest {
                 thread_id: "app-1".into(),
                 task: "queue".into(),
@@ -753,32 +720,32 @@ mod tests {
                 workspace_summary: "checkpoint=0".into(),
                 selected_treatment_id: "timeline".into(),
                 accepted_files: BTreeMap::from([(
-                    "web/private".into(),
-                    "sentinel-source-secret".into(),
+                    "web/src/routes/+page.svelte".into(),
+                    "<main><h1>Practice</h1></main>".into(),
                 )]),
             })
             .await
             .unwrap();
-        let raw = request.recv().unwrap();
-        let json = raw.split("\r\n\r\n").nth(1).unwrap();
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert_eq!(value["selected_treatment_id"], "timeline");
-        assert!(!json.contains("sentinel-source-secret"));
-        assert!(value.get("accepted_files").is_none());
+        assert_eq!(output.provider, "deterministic");
+        assert_eq!(output.model, "convention-floor-v1");
+        assert!(output.deployment_version.is_none());
+        assert!(output.value.files[0].content.contains("queue"));
+        assert!(output.value.files[0].content.contains("timeline"));
     }
 
     #[tokio::test]
     async fn strict_envelope_rejects_unknown_fields() {
         let invalid_plan = r#"{"schema_version":1,"treatment_plan":{"problem":"queue","unexpected":true,"recommended_treatment_id":"a","treatments":[{"id":"a","label":"A","user_outcome":"A","screen_changes":["A"]},{"id":"b","label":"B","user_outcome":"B","screen_changes":["B"]}],"acceptance_checks":["works"]}}"#;
         let body = serde_json::json!({
+            "model": "gemma-4-31B-it",
             "choices": [{"message": {"content": invalid_plan}}]
         })
         .to_string();
         let (endpoint, _) = serve_once(body);
         let agent = DigitalOceanWorkspaceAgent::new(
             &endpoint,
-            None,
             "private-key".into(),
+            None,
             Duration::from_secs(5),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -800,8 +767,8 @@ mod tests {
     async fn generate_is_deterministic_when_no_worker_endpoint_is_configured() {
         let agent = DigitalOceanWorkspaceAgent::new(
             "http://127.0.0.1:9",
-            None,
             "private-key".into(),
+            None,
             Duration::from_secs(1),
             DEFAULT_MAX_RESPONSE_BYTES,
         )
@@ -821,6 +788,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(output.provider, "deterministic");
+        assert_eq!(output.model, "convention-floor-v1");
         assert!(output.fallback.is_none());
         assert!(output.value.files[0].content.contains("add a queue"));
     }

@@ -262,14 +262,57 @@ pub struct Candidate {
     pub created_at: u64,
 }
 
+/// Durable, user-visible evidence of which bounded generation tier produced
+/// the last plan or candidate. This records identifiers only; credentials,
+/// prompts, and source bytes never enter provenance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentProvenance {
+    pub provider: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
+impl AgentProvenance {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.provider.trim().is_empty() || self.provider.len() > 40 {
+            return Err("agent provenance provider is invalid".into());
+        }
+        if self.model.trim().is_empty() || self.model.len() > 100 {
+            return Err("agent provenance model is invalid".into());
+        }
+        if self
+            .deployment_version
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty() || value.len() > 128)
+        {
+            return Err("agent provenance deployment version is invalid".into());
+        }
+        if self
+            .fallback_reason
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty() || value.len() > 80)
+        {
+            return Err("agent provenance fallback reason is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceRecord {
     pub app_id: String,
     pub phase: WorkspacePhase,
     pub treatment_plan: Option<TreatmentPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_agent: Option<AgentProvenance>,
     pub selected_treatment_id: Option<String>,
     pub accepted: Checkpoint,
     pub candidate: Option<Candidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_agent: Option<AgentProvenance>,
     pub failure: Option<String>,
     pub updated_at: u64,
 }
@@ -280,9 +323,11 @@ impl WorkspaceRecord {
             app_id,
             phase: WorkspacePhase::Described,
             treatment_plan: None,
+            plan_agent: None,
             selected_treatment_id: None,
             accepted: Checkpoint::new(0, files, now),
             candidate: None,
+            generation_agent: None,
             failure: None,
             updated_at: now,
         }
@@ -302,6 +347,15 @@ impl WorkspaceRecord {
         validate_checkpoint_files(&self.accepted.files)?;
         if let Some(plan) = &self.treatment_plan {
             plan.validate()?;
+        }
+        if let Some(provenance) = &self.plan_agent {
+            provenance.validate()?;
+            if self.treatment_plan.is_none() {
+                return Err("plan agent provenance has no treatment plan".into());
+            }
+        }
+        if let Some(provenance) = &self.generation_agent {
+            provenance.validate()?;
         }
         if let Some(selected) = &self.selected_treatment_id {
             let plan = self
@@ -368,8 +422,10 @@ impl WorkspaceRecord {
     pub fn set_plan(&mut self, plan: TreatmentPlan, now: u64) -> Result<(), String> {
         plan.validate()?;
         self.treatment_plan = Some(plan);
+        self.plan_agent = None;
         self.selected_treatment_id = None;
         self.candidate = None;
+        self.generation_agent = None;
         self.phase = WorkspacePhase::TreatmentsReady;
         self.updated_at = now;
         Ok(())

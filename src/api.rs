@@ -967,6 +967,15 @@ async fn plan_source_workspace(
         .value
         .validate()
         .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+    let provenance = crate::workspace::AgentProvenance {
+        provider: output.provider.into(),
+        model: output.model.into(),
+        deployment_version: output.deployment_version.clone(),
+        fallback_reason: output
+            .fallback
+            .as_ref()
+            .map(|error| format!("{:?}", error.kind).to_ascii_lowercase()),
+    };
     let before = {
         let mut plat = platform.write().unwrap();
         let workspace = plat
@@ -984,7 +993,8 @@ async fn plan_source_workspace(
         workspace
             .set_plan(output.value, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
-        if let Some(error) = output.fallback {
+        workspace.plan_agent = Some(provenance.clone());
+        if let Some(error) = output.fallback.as_ref() {
             plat.audit.record(
                 "workspace-agent",
                 "workspace.agent_fallback",
@@ -995,6 +1005,20 @@ async fn plan_source_workspace(
                 Some(&id),
             );
         }
+        plat.audit.record(
+            "workspace-agent",
+            "workspace.agent_completed",
+            format!(
+                "plan provider={} model={} version={}",
+                provenance.provider,
+                provenance.model,
+                provenance
+                    .deployment_version
+                    .as_deref()
+                    .unwrap_or("unversioned")
+            ),
+            Some(&id),
+        );
         plat.audit.record_sensitive(
             &principal.id,
             "workspace.treatments_planned",
@@ -1087,6 +1111,15 @@ async fn generate_source_candidate(
         .value
         .validate()
         .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+    let provenance = crate::workspace::AgentProvenance {
+        provider: output.provider.into(),
+        model: output.model.into(),
+        deployment_version: output.deployment_version.clone(),
+        fallback_reason: output
+            .fallback
+            .as_ref()
+            .map(|error| format!("{:?}", error.kind).to_ascii_lowercase()),
+    };
     // Verification is a separate injected authority. Snapshot the accepted
     // bytes and verifier under short locks, expose the honest phase, then run
     // the bounded executable verifier with no Platform RwLock held.
@@ -1138,7 +1171,8 @@ async fn generate_source_candidate(
         workspace
             .review_candidate(candidate_id.clone(), output.value, report, now_unix())
             .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
-        if let Some(error) = output.fallback {
+        workspace.generation_agent = Some(provenance.clone());
+        if let Some(error) = output.fallback.as_ref() {
             plat.audit.record(
                 "workspace-agent",
                 "workspace.agent_fallback",
@@ -1149,6 +1183,20 @@ async fn generate_source_candidate(
                 Some(&id),
             );
         }
+        plat.audit.record(
+            "workspace-agent",
+            "workspace.agent_completed",
+            format!(
+                "generate provider={} model={} version={}",
+                provenance.provider,
+                provenance.model,
+                provenance
+                    .deployment_version
+                    .as_deref()
+                    .unwrap_or("unversioned")
+            ),
+            Some(&id),
+        );
         plat.audit.record(
             "workspace-verifier",
             if report_passed {

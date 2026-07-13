@@ -44,28 +44,13 @@ jobs:
           test "$(printf '%s' "$COMMIT_SHA" | wc -c)" -eq 40
           test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
 
-      - name: Install pinned cloudflared
-        env:
-          CLOUDFLARED_VERSION: 2026.5.0
-          CLOUDFLARED_SHA256: 0173a478774c635e577ef1eaa5a49af88d09d2d69b4a3e46f7033598f68f6521
-        run: |
-          curl -fsSLo /tmp/cloudflared.deb \
-            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb"
-          printf '%s  %s\n' "$CLOUDFLARED_SHA256" /tmp/cloudflared.deb | sha256sum --check
-          sudo dpkg -i /tmp/cloudflared.deb
-          test "$(cloudflared --version | awk '{print $3}')" = "$CLOUDFLARED_VERSION"
-
-      - name: Configure SSH through Cloudflare Access
+      - name: Configure SSH to the staging droplet
         env:
           SSH_PRIVATE_KEY: ${{ secrets.DO_STAGING_SSH_KEY }}
           STAGING_KNOWN_HOSTS: ${{ secrets.DO_STAGING_KNOWN_HOSTS }}
-          STAGING_SSH_HOST: ${{ vars.DO_STAGING_SSH_HOST }}
-          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          STAGING_SSH_HOST: ${{ secrets.DO_STAGING_HOST }}
         run: |
           test -n "$STAGING_SSH_HOST"
-          test -n "$TUNNEL_SERVICE_TOKEN_ID"
-          test -n "$TUNNEL_SERVICE_TOKEN_SECRET"
           install -d -m 0700 ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 0600 ~/.ssh/id_ed25519
@@ -77,20 +62,31 @@ jobs:
             User root
             IdentityFile ~/.ssh/id_ed25519
             IdentitiesOnly yes
-            ProxyCommand cloudflared access ssh --hostname %h
           EOF
           chmod 0600 ~/.ssh/config
-          ssh -o BatchMode=yes "$STAGING_SSH_HOST" true
 
       - name: Deploy exact SHA and prove the critical path
         env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DO_STAGING_FIREWALL_TOKEN }}
+          DO_STAGING_FIREWALL_ID: ${{ vars.DO_STAGING_FIREWALL_ID }}
           COMMIT_SHA: ${{ steps.pr.outputs.sha }}
-          STAGING_SSH_HOST: ${{ vars.DO_STAGING_SSH_HOST }}
+          STAGING_SSH_HOST: ${{ secrets.DO_STAGING_HOST }}
           STUDIO_BEARER_TOKEN: ${{ secrets.DO_STAGING_BEARER_TOKEN }}
           STAGING_BASE_URL: ${{ vars.DO_STAGING_URL }}
-          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: scripts/single-host-release.sh "$STAGING_SSH_HOST" "$COMMIT_SHA"
+          DIGITALOCEAN_PLANNER_ENDPOINT: ${{ vars.DIGITALOCEAN_PLANNER_ENDPOINT }}
+          DIGITALOCEAN_PLANNER_ACCESS_KEY: ${{ secrets.DIGITALOCEAN_PLANNER_ACCESS_KEY }}
+          DIGITALOCEAN_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
+          REQUIRE_DIGITALOCEAN_PLANNER: "1"
+          EXPECTED_PLANNER_VERSION: ${{ vars.DIGITALOCEAN_PLANNER_VERSION }}
+        run: |
+          runner_cidr=$(scripts/digitalocean-runner-firewall.sh open)
+          cleanup() {
+            scripts/digitalocean-runner-firewall.sh close "$runner_cidr"
+          }
+          trap cleanup EXIT
+          ssh -o BatchMode=yes -o ConnectTimeout=15 "$STAGING_SSH_HOST" true
+          scripts/single-host-configure-agent.sh "$STAGING_SSH_HOST"
+          scripts/single-host-release.sh "$STAGING_SSH_HOST" "$COMMIT_SHA"
 
       - name: Comment preview URL
         env:

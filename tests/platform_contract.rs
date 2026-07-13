@@ -113,6 +113,9 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     .await;
     assert_eq!(status, StatusCode::OK, "{planned}");
     assert_eq!(planned["phase"], "treatments_ready");
+    assert_eq!(planned["plan_agent"]["provider"], "deterministic");
+    assert_eq!(planned["plan_agent"]["model"], "convention-floor-v1");
+    assert!(planned["plan_agent"].get("fallback_reason").is_none());
     assert_eq!(
         planned["treatment_plan"]["treatments"]
             .as_array()
@@ -139,6 +142,8 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     .await;
     assert_eq!(status, StatusCode::OK, "{review}");
     assert_eq!(review["phase"], "review_required");
+    assert_eq!(review["generation_agent"]["provider"], "deterministic");
+    assert_eq!(review["generation_agent"]["model"], "convention-floor-v1");
     assert_eq!(review["accepted"]["digest"], initial_digest);
     assert_eq!(review["candidate"]["verification"]["passed"], true);
     assert!(review["candidate"]["diff"][0]["unified"]

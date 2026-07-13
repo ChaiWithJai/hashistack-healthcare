@@ -79,14 +79,37 @@ The next production topology is two Droplets (or App Platform services), separat
 
 ## Agent and model tier
 
-The control plane already accepts OpenAI-compatible model endpoints. Keep inference outside the trusted control plane:
+The staging planner is a private DigitalOcean agent named
+`practice-studio-treatment-planner` in `tor1`. It uses Gemma 4. The release
+workflow copies its endpoint, scoped key, and immutable version into
+`/etc/hashistack-studio.env`, then the remote proof requires the returned
+workspace to report that exact provider, model, and version with no fallback.
+Configure the GitHub `staging` environment with:
 
-- `llama.cpp` on the CPU Droplet is useful only as a tiny route/canary; 2 vCPU/4 GiB is not a credible coding-model host.
-- Hermes can run as an operator/agent client against an OpenAI-compatible endpoint; it does not create inference capacity.
-- A separate GPU Droplet or DigitalOcean Inference endpoint is the credible coding tier. Measure quality, latency, and cost with synthetic prompts before adopting it.
-- Do not send PHI to Gradient, an agent, or a model endpoint until its BAA eligibility and complete data-retention path are confirmed in writing.
+- variable `DIGITALOCEAN_PLANNER_ENDPOINT`;
+- variable `DIGITALOCEAN_PLANNER_VERSION`;
+- secret `DIGITALOCEAN_PLANNER_ACCESS_KEY`;
+- secret `DO_STAGING_HOST`, plus the existing SSH key and known-hosts secrets.
 
-The parsimonious MVP is therefore: one small CPU Droplet for isolated staging/prod application services, an external model endpoint selected by configuration, and no Kubernetes. Kubernetes becomes justified only when multi-host scheduling, independent scaling, and rolling workload operations are actual constraints.
+Hosted GitHub runners do not have a stable source address. The protected
+staging job uses `DO_STAGING_FIREWALL_TOKEN` and
+`DO_STAGING_FIREWALL_ID` to add one exact runner `/32` for TCP 22. A shell
+trap removes the same rule whether deployment passes or fails. The token needs
+only firewall update access. SSH still requires the staging private key and a
+pinned known-host entry; ports 80 and 443 remain the public application path.
+
+Gemma 4 is the only application model. It plans treatments. Rust creates the
+candidate source with checked pack rules. Rust also runs the checks, stores the
+accepted checkpoint, and creates the export. The repository does not deploy a
+second model worker or an agent framework.
+
+The DigitalOcean agent must receive synthetic data only. Do not send patient
+data to the agent until DigitalOcean confirms the required health care terms
+and the full data retention path in writing.
+
+The MVP uses one small CPU Droplet for the application services and the private
+DigitalOcean Gemma agent for planning. It does not need Kubernetes. Add more
+hosts only when the measured load or the required isolation calls for them.
 
 ## Rollback and teardown
 

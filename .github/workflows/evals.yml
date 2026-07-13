@@ -44,6 +44,7 @@ jobs:
             docs/evals/scorecard.json
             docs/evals/journey/
             .evals/screenshots/
+            .evals/logs/
             .evals/export-runtime/
             .evals/reimport/
           if-no-files-found: warn

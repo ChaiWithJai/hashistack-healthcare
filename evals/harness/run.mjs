@@ -83,7 +83,10 @@ async function waitHealthy(base, child, logPath, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`server exited early (code ${child.exitCode}) — see ${logPath}`);
+      const tail = fs.existsSync(logPath)
+        ? fs.readFileSync(logPath, 'utf8').trim().slice(-4000)
+        : 'no server log was written';
+      throw new Error(`server exited early (code ${child.exitCode}) — ${logPath}\n${tail}`);
     }
     try {
       const res = await fetch(`${base}/health`);
@@ -94,8 +97,29 @@ async function waitHealthy(base, child, logPath, timeoutMs = 15000) {
   throw new Error(`server at ${base} never became healthy — see ${logPath}`);
 }
 
-function stopServer(child) {
-  try { child.kill('SIGTERM'); } catch { /* already gone */ }
+async function stopServer(child, timeoutMs = 3000) {
+  const waitForExit = (ms) => new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      child.off('exit', done);
+      resolve();
+    }
+    child.once('exit', done);
+  });
+
+  if (child.exitCode === null && child.signalCode === null) {
+    try { child.kill('SIGTERM'); } catch { /* already gone */ }
+    await waitForExit(timeoutMs);
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    await waitForExit(1000);
+  }
   children.delete(child);
 }
 
@@ -654,7 +678,7 @@ async function runArtifactChecks(scenario, bundle, index, browser, score) {
     score.add('artifact_job', false, `artifact contract execution crashed: ${err.message}`);
   } finally {
     await context.close();
-    stopServer(child);
+    await stopServer(child);
   }
 }
 
@@ -837,8 +861,13 @@ async function main() {
     throw new Error(`control plane binary missing at ${CONTROL_PLANE_BIN} — run scripts/evals.sh (it builds first)`);
   }
 
+  const requestedScenario = process.env.EVALS_SCENARIO;
   const scenarios = fs.readdirSync(SCENARIO_DIR).filter((f) => f.endsWith('.json')).sort()
-    .map((f) => JSON.parse(fs.readFileSync(path.join(SCENARIO_DIR, f), 'utf8')));
+    .map((f) => JSON.parse(fs.readFileSync(path.join(SCENARIO_DIR, f), 'utf8')))
+    .filter((scenario) => !requestedScenario || scenario.id === requestedScenario);
+  if (requestedScenario && scenarios.length !== 1) {
+    throw new Error(`EVALS_SCENARIO did not match one scenario: ${requestedScenario}`);
+  }
   console.log(`== eval harness: ${scenarios.length} scenarios, two layers\n`);
 
   const { chromium } = await loadPlaywright();
@@ -866,7 +895,7 @@ async function main() {
       else if (scenario.edge === 'duplicate-names') outcome = await runDuplicateNames(scenario, base, layer1);
       else outcome = await runWorkflow(scenario, base, layer1);
     } finally {
-      stopServer(cp);
+      await stopServer(cp);
     }
 
     // layer 2 over the ejected artifact

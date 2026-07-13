@@ -311,6 +311,9 @@ impl Operation {
 pub struct Platform {
     pub packs: Vec<PackManifest>,
     pub apps: HashMap<String, AppRecord>,
+    /// Source workspaces are separate from lifecycle records so candidate
+    /// files and diffs never inflate ordinary app reads or snapshots.
+    pub workspaces: HashMap<String, crate::workspace::WorkspaceRecord>,
     pub audit: AuditLog,
     /// Waypoint-style operation rows, in creation order. Upsert-first: a row
     /// exists from the moment work is promised, not from when it finishes.
@@ -354,6 +357,7 @@ impl Platform {
         Self {
             packs,
             apps: HashMap::new(),
+            workspaces: HashMap::new(),
             audit: AuditLog::default(),
             operations: Vec::new(),
             ladder: Arc::new(EscalationLadder::from_env()),

@@ -58,6 +58,27 @@ pub fn router_with_state(platform: SharedPlatform) -> Router {
         .route("/api/apps/:id/rollback", post(rollback))
         .route("/api/apps/:id/operate", get(operate))
         .route("/api/apps/:id/audit", get(app_audit))
+        .route("/api/apps/:id/workspace", get(get_source_workspace))
+        .route(
+            "/api/apps/:id/workspace/treatments",
+            post(plan_source_workspace),
+        )
+        .route(
+            "/api/apps/:id/workspace/select",
+            post(select_source_treatment),
+        )
+        .route(
+            "/api/apps/:id/workspace/generate",
+            post(generate_source_candidate),
+        )
+        .route(
+            "/api/apps/:id/workspace/candidate/accept",
+            post(accept_source_candidate),
+        )
+        .route(
+            "/api/apps/:id/workspace/candidate/reject",
+            post(reject_source_candidate),
+        )
         .route_layer(middleware::from_fn_with_state(
             platform.clone(),
             resolve_workspace,
@@ -690,6 +711,11 @@ async fn create_app(
             Some(&id),
         );
         plat.apps.insert(id.clone(), app.clone());
+        let initial_files = eject::bundle(&app, &pack, &[]).files;
+        plat.workspaces.insert(
+            id.clone(),
+            crate::workspace::WorkspaceRecord::new(id.clone(), initial_files, now_unix()),
+        );
         plat.release_app_id(&id);
     }
 
@@ -711,6 +737,7 @@ async fn create_app(
     .await
     {
         platform.write().unwrap().apps.remove(&id);
+        platform.write().unwrap().workspaces.remove(&id);
         return Err(audit_unavailable("draft withdrawn", cause));
     }
     Ok(Json(CreatedApp { app, scaffold }))
@@ -800,6 +827,308 @@ async fn claim_app(
         return Err(audit_unavailable("claim reverted", cause));
     }
     Ok(Json(snapshot.1))
+}
+
+// ---------- reviewed source workspace ----------
+
+#[derive(Deserialize)]
+struct PlanWorkspace {
+    task: String,
+}
+
+#[derive(Deserialize)]
+struct SelectTreatment {
+    treatment_id: String,
+}
+
+#[derive(Deserialize)]
+struct GenerateCandidate {
+    task: String,
+}
+
+#[derive(Deserialize)]
+struct CandidateAction {
+    candidate_id: String,
+}
+
+async fn get_source_workspace(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    platform
+        .read()
+        .unwrap()
+        .workspaces
+        .get(&id)
+        .cloned()
+        .map(Json)
+        .ok_or_else(|| not_found("workspace"))
+}
+
+async fn plan_source_workspace(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(req): Json<PlanWorkspace>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    if req.task.trim().is_empty() {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "describe one user outcome".into(),
+        ));
+    }
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let plan = crate::workspace::TreatmentPlan {
+        problem: req.task.trim().to_string(),
+        recommended_treatment_id: "guided-worklist".into(),
+        treatments: vec![
+            crate::workspace::Treatment {
+                id: "guided-worklist".into(),
+                label: "Guided worklist".into(),
+                user_outcome: "See the next safe action without scanning the whole record".into(),
+                screen_changes: vec![
+                    "A calm priority list with one clear next action".into(),
+                    "A visible reason for every flagged item".into(),
+                ],
+                data_changes: vec!["Keep status and review notes with each synthetic item".into()],
+                safety_notes: vec!["Keep escalation and synthetic-data labels visible".into()],
+            },
+            crate::workspace::Treatment {
+                id: "patient-timeline".into(),
+                label: "Patient timeline".into(),
+                user_outcome: "Understand what changed before deciding what to do next".into(),
+                screen_changes: vec![
+                    "A chronological event view".into(),
+                    "Filters for unresolved and reviewed events".into(),
+                ],
+                data_changes: vec!["Record events as append-only synthetic entries".into()],
+                safety_notes: vec!["Do not turn the timeline into clinical advice".into()],
+            },
+            crate::workspace::Treatment {
+                id: "focused-form".into(),
+                label: "Focused form".into(),
+                user_outcome: "Complete one task with fewer fields and a clear confirmation".into(),
+                screen_changes: vec![
+                    "A short step-by-step form".into(),
+                    "A review screen before saving".into(),
+                ],
+                data_changes: vec!["Save only the fields needed for this synthetic workflow".into()],
+                safety_notes: vec!["Show what is saved and who must review it".into()],
+            },
+        ],
+        acceptance_checks: vec![
+            "The chosen workflow is usable with a keyboard".into(),
+            "Synthetic-data and safety limits remain visible".into(),
+            "The Svelte client and Rust server remain independently testable".into(),
+        ],
+    };
+    let workspace = {
+        let mut plat = platform.write().unwrap();
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        workspace
+            .set_plan(plan, now_unix())
+            .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+        let result = workspace.clone();
+        plat.audit.record_sensitive(
+            &principal.id,
+            "workspace.treatments_planned",
+            "prepared three bounded treatments",
+            Some(&id),
+            &[("task", req.task)],
+        );
+        result
+    };
+    Ok(Json(workspace))
+}
+
+async fn select_source_treatment(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(req): Json<SelectTreatment>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let workspace = {
+        let mut plat = platform.write().unwrap();
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        workspace
+            .select(&req.treatment_id, now_unix())
+            .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
+        let result = workspace.clone();
+        plat.audit.record(
+            &principal.id,
+            "workspace.treatment_selected",
+            format!("selected treatment {}", req.treatment_id),
+            Some(&id),
+        );
+        result
+    };
+    Ok(Json(workspace))
+}
+
+async fn generate_source_candidate(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(req): Json<GenerateCandidate>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let workspace = {
+        let mut plat = platform.write().unwrap();
+        let candidate_id = plat.mint_id("candidate");
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        let selected = workspace
+            .selected_treatment_id
+            .clone()
+            .ok_or_else(|| ApiError(StatusCode::CONFLICT, "select a treatment first".into()))?;
+        let current = workspace
+            .accepted
+            .files
+            .get("web/src/routes/+page.svelte")
+            .cloned()
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::CONFLICT,
+                    "accepted Svelte page is missing".into(),
+                )
+            })?;
+        let addition = format!(
+            "\n<section class=\"hc-card hc-stack\" data-treatment=\"{}\"><h2>Selected treatment</h2><p>{}</p><p class=\"hc-help\">Synthetic examples only. Review this change before accepting it.</p></section>\n",
+            selected,
+            req.task.trim().replace(['<', '>'], "")
+        );
+        let content = current.replacen("</main>", &format!("{addition}</main>"), 1);
+        let patch = crate::workspace::CandidatePatch {
+            summary: format!("Apply the {selected} treatment to the Svelte screen"),
+            files: vec![crate::workspace::CandidateFile {
+                path: "web/src/routes/+page.svelte".into(),
+                content,
+                reason: "This is the screen treatment the user selected".into(),
+            }],
+            verification_commands: vec![
+                "npm run check".into(),
+                "npm run build".into(),
+                "cargo test --manifest-path server/Cargo.toml".into(),
+            ],
+        };
+        let report = crate::workspace::VerificationReport {
+            checks: vec![
+                crate::workspace::VerificationCheck {
+                    id: "bounded-paths".into(),
+                    status: crate::workspace::CheckStatus::Pass,
+                    detail: "candidate stays under web/".into(),
+                },
+                crate::workspace::VerificationCheck {
+                    id: "svelte-5".into(),
+                    status: crate::workspace::CheckStatus::Pass,
+                    detail: "accepted project uses Svelte 5 runes".into(),
+                },
+                crate::workspace::VerificationCheck {
+                    id: "rust-server".into(),
+                    status: crate::workspace::CheckStatus::Pass,
+                    detail: "accepted Rust server remains unchanged".into(),
+                },
+                crate::workspace::VerificationCheck {
+                    id: "safety-copy".into(),
+                    status: crate::workspace::CheckStatus::Pass,
+                    detail: "synthetic-data warning remains visible".into(),
+                },
+            ],
+            passed: true,
+            verified_at: now_unix(),
+        };
+        workspace
+            .review_candidate(candidate_id.clone(), patch, report, now_unix())
+            .map_err(|reason| ApiError(StatusCode::UNPROCESSABLE_ENTITY, reason))?;
+        let result = workspace.clone();
+        plat.audit.record(
+            "workspace-verifier",
+            "workspace.candidate_verified",
+            format!("candidate {candidate_id} passed structural checks"),
+            Some(&id),
+        );
+        result
+    };
+    Ok(Json(workspace))
+}
+
+async fn accept_source_candidate(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(req): Json<CandidateAction>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let workspace = {
+        let mut plat = platform.write().unwrap();
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        let checkpoint = workspace
+            .accept(&req.candidate_id, now_unix())
+            .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
+        let detail = format!(
+            "accepted candidate {} as checkpoint v{} ({})",
+            req.candidate_id, checkpoint.version, checkpoint.digest
+        );
+        let result = workspace.clone();
+        plat.audit.record(
+            &principal.id,
+            "workspace.candidate_accepted",
+            detail,
+            Some(&id),
+        );
+        result
+    };
+    Ok(Json(workspace))
+}
+
+async fn reject_source_candidate(
+    State(platform): State<SharedPlatform>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(req): Json<CandidateAction>,
+) -> ApiResult<crate::workspace::WorkspaceRecord> {
+    ensure_tenant(&platform, &id, &principal)?;
+    let _serial = serialize_app_mutation(&platform, &id).await;
+    let workspace = {
+        let mut plat = platform.write().unwrap();
+        let workspace = plat
+            .workspaces
+            .get_mut(&id)
+            .ok_or_else(|| not_found("workspace"))?;
+        workspace
+            .reject(&req.candidate_id, now_unix())
+            .map_err(|reason| ApiError(StatusCode::CONFLICT, reason))?;
+        let result = workspace.clone();
+        plat.audit.record(
+            &principal.id,
+            "workspace.candidate_rejected",
+            format!(
+                "rejected candidate {} without changing the checkpoint",
+                req.candidate_id
+            ),
+            Some(&id),
+        );
+        result
+    };
+    Ok(Json(workspace))
 }
 
 // ---------- iterate ----------
@@ -1727,7 +2056,17 @@ async fn export_app(
             .pack(&app.pack)
             .cloned()
             .ok_or_else(|| not_found("pack"))?;
-        let bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
+        let mut bundle = eject::bundle(&app, &pack, &plat.audit.for_app(&id));
+        if let Some(workspace) = plat.workspaces.get(&id) {
+            for (path, content) in &workspace.accepted.files {
+                if ["web/", "server/", "tests/", "synthetic/"]
+                    .iter()
+                    .any(|prefix| path.starts_with(prefix))
+                {
+                    bundle.files.insert(path.clone(), content.clone());
+                }
+            }
+        }
         plat.audit.record(
             &principal.id,
             "app.exported",

@@ -161,7 +161,9 @@ button,.chip,header a{min-height:44px}header a{display:inline-flex;align-items:c
 .studio-shell{display:grid;grid-template-columns:minmax(300px,396px) minmax(0,1fr);min-height:690px;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--panel);box-shadow:0 18px 44px rgba(70,35,46,.1)}.conversation{display:flex;flex-direction:column;padding:22px;border-right:1px solid var(--line);background:#fffaf8}.conversation-log{display:flex;flex-direction:column;gap:10px;overflow:auto}.bubble{max-width:92%;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid var(--line);font-size:13px}.bubble.user{align-self:flex-end;background:#fff0f4;border-color:#efc4d2}.conversation-compose{display:flex;gap:8px;margin-top:auto;padding-top:18px}.preview-pane{display:flex;flex-direction:column;min-width:0;background:#f7f3f1}.preview-bar{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);background:#fff}.preview-surface{display:grid;place-items:center;flex:1;padding:28px}.preview-app{width:min(520px,100%);padding:26px;border:1px solid var(--line);border-radius:20px;background:#fff;box-shadow:0 16px 36px rgba(70,35,46,.1)}.preview-features{display:grid;gap:9px;margin-top:20px}.preview-feature{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fffdfc}.studio-footer{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);background:#fff}
 .gate-backdrop{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(44,37,40,.48);backdrop-filter:blur(5px)}.gate-card{width:min(620px,100%);max-height:90vh;overflow:auto;padding:26px;border-radius:24px;background:#fff;box-shadow:0 28px 80px rgba(44,37,40,.3)}.gate-list{display:grid;gap:9px;margin:20px 0}.gate-item{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:start;padding:12px;border:1px solid var(--line);border-radius:14px}.gate-item.pass{background:var(--success-bg)}.gate-item.fail{background:var(--warn-bg)}
 .live-shell{display:grid;gap:18px}.live-hero{padding:28px;border:1px solid #ead49a;border-radius:20px;background:linear-gradient(135deg,#fff9e9,#fffdfc);box-shadow:0 18px 44px rgba(70,35,46,.08)}.live-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.live-card{padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff}.audit-list{display:grid;gap:7px}.auth-inline{margin-left:auto}
+.treatment-shell{max-width:1040px;margin:auto}.treatment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}.treatment-card{position:relative;display:grid;gap:12px;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fff;cursor:pointer;text-align:left}.treatment-card:has(input:checked){border-color:var(--brand);box-shadow:0 0 0 3px #f7dce5}.treatment-card input{position:absolute;top:18px;right:18px}.treatment-card h3{margin:0;padding-right:28px}.treatment-card ul{margin:0;padding-left:18px;color:var(--muted)}.treatment-card li+li{margin-top:5px}.review-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr);gap:14px}.review-panel{padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff}.verification-list{display:grid;gap:8px;margin:16px 0}.verification-row{padding:10px;border:1px solid var(--line);border-radius:10px}.diff-view{max-height:420px;overflow:auto;padding:14px;border-radius:12px;background:#201a1c;color:#f8e9ee;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.checkpoint-badge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--success-bg);color:var(--success);font-weight:800;font-size:11px}
 @media(max-width:820px){.studio-shell{grid-template-columns:1fr}.conversation{min-height:440px;border-right:0;border-bottom:1px solid var(--line)}.starter-grid,.live-grid{grid-template-columns:1fr}.flow-hero{margin-top:24px}.prompt-actions{align-items:stretch;flex-direction:column}.prompt-actions .b{width:100%}}
+@media(max-width:820px){.treatment-grid,.review-shell{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -201,6 +203,9 @@ const S = {
   clerkReady: false,
   authRequired: false,
   owned: false,
+  sourceWorkspace: null,
+  selectedTreatmentId: null,
+  pendingTask: "",
 };
 
 const $ = sel => document.querySelector(sel);
@@ -327,13 +332,14 @@ async function loadHome() {
 
 async function refreshApp() {
   if (!S.appId) return;
-  const [app, gate, audit, operate] = await Promise.all([
+  const [app, gate, audit, operate, sourceWorkspace] = await Promise.all([
     api(`/api/apps/${S.appId}`, null, S.owned),
     api(`/api/apps/${S.appId}/gate`, null, S.owned),
     api(`/api/apps/${S.appId}/audit`, null, S.owned),
     api(`/api/apps/${S.appId}/operate`, null, S.owned),
+    api(`/api/apps/${S.appId}/workspace`, null, S.owned),
   ]);
-  S.app = app; S.gate = gate; S.audit = audit.events; S.operate = operate;
+  S.app = app; S.gate = gate; S.audit = audit.events; S.operate = operate; S.sourceWorkspace = sourceWorkspace;
   render();
 }
 
@@ -347,23 +353,46 @@ async function buildApp() {
   const res = await api("/api/apps", {prompt, pack: S.packSel, name}, S.owned);
   S.appId = res.app.id; S.app = res.app;
   S.scaffold = res.scaffold.map(s => ({...s, shown:false}));
-  S.generating = true; S.stage = "generate"; S.review = null;
-  render();
-  // Replay the scaffold steps so generate is watchable, like the storyboard.
-  S.scaffold.forEach((step, i) => setTimeout(() => {
-    step.shown = true;
-    if (i === S.scaffold.length - 1) { S.generating = false; S.stage = "preview"; refreshApp(); }
-    render();
-  }, 420 * (i + 1)));
+  S.pendingTask = prompt;
+  S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/treatments`, {task: prompt}, S.owned);
+  S.selectedTreatmentId = null;
+  S.generating = false; S.stage = "treatments"; S.review = null;
   await refreshApp();
 }
 
 async function iterate() {
   const box = $("#reply"); const instruction = box && box.value.trim();
   if (!instruction) return;
-  await api(`/api/apps/${S.appId}/iterate`, {instruction}, S.owned);
-  S.stage = "iterate";
+  S.pendingTask = instruction;
+  S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/treatments`, {task: instruction}, S.owned);
+  S.selectedTreatmentId = null;
+  S.stage = "treatments";
+  render();
+}
+
+function selectTreatment(id) { S.selectedTreatmentId = id; render(); }
+
+async function buildTreatment() {
+  if (!S.selectedTreatmentId) return;
+  S.generating = true; S.stage = "generating"; render();
+  await api(`/api/apps/${S.appId}/workspace/select`, {treatment_id:S.selectedTreatmentId}, S.owned);
+  S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/generate`, {task:S.pendingTask}, S.owned);
+  S.generating = false; S.stage = "candidate"; render();
+}
+
+async function acceptCandidate() {
+  const id = S.sourceWorkspace?.candidate?.id;
+  if (!id || !S.sourceWorkspace.candidate.verification.passed) return;
+  S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/candidate/accept`, {candidate_id:id}, S.owned);
+  S.stage = "preview";
   await refreshApp();
+}
+
+async function rejectCandidate() {
+  const id = S.sourceWorkspace?.candidate?.id;
+  if (!id) return;
+  S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/candidate/reject`, {candidate_id:id}, S.owned);
+  S.selectedTreatmentId = null; S.stage = "treatments"; render();
 }
 
 async function fixGate(id) { await api(`/api/apps/${S.appId}/gate/${id}/fix`, {}, S.owned); await refreshApp(); }
@@ -384,12 +413,12 @@ async function promote() {
 async function rollback() { await api(`/api/apps/${S.appId}/rollback`, {}, S.owned); S.stage = "deploy"; await refreshApp(); }
 
 async function openApp(id) {
-  S.appId = id; S.scaffold = []; S.generating = false; S.review = null;
+  S.appId = id; S.scaffold = []; S.generating = false; S.review = null; S.sourceWorkspace = null;
   await refreshApp();
   S.stage = S.app.stage === "live" ? "operate" : "iterate";
   render();
 }
-function goHome() { S.appId = null; S.app = null; S.modal = null; loadHome(); }
+function goHome() { S.appId = null; S.app = null; S.modal = null; S.sourceWorkspace = null; S.selectedTreatmentId = null; loadHome(); }
 
 async function requireOwnership() {
   if (S.authMode !== "clerk") return true;
@@ -842,7 +871,7 @@ function shaktiDescribe() {
     <section class="prompt-card">
       <label class="field-label" for="prompt">What would make your day easier?</label>
       <textarea id="prompt" placeholder="A small tool that…">${esc(S.prompt)}</textarea>
-      <div class="prompt-actions"><span class="muted">No patient data. Start with a synthetic example.</span><button class="b bp" onclick="buildApp()">Grow it →</button></div>
+      <div class="prompt-actions"><span class="muted">No patient data. Start with a synthetic example.</span><button class="b bp" onclick="buildApp()">Show me 3 approaches →</button></div>
     </section>
     <div class="quick-prompts" aria-label="Prompt examples">${prompts.map(prompt => `<button onclick="S.prompt='${prompt}';document.querySelector('#prompt').value=S.prompt">${esc(prompt.split(" for ")[0])}</button>`).join("")}</div>
     <section style="max-width:900px;margin:22px auto 0;width:100%">
@@ -854,18 +883,50 @@ function shaktiDescribe() {
 }
 
 function shaktiStudio() {
+  if (S.stage === "treatments" && S.sourceWorkspace?.treatment_plan) return shaktiTreatments();
+  if (S.stage === "generating") return shaktiGenerating();
+  if (S.stage === "candidate" && S.sourceWorkspace?.candidate) return shaktiCandidateReview();
   const turns = S.app.addenda.map(addendum => `<div class="bubble user">${esc(addendum.instruction)}</div><div class="bubble">${esc(addendum.reply)}</div>`).join("");
   const progress = S.generating ? S.scaffold.map(step => `<div class="bubble">${step.shown ? "✓" : "…"} ${esc(step.label)}</div>`).join("") : "";
   const features = S.app.features.map(feature => `<div class="preview-feature">✓ ${esc(feature)}</div>`).join("");
   const gate = S.gate?.report;
   return `<div class="flow-shell" data-testid="studio">
-    <div class="row"><button class="b" onclick="goHome()">← Your ideas</button><div><div class="flow-eyebrow">${esc(S.app.name)}</div><span class="muted">You talk here · your app responds there</span></div>${badge()}</div>
+    <div class="row"><button class="b" onclick="goHome()">← Your ideas</button><div><div class="flow-eyebrow">${esc(S.app.name)}</div><span class="muted">You talk here · your app responds there</span></div>${S.sourceWorkspace ? `<span class="checkpoint-badge" data-testid="checkpoint-badge">checkpoint v${S.sourceWorkspace.accepted.version}</span>` : ""}${badge()}</div>
     <section class="studio-shell">
       <aside class="conversation"><div class="row"><b>Build with Practice Studio</b><span class="tag tb" style="margin-left:auto">v${S.app.current_version}</span></div><div class="conversation-log">${progress || turns}</div><div class="conversation-compose"><input id="reply" type="text" placeholder="Ask for one change…" onkeydown="if(event.key==='Enter')iterate()"><button class="b bp" onclick="iterate()">Send</button></div></aside>
       <div class="preview-pane"><div class="preview-bar"><span>● ● ●</span><b>${esc(S.app.name)}</b><span class="tag ty" data-testid="environment-badge" style="margin-left:auto">SANDBOX · SYNTHETIC</span></div><div class="preview-surface"><article class="preview-app"><div class="flow-eyebrow">Generated clinical app</div><h2 style="margin:8px 0">${esc(S.app.name)}</h2><p class="muted">A working preview built from the ${esc(S.app.pack)} starter. Every change remains in this workspace history.</p><div class="preview-features">${features}</div></article></div><div class="studio-footer"><button class="b" onclick="S.drawer=!S.drawer;render()">Under the hood · read-only</button><span class="muted">${gate ? `${gate.passed}/${gate.total} checks passed` : "Checking safeguards…"}</span><button class="b bp" style="margin-left:auto" onclick="S.modal='preflight';render()">Check before release →</button></div>${S.drawer ? `<div class="drawer"><b>What this preview uses</b><span>Rust and Axum · ${S.app.routes} routes · synthetic data · immutable history</span><span>No patient system or production database is connected.</span></div>` : ""}</div>
     </section>
     ${shaktiGate()}
   </div>`;
+}
+
+function shaktiTreatments() {
+  const plan = S.sourceWorkspace.treatment_plan;
+  const cards = plan.treatments.map(treatment => {
+    const recommended = treatment.id === plan.recommended_treatment_id;
+    const selected = treatment.id === S.selectedTreatmentId;
+    return `<label class="treatment-card" data-testid="treatment-card">
+      <input type="radio" name="treatment" value="${esc(treatment.id)}" ${selected ? "checked" : ""} onchange="selectTreatment('${esc(treatment.id)}')">
+      <div class="row"><span class="tag tb">Approach</span>${recommended ? `<span class="tag tg" data-testid="treatment-recommended">Recommended</span>` : ""}</div>
+      <h3>${esc(treatment.label)}</h3><p>${esc(treatment.user_outcome)}</p>
+      <div><b>What changes on screen</b><ul>${treatment.screen_changes.map(item => `<li>${esc(item)}</li>`).join("")}</ul></div>
+      <div><b>What changes in the workflow</b><ul>${treatment.data_changes.map(item => `<li>${esc(item)}</li>`).join("") || "<li>No new data required.</li>"}</ul></div>
+      <div class="safety-callout"><b>Safety stays visible</b><br>${esc(treatment.safety_notes.join(" "))}</div>
+    </label>`;
+  }).join("");
+  return `<div class="treatment-shell" data-testid="treatment-screen"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ty">Synthetic workspace</span></div><div class="flow-eyebrow" style="margin-top:24px">Choose the shape before code changes</div><h2 style="font-size:34px;margin:7px 0">Three thoughtful ways to solve this.</h2><p class="workspace-lede">${esc(plan.problem)}. Compare what each approach changes, then choose one. Nothing has changed in your accepted source yet.</p><div class="treatment-grid">${cards}</div><div class="row"><button class="b" onclick="S.app=null;S.appId=null;render()">Try a different idea</button><button class="b bp" data-testid="build-treatment" style="margin-left:auto" ${S.selectedTreatmentId ? "" : "disabled"} onclick="buildTreatment()">Build this approach →</button></div></div>`;
+}
+
+function shaktiGenerating() {
+  const steps = ["Planning the Svelte screens", "Preparing the Rust service boundary", "Checking synthetic examples", "Preparing your review"];
+  return `<section class="prompt-card" data-testid="generation-status" style="margin-top:9vh"><div class="flow-eyebrow">Building a candidate</div><h2>Preparing changes for your review.</h2><p class="muted">Your accepted checkpoint stays unchanged until you approve the diff.</p><div class="verification-list">${steps.map((step,index) => `<div class="verification-row">${index === 0 ? "●" : "○"} ${step}</div>`).join("")}</div></section>`;
+}
+
+function shaktiCandidateReview() {
+  const candidate = S.sourceWorkspace.candidate;
+  const checks = candidate.verification.checks.map(check => `<div class="verification-row" data-testid="verification-check"><b>${check.status === "pass" ? "✓" : "!"} ${esc(check.id)}</b><div class="muted">${esc(check.detail)}</div></div>`).join("");
+  const diffs = candidate.diff.map(file => `<div data-testid="diff-file"><div class="row" style="margin-bottom:8px"><b>${esc(file.path)}</b><span class="tag tb" style="margin-left:auto">reviewed file</span></div><pre class="diff-view">${esc(file.unified)}</pre></div>`).join("");
+  return `<div class="flow-shell" data-testid="candidate-review"><div class="row"><button class="b" onclick="rejectCandidate()">← Approaches</button><span class="checkpoint-badge">accepted checkpoint v${S.sourceWorkspace.accepted.version}</span></div><div class="review-shell"><section class="review-panel"><div class="flow-eyebrow">Live candidate preview</div><h2>${esc(candidate.summary)}</h2><div class="preview-app"><span class="tag tb">SYNTHETIC</span><h3>${esc(S.app.name)}</h3><p>${esc(S.pendingTask)}</p><div class="preview-feature">Selected treatment: ${esc(candidate.treatment_id)}</div><div class="safety-callout">Synthetic examples only. This candidate cannot reach patient systems.</div></div><h3>Source diff</h3>${diffs}</section><aside class="review-panel"><div class="flow-eyebrow">Rust verification</div><h2>Know what was checked.</h2><p class="muted">Model-proposed commands are never executed. The control plane owns these checks.</p><div class="verification-list">${checks}</div>${candidate.verification.passed ? `<p class="safety-callout pass">All required checks passed. Accepting creates one immutable checkpoint.</p>` : `<p class="safety-callout">This version was not applied. Your last working version is unchanged.</p>`}<div class="col"><button class="b bp" data-testid="accept-candidate" ${candidate.verification.passed ? "" : "disabled"} onclick="acceptCandidate()">Accept these changes</button><button class="b" data-testid="revise-candidate" onclick="rejectCandidate()">Revise the approach</button></div></aside></div></div>`;
 }
 
 function shaktiGate() {
@@ -879,7 +940,7 @@ function shaktiGate() {
 
 function shaktiLive() {
   const synthetic = S.app.allocation?.pool === "synthetic-demo";
-  return `<div class="live-shell" data-testid="live-dashboard"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ${synthetic ? "tb" : "tg"}" data-testid="environment-badge">${synthetic ? "SYNTHETIC DEMO" : "LIVE"}</span></div><section class="live-hero"><div class="flow-eyebrow">It is running</div><h2 style="margin:7px 0">${esc(S.app.name)}</h2><p>${synthetic ? "This isolated preview uses synthetic examples and cannot reach a patient database." : "This release passed its frozen gate and carries an authenticated clinical attestation."}</p><div class="row"><span class="tag tg">gate ${esc(S.app.attestation.gate_summary)}</span><span class="muted">allocation ${esc(S.app.allocation.id)}</span></div></section><div class="live-grid"><section class="live-card"><div class="flow-eyebrow">Release record</div><h3>What happened</h3><div class="audit-list">${auditRows(8)}</div></section><aside class="live-card"><div class="flow-eyebrow">Ownership</div><h3>Take the whole thing with you.</h3><p class="muted">Sign in only when you are ready to claim this workspace and eject the Rust source, docs, fixtures, and deploy files. No hostage code.</p><button class="b bp primary-wide" onclick="ejectApp()">Make this mine · export</button><button class="b primary-wide" onclick="rollback()">Return to studio</button><div style="margin-top:18px" data-testid="runtime-status"><b>Runtime status</b><p class="muted">${S.operate?.metrics?.available ? "Telemetry is available." : "Runtime telemetry is not yet available. No health claim is fabricated."}</p></div></aside></div></div>`;
+  return `<div class="live-shell" data-testid="live-dashboard"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ${synthetic ? "tb" : "tg"}" data-testid="environment-badge">${synthetic ? "SYNTHETIC DEMO" : "LIVE"}</span></div><section class="live-hero"><div class="flow-eyebrow">It is running</div><h2 style="margin:7px 0">${esc(S.app.name)}</h2><p>${synthetic ? "This isolated preview uses synthetic examples and cannot reach a patient database." : "This release passed its frozen gate and carries an authenticated clinical attestation."}</p><div class="row"><span class="tag tg">gate ${esc(S.app.attestation.gate_summary)}</span><span class="muted">allocation ${esc(S.app.allocation.id)}</span></div></section><div class="live-grid"><section class="live-card"><div class="flow-eyebrow">Release record</div><h3>What happened</h3><div class="audit-list">${auditRows(8)}</div></section><aside class="live-card"><div class="flow-eyebrow">Ownership</div><h3>Take the whole thing with you.</h3><p class="muted">Sign in only when you are ready to claim this workspace and eject the Svelte client, Rust server, synthetic fixtures, one README, Svelte MCP setup, and editable diagrams.</p><button class="b bp primary-wide" data-testid="eject-button" onclick="ejectApp()">Make this mine · export</button><button class="b primary-wide" onclick="rollback()">Return to studio</button><div style="margin-top:18px" data-testid="runtime-status"><b>Runtime status</b><p class="muted">${S.operate?.metrics?.available ? "Telemetry is available." : "Runtime telemetry is not yet available. No health claim is fabricated."}</p></div></aside></div></div>`;
 }
 
 function render() {

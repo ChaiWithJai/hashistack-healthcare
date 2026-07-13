@@ -95,6 +95,94 @@ async fn describe_lands_in_sandbox_on_synthetic_data() {
 }
 
 #[tokio::test]
+async fn source_treatment_is_reviewed_before_it_changes_the_export() {
+    let router = app();
+    let id = create_post_op_app(&router).await;
+    let workspace_url = format!("/api/apps/{id}/workspace");
+
+    let (_, initial) = call(&router, "GET", &workspace_url, None).await;
+    let initial_digest = initial["accepted"]["digest"].as_str().unwrap().to_string();
+    assert_eq!(initial["accepted"]["version"], 0);
+
+    let (status, planned) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/treatments"),
+        Some(json!({"task":"make follow-up work easier to scan"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{planned}");
+    assert_eq!(planned["phase"], "treatments_ready");
+    assert_eq!(
+        planned["treatment_plan"]["treatments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let (status, selected) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/select"),
+        Some(json!({"treatment_id":"patient-timeline"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+
+    let (status, review) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/generate"),
+        Some(json!({"task":"show unresolved events first"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{review}");
+    assert_eq!(review["phase"], "review_required");
+    assert_eq!(review["accepted"]["digest"], initial_digest);
+    assert_eq!(review["candidate"]["verification"]["passed"], true);
+    assert!(review["candidate"]["diff"][0]["unified"]
+        .as_str()
+        .unwrap()
+        .contains("data-treatment"));
+    let rejected_id = review["candidate"]["id"].as_str().unwrap();
+
+    let (_, rejected) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/candidate/reject"),
+        Some(json!({"candidate_id":rejected_id})),
+    )
+    .await;
+    assert_eq!(rejected["accepted"]["digest"], initial_digest);
+
+    let (_, review) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/generate"),
+        Some(json!({"task":"show unresolved events first"})),
+    )
+    .await;
+    let candidate_id = review["candidate"]["id"].as_str().unwrap();
+    let (status, accepted) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/candidate/accept"),
+        Some(json!({"candidate_id":candidate_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{accepted}");
+    assert_eq!(accepted["accepted"]["version"], 1);
+    assert_ne!(accepted["accepted"]["digest"], initial_digest);
+
+    let (_, export) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
+    assert!(export["files"]["web/src/routes/+page.svelte"]
+        .as_str()
+        .unwrap()
+        .contains("data-treatment=\"patient-timeline\""));
+}
+
+#[tokio::test]
 async fn gate_blocks_promotion_until_fixed_then_admits_with_cosign() {
     let router = app();
     let id = create_post_op_app(&router).await;

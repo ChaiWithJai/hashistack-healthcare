@@ -311,11 +311,11 @@ async function main() {
   const compliance = files['README.md'];
   const frozenHeading = compliance.split('\n').find((l) => l.startsWith('## Gate report'));
   const digestLine = compliance.split('\n').find((l) => l.includes('gate report digest'));
-  assert(frozenHeading?.includes('frozen at promotion'), 'COMPLIANCE.md must carry the frozen report');
-  assert(digestLine?.includes(att.report_digest), 'COMPLIANCE.md digest must match the attestation');
+  assert(frozenHeading?.includes('frozen at promotion'), 'README must carry the frozen report');
+  assert(digestLine?.includes(att.report_digest), 'README digest must match the attestation');
   await record('eject', exported.ms,
     `GET export → ${Object.keys(files).length} files, ${bundleBytes} bytes; README opens with the prompt; ` +
-    `COMPLIANCE.md carries the frozen report + digest`);
+    `README carries the frozen report + digest`);
 
   // ---- 8. THE ARTIFACT: unpack, build, boot, drive ----
   for (const [rel, content] of Object.entries(files)) {
@@ -325,12 +325,12 @@ async function main() {
   }
   t = performance.now();
   execFileSync('cargo', ['build', '--quiet'], {
-    cwd: path.join(BUNDLE_DIR, 'app'),
+    cwd: path.join(BUNDLE_DIR, 'server'),
     env: { ...process.env, CARGO_TARGET_DIR: EJECT_TARGET_DIR },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   const buildMs = Math.round(performance.now() - t);
-  await record('artifact-build', buildMs, `cargo build of the ejected app/ crate — cold, worktree-local target (what a stranger gets)`);
+  await record('artifact-build', buildMs, `cargo build of the ejected server/ crate — cold, worktree-local target (what a stranger gets)`);
 
   const APP_BASE = `http://127.0.0.1:${APP_PORT}`;
   const appLog = path.join(LOGS_DIR, 'artifact-app.jsonl');
@@ -338,7 +338,7 @@ async function main() {
   const artifact = spawnServer(path.join(EJECT_TARGET_DIR, 'debug', 'app'), {
     APP_BIND: `127.0.0.1:${APP_PORT}`,
     SYNTHETIC_DATA: path.join(BUNDLE_DIR, 'synthetic', 'post-op-demo.json'),
-  }, appLog, path.join(BUNDLE_DIR, 'app'));
+  }, appLog, path.join(BUNDLE_DIR, 'server'));
   await waitHealthy(APP_BASE, artifact, appLog);
   const bootMs = Math.round(performance.now() - t);
   const promptToRunningMs = Math.round(performance.now() - t0);

@@ -15,14 +15,17 @@ source trees, serves the clinical workflow and customization workspace from
 one origin, and uses paths that exist. CI drives the clinical workflow and
 the connected Svelte workspace in that image.
 
-The remaining limit is deeper. The Svelte workspace checks Rust health, but
-its editable checklist does not perform the pack's clinical job through Rust.
-The export is runnable, while the first meaningful Svelte and Rust
-customization still needs end to end proof.
+The post-operative export now has the deeper continuation proof. The proof
+changes its Rust pain threshold, Svelte treatment and helper text, synthetic
+boundary fixture, executable browser journey, and README together. It builds
+and runs the changed Docker product, proves pain 6 reaches the synthetic
+practice inbox, imports the exact reviewed source as a private starter, and
+exports it again. The other packs still need this connected customization
+pattern; their pack journeys and generic treatment workspaces remain separate.
 
 | App | Tested user outcome | Job | Continue | Export |
 |---|---|---:|---:|---:|
-| Post operative monitor | A high pain check in creates a practice flag | 5 | 3 | 4 |
+| Post operative monitor | A high pain check in creates a practice flag | 5 | 4 | 5 |
 | Hypertension tracker | An urgent reading enters the clinician alert path | 5 | 3 | 4 |
 | Patient intake | A submitted intake becomes a chart summary | 5 | 3 | 4 |
 | Insurance verification | An eligibility result enters a review queue | 4 | 3 | 4 |
@@ -50,7 +53,7 @@ deploy either framework.
 | Planning state | 4 out of 5 | Rust stores the plan, the selected treatment, and the Gemma version |
 | Tool isolation | 5 out of 5 | Gemma has no shell, file, GitHub, or deployment tools |
 | Verification | 5 out of 5 | CI builds one Docker image and drives the Rust workflow and connected Svelte workspace |
-| User handoff | 4 out of 5 | The export runs as one product, but a new owner has not completed the full customize, rebuild, reimport, and deploy exercise |
+| User handoff | 4 out of 5 | The automated owner exercise changes behavior, rebuilds, runs, reimports, and reexports; a new person has not yet completed it from the README |
 
 Open SWE uses a task sandbox, curated tools, repository context, and review
 feedback. Deep Agents packages planning, file access, context management, and
@@ -60,11 +63,11 @@ handoff.
 
 ## Next fixes
 
-1. Make one post operative treatment change the Svelte screen, Rust behavior,
-   synthetic fixture, and browser contract together.
-2. Run that exact changed workflow in the studio preview and exported image.
-3. Ask a new owner to customize, rebuild, reimport, and deploy the export by
+1. Ask a new owner to customize, rebuild, reimport, and deploy the export by
    following only its README.
+2. Extend the connected Svelte-to-Rust customization proof from post-op to the
+   remaining runnable packs.
+3. Deploy one reimported private starter to a supported target.
 
 ## Proof
 

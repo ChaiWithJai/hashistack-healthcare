@@ -15,6 +15,7 @@ pub struct AnonymousSessions {
     key: Vec<u8>,
     secure: bool,
     allowed_origins: Vec<String>,
+    netlify_preview_site: Option<String>,
 }
 
 impl AnonymousSessions {
@@ -23,6 +24,7 @@ impl AnonymousSessions {
             key: b"development-only-anonymous-workspace-key".to_vec(),
             secure: false,
             allowed_origins: Vec::new(),
+            netlify_preview_site: None,
         }
     }
 
@@ -43,10 +45,22 @@ impl AnonymousSessions {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .collect();
+        let netlify_preview_site = std::env::var("ANON_NETLIFY_PREVIEW_SITE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                let value = value.trim().to_string();
+                if !valid_netlify_site_name(&value) {
+                    bail!("ANON_NETLIFY_PREVIEW_SITE must be a lowercase Netlify site name");
+                }
+                Ok(value)
+            })
+            .transpose()?;
         Ok(Self {
             key,
             secure: deployed,
             allowed_origins,
+            netlify_preview_site,
         })
     }
 
@@ -127,7 +141,13 @@ impl AnonymousSessions {
         if self.allowed_origins.is_empty() {
             return true;
         }
-        origin.is_some_and(|value| self.allowed_origins.iter().any(|item| item == value))
+        origin.is_some_and(|value| {
+            self.allowed_origins.iter().any(|item| item == value)
+                || self
+                    .netlify_preview_site
+                    .as_deref()
+                    .is_some_and(|site| netlify_preview_origin(value, site))
+        })
     }
 
     fn sign(&self, value: &[u8]) -> Result<Vec<u8>> {
@@ -136,6 +156,27 @@ impl AnonymousSessions {
         mac.update(value);
         Ok(mac.finalize().into_bytes().to_vec())
     }
+}
+
+fn valid_netlify_site_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn netlify_preview_origin(origin: &str, site: &str) -> bool {
+    let Some(pr) = origin.strip_prefix("https://deploy-preview-") else {
+        return false;
+    };
+    let suffix = format!("--{site}.netlify.app");
+    let Some(pr) = pr.strip_suffix(&suffix) else {
+        return false;
+    };
+    !pr.is_empty() && pr.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn tenant_for(id: &[u8; 32]) -> String {
@@ -152,4 +193,42 @@ fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod preview_origin_tests {
+    use super::{netlify_preview_origin, valid_netlify_site_name};
+
+    #[test]
+    fn accepts_only_the_numbered_preview_for_the_configured_site() {
+        assert!(netlify_preview_origin(
+            "https://deploy-preview-45--gethoursback.netlify.app",
+            "gethoursback"
+        ));
+        for origin in [
+            "http://deploy-preview-45--gethoursback.netlify.app",
+            "https://deploy-preview-main--gethoursback.netlify.app",
+            "https://deploy-preview-45--other.netlify.app",
+            "https://deploy-preview-45--gethoursback.netlify.app.evil.example",
+            "https://gethoursback.netlify.app",
+        ] {
+            assert!(!netlify_preview_origin(origin, "gethoursback"), "{origin}");
+        }
+    }
+
+    #[test]
+    fn site_name_cannot_escape_the_netlify_hostname() {
+        assert!(valid_netlify_site_name("gethoursback"));
+        assert!(valid_netlify_site_name("practice-studio-2"));
+        for value in [
+            "",
+            "-site",
+            "site-",
+            "Site",
+            "site.netlify.app",
+            "site/evil",
+        ] {
+            assert!(!valid_netlify_site_name(value), "{value}");
+        }
+    }
 }

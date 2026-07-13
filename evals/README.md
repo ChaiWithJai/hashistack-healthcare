@@ -34,6 +34,15 @@ emitting a narrative anyone can be
 shown: [docs/evals/journey/journey.md](../docs/evals/journey/journey.md)
 (+ journey.json and six stage screenshots).
 
+**The treatment-preview proof closes the loop before export.** Run
+`node evals/treatment-preview/proof.mjs` after `cargo build`. It creates three
+anonymous synthetic apps, accepts each signed recipe, and drives its actual
+Studio interaction in Chromium. It also checks presentation order, stable
+checkpoint and audit state, zero preview-action requests, and rejection
+isolation. It changes the mutable app feature list and proves the accepted
+workflow remains bound to the checkpointed snapshot. The JSON report and screenshot go to the gitignored
+`.evals/treatment-preview/` directory and CI uploads them as review artifacts.
+
 Known gaps land visibly in the scorecard (today: production controls outside
 the synthetic artifacts, the rules-tier floor, and the keyword shape of the
 refusal screen).
@@ -144,6 +153,7 @@ evals/
   README.md          # this file
   scenarios/*.json   # the corpus — one self-describing scenario per file
   harness/run.mjs    # the orchestrator (Node + Playwright); invoked by scripts/evals.sh
+  treatment-preview/proof.mjs # accepted-recipe browser proof before export
 docs/evals/
   scorecard.md       # the portable baseline (committed, regenerated per run)
   scorecard.json     # machine twin for CI diffing

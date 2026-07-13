@@ -32,6 +32,10 @@ jobs:
       # Prove that a clinician can change an owned export, import it as a new
       # private synthetic starter, and export the same source bytes again.
       - run: node evals/reimport/proof.mjs
+      # Run every verified signed recipe in Studio before export. Preview
+      # actions must stay local and a rejected treatment must not replace the
+      # accepted checkpoint rendered to the clinician.
+      - run: node evals/treatment-preview/proof.mjs
       - run: ./scripts/journey.sh
       # The regenerated scorecard + full screenshot evidence, reviewable per
       # run without committing from CI.
@@ -47,4 +51,5 @@ jobs:
             .evals/logs/
             .evals/export-runtime/
             .evals/reimport/
+            .evals/treatment-preview/
           if-no-files-found: warn

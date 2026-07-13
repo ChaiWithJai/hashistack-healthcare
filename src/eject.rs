@@ -155,7 +155,7 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     );
     files.insert(
         "web/src/lib/treatment.json".to_string(),
-        default_treatment_config(),
+        default_treatment_config(&app.features),
     );
     files.insert(
         "web/src/lib/TreatmentWorkspace.svelte".to_string(),
@@ -561,19 +561,10 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
     if pack.id == "post-op-monitor" {
         return post_op_svelte_page(app, pack, clinical_entry);
     }
-    let features = app
-        .features
-        .iter()
-        .map(|feature| format!("    {:?}", feature))
-        .collect::<Vec<_>>()
-        .join(",\n");
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
   import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte';
-  const features = [
-{features}
-  ];
   let rustStatus = $state('Checking the Rust service');
 
   onMount(async () => {{
@@ -604,7 +595,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
       </div>
     </header>
-    <TreatmentWorkspace {{features}} />
+    <TreatmentWorkspace />
   </div>
 </main>
 "#,
@@ -615,20 +606,11 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
 }
 
 fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
-    let features = app
-        .features
-        .iter()
-        .map(|feature| format!("    {:?}", feature))
-        .collect::<Vec<_>>()
-        .join(",\n");
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
   import PostOpCheckIn from '../lib/PostOpCheckIn.svelte';
   import TreatmentWorkspace from '../lib/TreatmentWorkspace.svelte';
-  const features = [
-{features}
-  ];
   let rustStatus = $state('Checking the Rust service');
 
   onMount(async () => {{
@@ -659,7 +641,7 @@ fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &st
       <p>{description}</p>
       <p class="hc-help">This editable Svelte screen submits to the same-origin Rust service. Rust validates the check-in, decides whether escalation is required, and writes the audit trail.</p>
     </header>
-    <TreatmentWorkspace {{features}} />
+    <TreatmentWorkspace />
     <PostOpCheckIn />
     <footer class="hc-card hc-actions">
       <a class="hc-button hc-link" href="{clinical_entry}">Open the role-based clinical view</a>
@@ -671,7 +653,6 @@ fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &st
         name = app.name,
         description = pack.description,
         clinical_entry = clinical_entry,
-        features = features,
     )
 }
 
@@ -679,12 +660,13 @@ fn treatment_workspace_component() -> String {
     r#"<script lang="ts">
   import treatment from './treatment.json';
 
-  let { features = [] }: { features?: string[] } = $props();
   let completed = $state<boolean[]>([]);
   let timelineFilter = $state<'all' | 'unresolved' | 'reviewed'>('all');
   let focusedStep = $state(0);
 
   const recipe = treatment.treatment;
+  const features = treatment.features;
+  const contextFirst = treatment.refinement.presentation === 'context-first';
   const visibleTimeline = $derived(
     features
       .map((label, index) => ({ label, index, reviewed: completed[index] ?? false }))
@@ -702,8 +684,10 @@ fn treatment_workspace_component() -> String {
     <span class="hc-help">{recipe.label}</span>
   </div>
   <div>
+    {#if contextFirst}
     <h2>{recipe.user_outcome}</h2>
     {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
+    {/if}
   </div>
 
   {#if recipe.id === 'guided-worklist'}
@@ -711,7 +695,7 @@ fn treatment_workspace_component() -> String {
       {#each features as feature, index (feature)}
         <article class:complete={completed[index]}>
           <div class="hc-actions"><b>{index + 1}. {feature}</b><span class="hc-badge">{completed[index] ? 'Reviewed' : 'Next'}</span></div>
-          <p class="hc-help">Reason: this capability is already signed into the selected pack.</p>
+          <p class="hc-help">Reason: this workflow item is frozen into the verified checkpoint.</p>
           <button class="hc-button" type="button" onclick={() => toggle(index)}>{completed[index] ? 'Mark unresolved' : 'Mark reviewed'}</button>
         </article>
       {/each}
@@ -744,6 +728,13 @@ fn treatment_workspace_component() -> String {
     </div>
   {:else}
     <aside class="hc-notice hc-notice--warning" role="alert">The signed treatment recipe is unavailable. Export is blocked until Rust validates it.</aside>
+  {/if}
+
+  {#if !contextFirst}
+    <div data-testid="treatment-context">
+      <h2>{recipe.user_outcome}</h2>
+      {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
+    </div>
   {/if}
 
   <aside class="hc-notice hc-notice--warning" role="note">Synthetic learning environment only. Do not enter patient information or use this workspace for emergency care.</aside>
@@ -942,9 +933,10 @@ fn svelte_mcp_config() -> String {
     .to_string()
 }
 
-fn default_treatment_config() -> String {
+fn default_treatment_config(features: &[String]) -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": 1,
+        "features": features,
         "treatment": {
             "id": "guided-worklist",
             "label": "Guided worklist",
@@ -1980,7 +1972,17 @@ mod tests {
                 "missing materializer for {recipe_id}"
             );
         }
-        assert!(bundle.files["web/src/routes/+page.svelte"].contains("<TreatmentWorkspace"));
+        assert!(treatment_workspace.contains(
+            "const contextFirst = treatment.refinement.presentation === 'context-first'"
+        ));
+        assert!(treatment_workspace.contains("const features = treatment.features"));
+        assert!(!treatment_workspace.contains("features = []"));
+        assert!(treatment_workspace.contains("{#if !contextFirst}"));
+        assert!(treatment_workspace.contains("data-testid=\"treatment-context\""));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("<TreatmentWorkspace />"));
+        let treatment: serde_json::Value =
+            serde_json::from_str(&bundle.files["web/src/lib/treatment.json"]).unwrap();
+        assert_eq!(treatment["features"], serde_json::json!(app.features));
         assert!(bundle.files.contains_key("artifact-quality.json"));
         assert!(bundle.files.contains_key("web/tests/owned-app.mjs"));
         assert!(bundle.files["web/tests/owned-app.mjs"].contains("const postOp = false"));

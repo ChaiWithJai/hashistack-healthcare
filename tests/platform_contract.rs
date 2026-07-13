@@ -72,6 +72,23 @@ fn treatment_choice_never_interpolates_model_data_into_javascript() {
     );
 }
 
+#[test]
+fn accepted_treatment_runs_inside_the_studio_before_release() {
+    let ui = include_str!("../web/index.html");
+    assert!(!ui.contains("Interactive rendering of the generated Svelte app is not connected"));
+    assert!(ui.contains("data-testid=\"treatment-workspace-preview\""));
+    assert!(ui.contains("data-testid=\"preview-worklist-item\""));
+    assert!(ui.contains("data-testid=\"preview-timeline-item\""));
+    assert!(ui.contains("data-testid=\"preview-focused-task\""));
+    assert!(ui.contains("data-testid=\"preview-checkpoint-proof\""));
+    assert!(ui.contains("S.sourceWorkspace.accepted_verification.id"));
+    assert!(ui.contains("selection.refinement.presentation === \"context-first\""));
+    assert!(ui.contains("verification.workspace_digest !== accepted.digest"));
+    assert!(ui.contains("accepted.files?.[\"web/src/lib/treatment.json\"]"));
+    assert!(!ui.contains("const selection = S.sourceWorkspace?.selected_treatment"));
+    assert!(ui.contains("Same signed recipe and checkpoint exported to Svelte"));
+}
+
 async fn call(
     router: &axum::Router,
     method: &str,
@@ -158,6 +175,8 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     let router = app();
     let id = create_post_op_app(&router).await;
     let workspace_url = format!("/api/apps/{id}/workspace");
+    let (_, app_before) = call(&router, "GET", &format!("/api/apps/{id}"), None).await;
+    let original_features = app_before["features"].clone();
 
     let (_, initial) = call(&router, "GET", &workspace_url, None).await;
     let initial_digest = initial["accepted"]["digest"].as_str().unwrap().to_string();
@@ -256,6 +275,7 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
         candidate_config["refinement"]["emphasis"],
         "Show exactly why the practice inbox was notified."
     );
+    assert_eq!(candidate_config["features"], original_features);
     let rejected_id = review["candidate"]["id"].as_str().unwrap();
 
     let (_, rejected) = call(
@@ -297,15 +317,110 @@ async fn source_treatment_is_reviewed_before_it_changes_the_export() {
     assert!(export["files"]["web/src/lib/TreatmentWorkspace.svelte"]
         .as_str()
         .unwrap()
-        .contains("recipe.id === 'event-timeline'"));
+        .contains("const features = treatment.features"));
     assert!(export["files"]["web/src/routes/+page.svelte"]
         .as_str()
         .unwrap()
-        .contains("<TreatmentWorkspace"));
+        .contains("<TreatmentWorkspace />"));
     assert!(export["files"]["web/src/lib/PostOpCheckIn.svelte"]
         .as_str()
         .unwrap()
         .contains("treatment.refinement.presentation === 'context-first'"));
+
+    // A later rejected treatment remains user intent, but never becomes the
+    // source of truth for preview or export. The verified accepted checkpoint
+    // continues to carry the event timeline bytes.
+    let accepted_digest = accepted["accepted"]["digest"].as_str().unwrap().to_string();
+    let (status, iterated) = call(
+        &router,
+        "POST",
+        &format!("/api/apps/{id}/iterate"),
+        Some(json!({"instruction":"add a synthetic discharge call checklist"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{iterated}");
+    let changed_features = iterated["app"]["features"].clone();
+    assert_ne!(changed_features, original_features);
+    let (_, after_iterate) = call(&router, "GET", &workspace_url, None).await;
+    assert_eq!(after_iterate["accepted"]["digest"], accepted_digest);
+    assert_eq!(
+        serde_json::from_str::<Value>(
+            after_iterate["accepted"]["files"]["web/src/lib/treatment.json"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap()["features"],
+        original_features
+    );
+    let (_, replanned) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/treatments"),
+        Some(json!({"task":"focus on one next action"})),
+    )
+    .await;
+    assert_eq!(replanned["accepted"]["digest"], accepted_digest);
+    let (_, reselected) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/select"),
+        Some(json!({
+            "treatment_id":"focused-task",
+            "refinement":{"presentation":"task-first"}
+        })),
+    )
+    .await;
+    assert_eq!(
+        reselected["selected_treatment"]["treatment"]["id"],
+        "focused-task"
+    );
+    let (_, replacement) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/generate"),
+        Some(json!({"task":"focus on one next action"})),
+    )
+    .await;
+    let replacement_config: Value = serde_json::from_str(
+        replacement["candidate"]["files"][0]["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(replacement_config["features"], changed_features);
+    let replacement_id = replacement["candidate"]["id"].as_str().unwrap();
+    let (_, rejected_replacement) = call(
+        &router,
+        "POST",
+        &format!("{workspace_url}/candidate/reject"),
+        Some(json!({"candidate_id":replacement_id})),
+    )
+    .await;
+    assert_eq!(rejected_replacement["accepted"]["digest"], accepted_digest);
+    assert_eq!(
+        rejected_replacement["accepted_verification"]["workspace_digest"],
+        accepted_digest
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(
+            rejected_replacement["accepted"]["files"]["web/src/lib/treatment.json"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap(),
+        candidate_config
+    );
+    let (_, export_after_rejection) =
+        call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
+    assert_eq!(
+        serde_json::from_str::<Value>(
+            export_after_rejection["files"]["web/src/lib/treatment.json"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap(),
+        candidate_config
+    );
 }
 
 #[tokio::test]

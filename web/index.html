@@ -164,6 +164,7 @@ button,.chip,header a{min-height:44px}header a{display:inline-flex;align-items:c
 .ownership-gate{max-width:620px;margin:6vh auto;padding:30px;border:1px solid var(--line);border-radius:var(--radius-dialog);background:var(--panel);box-shadow:0 24px 64px rgba(70,35,46,.16)}.ownership-mark{display:grid;place-items:center;width:48px;height:48px;border-radius:16px;background:#f7dce5;color:var(--brand-dark);font-size:22px}.ownership-gate h2{margin:14px 0 8px;font-size:30px;line-height:1.15;letter-spacing:-.035em}.ownership-boundary{display:grid;gap:8px;margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:#fffaf8}.ownership-boundary div{display:flex;gap:9px;align-items:flex-start}.ownership-boundary b{color:var(--success)}#clerk-sign-in{min-height:52px}
 .treatment-shell{max-width:1040px;margin:auto}.treatment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}.treatment-card{position:relative;display:grid;gap:12px;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fff;cursor:pointer;text-align:left}.treatment-card:has(input:checked){border-color:var(--brand);box-shadow:0 0 0 3px #f7dce5}.treatment-card input{position:absolute;top:18px;right:18px}.treatment-card h3{margin:0;padding-right:28px}.treatment-card ul{margin:0;padding-left:18px;color:var(--muted)}.treatment-card li+li{margin-top:5px}.review-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr);gap:14px}.review-panel{padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff}.verification-list{display:grid;gap:8px;margin:16px 0}.verification-row{padding:10px;border:1px solid var(--line);border-radius:10px}.diff-view{max-height:420px;overflow:auto;padding:14px;border-radius:12px;background:#201a1c;color:#f8e9ee;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.checkpoint-badge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--success-bg);color:var(--success);font-weight:800;font-size:11px}
 .refinement-card{display:grid;gap:16px;margin:0 0 20px;padding:22px;border:1px solid var(--brand);border-radius:18px;background:#fff8fa}.refinement-card h3{margin:0}.refinement-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}.refinement-options label{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;padding:14px;border:1px solid var(--line);border-radius:13px;background:#fff;cursor:pointer}.refinement-options input{grid-row:1/3}.refinement-options span{color:var(--muted);font-size:13px}.refinement-card textarea{width:100%;resize:vertical}
+.treatment-preview{display:grid;gap:16px}.treatment-preview-header{display:grid;gap:6px}.treatment-preview-header h2{margin:0;font-size:24px;line-height:1.2}.treatment-preview-tools{display:flex;gap:7px;flex-wrap:wrap}.treatment-preview-tools .b.on{border-color:var(--brand);background:var(--brand);color:#fff}.treatment-preview-list{display:grid;gap:9px}.treatment-preview-item{display:grid;gap:8px;padding:13px;border:1px solid var(--line);border-radius:13px;background:#fffdfc}.treatment-preview-item.reviewed{opacity:.72}.treatment-preview-item p{margin:0}.treatment-preview-timeline{display:grid;gap:9px;margin:0;padding:0;list-style:none}.treatment-preview-timeline li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border-left:3px solid var(--brand);background:#fffdfc}.treatment-preview-focus{display:grid;gap:12px;min-height:190px;align-content:center;padding:18px;border:1px solid var(--line);border-radius:14px;background:#fffdfc}.treatment-preview-focus h3{margin:0}.treatment-preview-proof{display:flex;align-items:center;gap:8px;padding-top:4px;color:var(--muted);font-size:12px}
 @media(max-width:820px){.studio-shell{grid-template-columns:1fr}.conversation{min-height:440px;border-right:0;border-bottom:1px solid var(--line)}.starter-grid,.live-grid{grid-template-columns:1fr}.flow-hero{margin-top:24px}.prompt-actions{align-items:stretch;flex-direction:column}.prompt-actions .b{width:100%}}
 @media(max-width:820px){.treatment-grid,.review-shell,.refinement-options{grid-template-columns:1fr}}
 </style>
@@ -208,6 +209,7 @@ const S = {
   sourceWorkspace: null,
   selectedTreatmentId: null,
   treatmentRefinement: {presentation:"task-first", emphasis:""},
+  treatmentPreview: {reviewed:[], filter:"all", focusedStep:0},
   pendingTask: "",
 };
 
@@ -380,6 +382,7 @@ async function loadHome() {
 
 async function refreshApp() {
   if (!S.appId) return;
+  const previousCheckpoint = S.sourceWorkspace?.accepted?.digest;
   const [app, gate, audit, operate, sourceWorkspace] = await Promise.all([
     api(`/api/apps/${S.appId}`, null, S.owned),
     api(`/api/apps/${S.appId}/gate`, null, S.owned),
@@ -388,6 +391,9 @@ async function refreshApp() {
     api(`/api/apps/${S.appId}/workspace`, null, S.owned),
   ]);
   S.app = app; S.gate = gate; S.audit = audit.events; S.operate = operate; S.sourceWorkspace = sourceWorkspace;
+  if (previousCheckpoint && previousCheckpoint !== sourceWorkspace.accepted?.digest) {
+    S.treatmentPreview = {reviewed:[], filter:"all", focusedStep:0};
+  }
   render();
 }
 
@@ -438,8 +444,28 @@ async function acceptCandidate() {
   const id = S.sourceWorkspace?.candidate?.id;
   if (!id || !S.sourceWorkspace.candidate.verification.passed) return;
   S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/candidate/accept`, {candidate_id:id}, S.owned);
+  S.treatmentPreview = {reviewed:[], filter:"all", focusedStep:0};
   S.stage = "preview";
   await refreshApp();
+}
+
+function toggleTreatmentPreview(index) {
+  const reviewed = new Set(S.treatmentPreview.reviewed);
+  reviewed.has(index) ? reviewed.delete(index) : reviewed.add(index);
+  S.treatmentPreview.reviewed = [...reviewed];
+  render();
+}
+
+function filterTreatmentPreview(filter) {
+  S.treatmentPreview.filter = filter;
+  render();
+}
+
+function moveTreatmentPreview(delta) {
+  const acceptedFeatures = acceptedTreatmentPreview(S.sourceWorkspace)?.features || [];
+  const last = Math.max(0, acceptedFeatures.length - 1);
+  S.treatmentPreview.focusedStep = Math.max(0, Math.min(last, S.treatmentPreview.focusedStep + delta));
+  render();
 }
 
 async function rejectCandidate() {
@@ -468,11 +494,12 @@ async function rollback() { await api(`/api/apps/${S.appId}/rollback`, {}, S.own
 
 async function openApp(id) {
   S.appId = id; S.scaffold = []; S.generating = false; S.review = null; S.sourceWorkspace = null;
+  S.treatmentPreview = {reviewed:[], filter:"all", focusedStep:0};
   await refreshApp();
   S.stage = S.app.stage === "live" ? "operate" : "iterate";
   render();
 }
-function goHome() { S.appId = null; S.app = null; S.modal = null; S.sourceWorkspace = null; S.selectedTreatmentId = null; S.treatmentRefinement = {presentation:"task-first", emphasis:""}; loadHome(); }
+function goHome() { S.appId = null; S.app = null; S.modal = null; S.sourceWorkspace = null; S.selectedTreatmentId = null; S.treatmentRefinement = {presentation:"task-first", emphasis:""}; S.treatmentPreview = {reviewed:[], filter:"all", focusedStep:0}; loadHome(); }
 
 async function requireOwnership() {
   if (S.authMode !== "clerk") return true;
@@ -943,16 +970,66 @@ function shaktiStudio() {
   if (S.stage === "candidate" && S.sourceWorkspace?.candidate) return shaktiCandidateReview();
   const turns = S.app.addenda.map(addendum => `<div class="bubble user">${esc(addendum.instruction)}</div><div class="bubble">${esc(addendum.reply)}</div>`).join("");
   const progress = S.generating ? S.scaffold.map(step => `<div class="bubble">${step.shown ? "✓" : "…"} ${esc(step.label)}</div>`).join("") : "";
-  const features = S.app.features.map(feature => `<div class="preview-feature">✓ ${esc(feature)}</div>`).join("");
   const gate = S.gate?.report;
   return `<div class="flow-shell" data-testid="studio">
     <div class="row"><button class="b" onclick="goHome()">← Your ideas</button><div><div class="flow-eyebrow">${esc(S.app.name)}</div><span class="muted">You talk here · your app responds there</span></div>${S.sourceWorkspace ? `<span class="checkpoint-badge" data-testid="checkpoint-badge">checkpoint v${S.sourceWorkspace.accepted.version}</span>` : ""}${badge()}</div>
     <section class="studio-shell">
       <aside class="conversation"><div class="row"><b>Build with Practice Studio</b><span class="tag tb" style="margin-left:auto">v${S.app.current_version}</span></div><div class="conversation-log">${progress || turns}</div><div class="conversation-compose"><input id="reply" type="text" placeholder="Ask for one change…" onkeydown="if(event.key==='Enter')iterate()"><button class="b bp" onclick="iterate()">Send</button></div></aside>
-      <div class="preview-pane"><div class="preview-bar"><span>● ● ●</span><b>${esc(S.app.name)}</b><span class="tag ty" data-testid="environment-badge" style="margin-left:auto">SANDBOX · SYNTHETIC</span></div><div class="preview-surface"><article class="preview-app"><div class="flow-eyebrow">Accepted artifact plan</div><h2 style="margin:8px 0">${esc(S.app.name)}</h2><p class="muted">A verified source checkpoint built from the ${esc(S.app.pack)} starter. Interactive rendering of the generated Svelte app is not connected on this screen yet.</p><div class="preview-features">${features}</div></article></div><div class="studio-footer"><button class="b" onclick="S.drawer=!S.drawer;render()">Under the hood · read-only</button><span class="muted">${gate ? `${gate.passed}/${gate.total} checks passed` : "Checking safeguards…"}</span><button class="b bp" style="margin-left:auto" onclick="S.modal='preflight';render()">Check before release →</button></div>${S.drawer ? `<div class="drawer"><b>What this preview uses</b><span>Rust and Axum · ${S.app.routes} routes · synthetic data · immutable history</span><span>No patient system or production database is connected.</span></div>` : ""}</div>
+      <div class="preview-pane"><div class="preview-bar"><span>● ● ●</span><b>${esc(S.app.name)}</b><span class="tag ty" data-testid="environment-badge" style="margin-left:auto">SANDBOX · SYNTHETIC</span></div><div class="preview-surface">${shaktiTreatmentPreview()}</div><div class="studio-footer"><button class="b" onclick="S.drawer=!S.drawer;render()">Under the hood · read-only</button><span class="muted">${gate ? `${gate.passed}/${gate.total} checks passed` : "Checking safeguards…"}</span><button class="b bp" style="margin-left:auto" onclick="S.modal='preflight';render()">Check before release →</button></div>${S.drawer ? `<div class="drawer"><b>What this preview uses</b><span>Rust and Axum · ${S.app.routes} routes · synthetic data · immutable history</span><span>No patient system or production database is connected.</span></div>` : ""}</div>
     </section>
     ${shaktiGate()}
   </div>`;
+}
+
+function acceptedTreatmentPreview(workspace) {
+  const accepted = workspace?.accepted;
+  const verification = workspace?.accepted_verification;
+  if (!accepted || !verification?.passed || verification.workspace_digest !== accepted.digest) return null;
+  const source = accepted.files?.["web/src/lib/treatment.json"];
+  if (typeof source !== "string") return null;
+  try {
+    const treatment = JSON.parse(source);
+    const recipe = treatment?.treatment;
+    const refinement = treatment?.refinement;
+    const features = treatment?.features;
+    if (!recipe || !["guided-worklist","event-timeline","focused-task"].includes(recipe.id)) return null;
+    if (typeof recipe.label !== "string" || typeof recipe.user_outcome !== "string") return null;
+    if (!Array.isArray(features) || features.length < 1 || features.length > 64 || features.some(feature => typeof feature !== "string" || !feature.trim())) return null;
+    if (!refinement || !["task-first","context-first"].includes(refinement.presentation)) return null;
+    if (refinement.emphasis != null && typeof refinement.emphasis !== "string") return null;
+    return treatment;
+  } catch {
+    return null;
+  }
+}
+
+function shaktiTreatmentPreview() {
+  const selection = acceptedTreatmentPreview(S.sourceWorkspace);
+  if (!selection) {
+    const features = S.app?.features || [];
+    return `<article class="preview-app"><div class="flow-eyebrow">Accepted artifact plan</div><h2 style="margin:8px 0">${esc(S.app.name)}</h2><p class="muted">Choose and accept a treatment to run its synthetic workflow here before release.</p><div class="preview-features">${features.map(feature => `<div class="preview-feature">✓ ${esc(feature)}</div>`).join("")}</div></article>`;
+  }
+  const features = selection.features;
+  const recipe = selection.treatment;
+  const state = S.treatmentPreview;
+  const reviewed = new Set(state.reviewed);
+  const context = `<div class="treatment-preview-header" data-testid="treatment-preview-context"><div class="row"><span class="tag tb">${esc(recipe.label)}</span><span class="tag tg">verified checkpoint</span></div><h2>${esc(recipe.user_outcome)}</h2>${selection.refinement.emphasis ? `<p>${esc(selection.refinement.emphasis)}</p>` : ""}</div>`;
+  let interaction = "";
+  if (recipe.id === "guided-worklist") {
+    interaction = `<div class="treatment-preview-list" aria-label="Guided synthetic worklist">${features.map((feature,index) => `<article class="treatment-preview-item ${reviewed.has(index) ? "reviewed" : ""}" data-testid="preview-worklist-item"><div class="row"><b>${index + 1}. ${esc(feature)}</b><span class="tag ${reviewed.has(index) ? "tg" : "ty"}">${reviewed.has(index) ? "Reviewed" : "Next"}</span></div><p class="muted">This workflow item is frozen into the verified checkpoint.</p><button class="b" type="button" onclick="toggleTreatmentPreview(${index})">${reviewed.has(index) ? "Mark unresolved" : "Mark reviewed"}</button></article>`).join("")}</div>`;
+  } else if (recipe.id === "event-timeline") {
+    const visible = features.map((feature,index) => ({feature,index})).filter(({index}) => state.filter === "all" || (state.filter === "reviewed" ? reviewed.has(index) : !reviewed.has(index)));
+    interaction = `<div class="treatment-preview-tools" aria-label="Filter synthetic events">${["all","unresolved","reviewed"].map(filter => `<button class="b ${state.filter === filter ? "on" : ""}" type="button" aria-pressed="${state.filter === filter}" onclick="filterTreatmentPreview('${filter}')">${filter}</button>`).join("")}</div><ol class="treatment-preview-timeline">${visible.length ? visible.map(({feature,index}) => `<li data-testid="preview-timeline-item"><div><b>${esc(feature)}</b><p class="muted">Synthetic event ${index + 1} · ${reviewed.has(index) ? "reviewed" : "unresolved"}</p></div><button class="b" type="button" onclick="toggleTreatmentPreview(${index})">Toggle review</button></li>`).join("") : `<li><span class="muted">No synthetic events match this filter.</span></li>`}</ol>`;
+  } else if (recipe.id === "focused-task") {
+    const index = Math.min(state.focusedStep, Math.max(0, features.length - 1));
+    interaction = `<div class="treatment-preview-focus" data-testid="preview-focused-task"><p class="muted">Step ${index + 1} of ${features.length || 1}</p><h3>${esc(features[index] || "Review the signed synthetic workflow")}</h3><p>Use the existing starter capability, then review the result before saving any synthetic action.</p><div class="row"><button class="b" type="button" ${index === 0 ? "disabled" : ""} onclick="moveTreatmentPreview(-1)">Back</button><button class="b bp" type="button" ${index >= features.length - 1 ? "disabled" : ""} onclick="moveTreatmentPreview(1)">Continue</button></div></div>`;
+  } else {
+    interaction = `<div class="safety-callout" role="alert">The signed treatment recipe is unavailable. Export remains blocked until Rust validates it.</div>`;
+  }
+  const body = selection.refinement.presentation === "context-first" ? `${context}${interaction}` : `${interaction}${context}`;
+  const digest = S.sourceWorkspace.accepted.digest.replace("sha256:", "").slice(0, 12);
+  const verifier = S.sourceWorkspace.accepted_verification.id;
+  return `<article class="preview-app treatment-preview" data-testid="treatment-workspace-preview" data-treatment-id="${esc(recipe.id)}">${body}<div class="safety-callout">Synthetic learning environment only. Do not enter patient information or use this workspace for emergency care.</div><div class="treatment-preview-proof" data-testid="preview-checkpoint-proof"><span>✓</span><span>Same signed recipe and checkpoint exported to Svelte · v${S.sourceWorkspace.accepted.version} · ${esc(digest)} · ${esc(verifier)} · actions here use synthetic preview state only</span></div></article>`;
 }
 
 function agentBadge(provenance) {

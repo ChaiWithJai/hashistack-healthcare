@@ -28,8 +28,10 @@ cannot promise a field or workflow that the exporter does not implement.
 
 The export contains one Svelte component with a guided worklist, an event
 timeline, and a focused task view. The selected recipe changes which structure
-the clinician sees. The workspace verifier rejects an unknown recipe or a
-missing materializer.
+the clinician sees. Rust snapshots the workflow items into the same verified
+`treatment.json`, so a later app edit cannot change an accepted preview or
+export without a new checkpoint. The workspace verifier rejects an unknown
+recipe or a missing materializer.
 
 ## Architecture comparison
 
@@ -71,6 +73,16 @@ packs and the same task intent. The time comparison is therefore directional,
 not a controlled benchmark. The checked script now fixes the task text for
 future runs.
 
-This change proves bounded planning and visible export materialization. It does
-not yet prove that a clinician can run the selected treatment inside the studio
-before export. That remains the next product gap.
+The accepted treatment now runs inside the Studio before export. The preview
+reads only the verified `treatment.json` in the accepted checkpoint, never the
+latest unaccepted selection. It supports the guided worklist, event timeline,
+and focused task and uses the same task-first or context-first choice as the
+exported Svelte component.
+
+Run `node evals/treatment-preview/proof.mjs` after `cargo build` to exercise all
+three recipes in Chromium. The proof checks that preview actions make no
+network request, do not change the checkpoint or audit stream, and that a
+rejected later treatment cannot replace the accepted preview. It also changes
+the mutable app feature list and proves those changes cannot leak into the
+accepted checkpoint. Its report and screenshot stay under the gitignored
+`.evals/treatment-preview/` directory and are uploaded by CI.

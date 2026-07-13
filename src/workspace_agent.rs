@@ -164,6 +164,10 @@ pub struct GenerateRequest {
     pub pack: String,
     pub workspace_summary: String,
     pub selected_treatment: TreatmentSelection,
+    /// Exact workflow items shown by both Studio and the exported Svelte app.
+    /// Rust snapshots them into the candidate configuration so they are
+    /// covered by the accepted checkpoint digest.
+    pub features: Vec<String>,
     /// Local-only input for the deterministic floor. It is never serialized
     /// into a DigitalOcean request.
     pub accepted_files: BTreeMap<String, String>,
@@ -682,10 +686,20 @@ fn deterministic_patch(request: &GenerateRequest) -> Result<CandidatePatch> {
         .refinement
         .validate()
         .map_err(anyhow::Error::msg)?;
+    if request.features.is_empty() || request.features.len() > 64 {
+        bail!("treatment feature snapshot must contain 1 to 64 items");
+    }
+    for feature in &request.features {
+        if feature.trim().is_empty() || feature.len() > 300 || feature.chars().any(char::is_control)
+        {
+            bail!("treatment feature snapshot contains invalid text");
+        }
+    }
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": 1,
         "treatment": &request.selected_treatment.treatment,
         "refinement": &request.selected_treatment.refinement,
+        "features": &request.features,
         "planner": &request.selected_treatment.planner,
         "materializer": DETERMINISTIC_MATERIALIZER,
     }))?;
@@ -898,6 +912,7 @@ mod tests {
                 thread_id: "app-1".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
+                features: vec!["Review synthetic intake".into()],
                 selected_treatment: selected("event-timeline"),
                 accepted_files: BTreeMap::from([(
                     "web/src/lib/treatment.json".into(),
@@ -933,6 +948,10 @@ mod tests {
             thread_id: "app-1".into(),
             pack: "post-op-monitor".into(),
             workspace_summary: "checkpoint=0".into(),
+            features: vec![
+                "Review synthetic check-ins".into(),
+                "Escalate synthetic pain signals".into(),
+            ],
             selected_treatment: hostile.clone(),
             accepted_files: accepted_files.clone(),
         };
@@ -948,6 +967,10 @@ mod tests {
             hostile.refinement.emphasis.unwrap()
         );
         assert_eq!(config["materializer"], DETERMINISTIC_MATERIALIZER);
+        assert_eq!(
+            config["features"],
+            serde_json::json!(first.features.clone())
+        );
 
         let second = GenerateRequest {
             selected_treatment: selected("event-timeline"),
@@ -1098,6 +1121,7 @@ mod tests {
                 thread_id: "app-1".into(),
                 pack: "intake".into(),
                 workspace_summary: "checkpoint=0".into(),
+                features: vec!["Review synthetic intake".into()],
                 selected_treatment: selected("guided-worklist"),
                 accepted_files: BTreeMap::from([(
                     "web/src/lib/treatment.json".into(),

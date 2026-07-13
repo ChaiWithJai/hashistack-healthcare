@@ -1,5 +1,9 @@
 # Investigation 0001 — Enabling all seeded use cases across the HashiStack
 
+Status: superseded architecture survey. References to Claude or local model
+runtimes are rejected options, not current product plans. Gemma 4 is the only
+application model; see [decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
+
 Tracking issue: [#12](https://github.com/ChaiWithJai/hashistack-healthcare/issues/12)
 Goal + bar: [docs/GOAL.md](../GOAL.md) · Design authority: [RFC 0001](../rfc/0001-clinician-platform.md)
 

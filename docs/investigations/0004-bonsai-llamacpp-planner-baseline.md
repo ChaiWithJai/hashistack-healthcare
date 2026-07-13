@@ -1,5 +1,9 @@
 # Bonsai + llama.cpp planner baseline
 
+Status: retired benchmark. Bonsai and llama.cpp are not product runtimes.
+Gemma 4 is the only application model; see
+[decision 0009](../decisions/0009-agent-workspace-and-model-routing.md).
+
 Date: 2026-07-12
 
 Runtime: Homebrew llama.cpp b9910 (`f5525f7e7`), Metal, loopback-only.

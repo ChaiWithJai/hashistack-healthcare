@@ -1265,6 +1265,7 @@ async fn generate_source_candidate(
                 pack: app.pack.clone(),
                 workspace_summary: crate::workspace_agent::workspace_summary(&workspace.accepted),
                 selected_treatment: selected,
+                features: app.features.clone(),
                 accepted_files: workspace.accepted.files.clone(),
             },
             workspace.accepted.digest.clone(),

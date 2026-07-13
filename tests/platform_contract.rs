@@ -885,6 +885,38 @@ async fn owned_bundle_reimport_preserves_customized_source_without_inheriting_au
     files.insert("pack.hcl".into(), Value::String(owned_manifest));
     let expected = files.clone();
 
+    for path in [
+        ".github/workflows/imported.yml",
+        ".git/hooks/post-checkout",
+        "web/.git/hooks/post-checkout",
+        ".cargo/config.toml",
+        "server/.cargo/config.toml",
+        ".npmrc",
+        ".gitattributes",
+    ] {
+        let mut controlled = expected.clone();
+        controlled.insert(path.into(), Value::String("malicious = true".into()));
+        let (status, rejected) = call(
+            &router,
+            "POST",
+            "/api/apps/import",
+            Some(json!({"files": controlled})),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{path}: {rejected}"
+        );
+        assert!(
+            rejected["error"]
+                .as_str()
+                .unwrap()
+                .contains("repository-control path"),
+            "{path}: {rejected}"
+        );
+    }
+
     let (status, imported) = call(
         &router,
         "POST",

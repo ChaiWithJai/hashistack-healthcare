@@ -78,6 +78,12 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         "web/src/routes/+page.svelte".to_string(),
         svelte_page(app, pack, &clinical_entry),
     );
+    if pack.id == "post-op-monitor" {
+        files.insert(
+            "web/src/lib/PostOpCheckIn.svelte".to_string(),
+            post_op_checkin_component(),
+        );
+    }
     files.insert(".mcp.json".to_string(), svelte_mcp_config());
     files.insert(
         "diagrams/system-architecture.tldr".to_string(),
@@ -307,6 +313,9 @@ fn svelte_layout_options() -> String {
 }
 
 fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
+    if pack.id == "post-op-monitor" {
+        return post_op_svelte_page(app, pack, clinical_entry);
+    }
     let features = app
         .features
         .iter()
@@ -375,6 +384,201 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         description = pack.description,
         clinical_entry = clinical_entry,
     )
+}
+
+fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> String {
+    format!(
+        r#"<script lang="ts">
+  import {{ onMount }} from 'svelte';
+  import PostOpCheckIn from '../lib/PostOpCheckIn.svelte';
+  let rustStatus = $state('Checking the Rust service');
+
+  onMount(async () => {{
+    try {{
+      const response = await fetch('/health', {{ headers: {{ accept: 'application/json' }} }});
+      const health = response.headers.get('content-type')?.includes('application/json')
+        ? await response.json()
+        : null;
+      rustStatus = response.ok && health?.status === 'ok'
+        ? 'Rust service connected'
+        : 'Rust service needs attention';
+    }} catch {{
+      rustStatus = 'Start the Rust service to connect this workspace';
+    }}
+  }});
+</script>
+
+<svelte:head><title>{name}</title></svelte:head>
+
+<main class="hc-page">
+  <div class="hc-shell hc-stack">
+    <header class="hc-card hc-stack">
+      <div class="hc-actions">
+        <span class="hc-badge">Synthetic learning environment</span>
+        <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
+      </div>
+      <h1>{name}</h1>
+      <p>{description}</p>
+      <p class="hc-help">This editable Svelte screen submits to the same-origin Rust service. Rust validates the check-in, decides whether escalation is required, and writes the audit trail.</p>
+    </header>
+    <PostOpCheckIn />
+    <footer class="hc-card hc-actions">
+      <a class="hc-button hc-link" href="{clinical_entry}">Open the role-based clinical view</a>
+      <span class="hc-help">Edit this screen in <code>web/src/lib/PostOpCheckIn.svelte</code>. The API contract lives in <code>server/src/main.rs</code>.</span>
+    </footer>
+  </div>
+</main>
+"#,
+        name = app.name,
+        description = pack.description,
+        clinical_entry = clinical_entry,
+    )
+}
+
+fn post_op_checkin_component() -> String {
+    r#"<script lang="ts">
+  type CheckinResult = {
+    status: 'recorded';
+    synthetic: true;
+    replayed: boolean;
+    checkin_id: string;
+    pain: number;
+    wound: string;
+    escalation: {
+      required: boolean;
+      flag_id: string | null;
+      destination: 'practice-inbox' | null;
+      status: 'queued' | 'not-required';
+      reason_codes: string[];
+    };
+    message: string;
+  };
+
+  let pain = $state(8);
+  let wound = $state('clean');
+  let note = $state('Synthetic example: pain increased overnight.');
+  let submitting = $state(false);
+  let result: CheckinResult | null = $state(null);
+  let error = $state('');
+  let needsSignIn = $state(false);
+  let idempotencyKey = '';
+
+  async function submitCheckin() {
+    if (submitting) return;
+    submitting = true;
+    result = null;
+    error = '';
+    needsSignIn = false;
+    idempotencyKey ||= crypto.randomUUID().replaceAll('-', '');
+    try {
+      const response = await fetch('/api/checkins', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'idempotency-key': idempotencyKey
+        },
+        body: JSON.stringify({ pain, wound, note })
+      });
+      if (response.status === 401) {
+        needsSignIn = true;
+        throw new Error('Sign in as the synthetic patient to submit this check-in.');
+      }
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || body.error || 'The check-in was not recorded.');
+      result = body as CheckinResult;
+      idempotencyKey = '';
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'The check-in was not recorded.';
+    } finally {
+      submitting = false;
+    }
+  }
+</script>
+
+<section class="hc-workflow-grid" aria-labelledby="checkin-title">
+  <form class="hc-card hc-stack" onsubmit={(event) => { event.preventDefault(); submitCheckin(); }}>
+    <div class="hc-actions">
+      <span class="hc-badge">Synthetic practice patient</span>
+      <span class="hc-help">Today’s recovery check-in</span>
+    </div>
+    <h2 id="checkin-title">Meridian Recovery Check-in</h2>
+    <p class="hc-help">Try pain 8 to see the Rust escalation rule route one synthetic flag.</p>
+
+    <label class="hc-label">pain (0–10)
+      <input class="hc-field" type="range" min="0" max="10" bind:value={pain} aria-describedby="pain-value" />
+    </label>
+    <div class="hc-pain-scale" aria-label="Choose a pain score">
+      {#each Array.from({ length: 11 }, (_, value) => value) as value}
+        <button type="button" class:active={pain === value} aria-label={`Pain ${value}`} aria-pressed={pain === value} onclick={() => pain = value}>{value}</button>
+      {/each}
+    </div>
+    <p id="pain-value" class="hc-pain-value"><b>{pain}/10</b> selected</p>
+
+    <label class="hc-label">wound looks
+      <select class="hc-field" bind:value={wound}>
+        <option value="clean">clean</option>
+        <option value="redness">redness</option>
+        <option value="swelling">swelling</option>
+        <option value="drainage">drainage</option>
+        <option value="opening">opening</option>
+        <option value="spreading-redness">spreading redness</option>
+      </select>
+    </label>
+    <label class="hc-label">note <span class="hc-help">Synthetic examples only. Maximum 1,000 bytes.</span>
+      <textarea class="hc-field" rows="3" maxlength="1000" bind:value={note}></textarea>
+    </label>
+    <button class="hc-button hc-button--primary" type="submit" disabled={submitting}>
+      {submitting ? 'Sending to Rust…' : 'Send today’s check-in'}
+    </button>
+    <p class="hc-help">Learning environment only. This inbox is not monitored for emergencies.</p>
+  </form>
+
+  <aside class="hc-card hc-stack" aria-live="polite">
+    <span class="hc-badge">Rust-owned result</span>
+    <h2>Practice inbox routing</h2>
+    {#if result?.escalation.required}
+      <div class="hc-notice hc-notice--success" data-testid="escalation-result">
+        <b>Queued in the synthetic practice inbox.</b>
+        <p>Pain {result.pain}/10 was evaluated by Rust and produced flag <code>{result.escalation.flag_id}</code>.</p>
+      </div>
+    {:else if result}
+      <div class="hc-notice" data-testid="recorded-result">
+        <b>Check-in recorded.</b>
+        <p>Rust determined that no escalation was required.</p>
+      </div>
+    {:else if error}
+      <div class="hc-notice hc-notice--warning" role="alert">
+        <b>{error}</b>
+        {#if needsSignIn}<p><a href="/login?next=/workspace/">Sign in as the synthetic patient</a>, then return here.</p>{/if}
+      </div>
+    {:else}
+      <div class="hc-empty-result">
+        <b>No client-side guess.</b>
+        <p>Submit the synthetic check-in. This panel changes only after the Rust API confirms the result.</p>
+      </div>
+    {/if}
+    <div class="hc-boundary-list">
+      <span>✓ Patient identity comes from the HttpOnly session.</span>
+      <span>✓ Rust owns validation and the pain threshold.</span>
+      <span>✓ A retry key prevents duplicate flags.</span>
+      <span>✓ Free-text notes are not echoed in the response.</span>
+    </div>
+  </aside>
+</section>
+
+<style>
+  .hc-workflow-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(290px,.9fr); gap:1rem; }
+  .hc-pain-scale { display:grid; grid-template-columns:repeat(11,minmax(34px,1fr)); gap:.35rem; }
+  .hc-pain-scale button { min-height:44px; border:1px solid var(--hc-line); border-radius:10px; background:var(--hc-surface); color:var(--hc-ink); cursor:pointer; }
+  .hc-pain-scale button.active { background:var(--hc-brand); border-color:var(--hc-brand); color:white; font-weight:800; }
+  .hc-pain-value { margin:0; font-size:1.1rem; }
+  .hc-empty-result { min-height:150px; display:grid; align-content:center; padding:1rem; border:1px dashed var(--hc-line); border-radius:12px; color:var(--hc-muted); }
+  .hc-boundary-list { display:grid; gap:.55rem; font-size:.86rem; color:var(--hc-muted); }
+  @media (max-width:760px) { .hc-workflow-grid { grid-template-columns:1fr; } .hc-pain-scale { grid-template-columns:repeat(6,1fr); } }
+</style>
+"#.to_string()
 }
 
 fn svelte_mcp_config() -> String {
@@ -941,7 +1145,9 @@ http {
       proxy_buffering off;
       proxy_request_buffering off;
       proxy_read_timeout 3600s;
-      proxy_set_header Host $host;
+      # Preserve the public port so Rust's Origin/Host comparison remains
+      # correct when the exported container is published on a random port.
+      proxy_set_header Host $http_host;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
     }
@@ -1191,7 +1397,7 @@ mod tests {
             stage: Stage::Sandbox,
             data_source: DataSource::Synthetic(pack.synthetic_dataset.clone()),
             controls: pack.gates.iter().cloned().collect::<BTreeSet<_>>(),
-            external_calls: vec!["api.anthropic.com".to_string()],
+            external_calls: vec![],
             features,
             routes: 5,
             addenda: vec![Addendum {
@@ -1245,6 +1451,8 @@ mod tests {
         // the compile-time embedded packs/post-op-monitor/scaffold/.
         let main_rs = &bundle.files["server/src/main.rs"];
         assert!(main_rs.contains("PAIN_ESCALATION_THRESHOLD"));
+        assert!(main_rs.contains(".route(\"/api/checkins\", post(api_checkin))"));
+        assert!(main_rs.contains("Idempotency-Key"));
         assert!(bundle.files["server/Cargo.toml"].contains("post-op-monitor-scaffold"));
         assert!(bundle.files["server/Cargo.lock"].contains("name = \"axum\""));
         // The synthetic seed rides along where the app's loader expects it.
@@ -1270,8 +1478,18 @@ mod tests {
         assert!(!dockerfile.contains("python3"));
         assert!(bundle.files["config/nginx.conf"].contains("include /etc/nginx/mime.types"));
         assert!(bundle.files["config/nginx.conf"].contains("absolute_redirect off"));
+        assert!(bundle.files["config/nginx.conf"].contains("proxy_set_header Host $http_host"));
         assert!(bundle.files["config/nginx.conf"].contains("return 302 /login"));
-        assert!(bundle.files["web/src/routes/+page.svelte"].contains("href=\"/login\""));
+        let page = &bundle.files["web/src/routes/+page.svelte"];
+        assert!(page.contains("PostOpCheckIn"));
+        let checkin = &bundle.files["web/src/lib/PostOpCheckIn.svelte"];
+        assert!(checkin.contains("fetch('/api/checkins'"));
+        assert!(checkin.contains("/login?next=/workspace/"));
+        assert!(checkin.contains("Queued in the synthetic practice inbox"));
+        assert!(checkin.contains("No client-side guess"));
+        assert!(
+            bundle.files["artifact-quality.json"].contains("svelte-pain-eight-reaches-rust-inbox")
+        );
     }
 
     #[test]

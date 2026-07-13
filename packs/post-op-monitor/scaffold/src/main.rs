@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{DefaultBodyLimit, Extension, Form, Multipart, Request, State};
+use axum::extract::{DefaultBodyLimit, Extension, Form, Multipart, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -99,6 +99,7 @@ struct SeedCheckin {
 struct Checkin {
     // phi-encryption: stub — held in memory only; hipaa-core encryptField
     // via Vault transit before any real storage backend is wired.
+    id: String,
     patient_id: String, // phi: patient identifier
     pain: u8,           // phi: reported pain score
     wound: String,      // phi: reported wound status
@@ -123,9 +124,27 @@ struct PhotoStub {
 /// escalation-path semantics (../gates/README.md).
 #[derive(Clone, Debug)]
 struct Flag {
+    id: String,
+    checkin_id: String,
     patient_id: String,
     reason: String,
     at: u64,
+}
+
+#[derive(Clone, Debug)]
+struct CheckinOutcome {
+    checkin_id: String,
+    flag_id: Option<String>,
+    patient_name: String,
+    reasons: Vec<String>,
+    reason_codes: Vec<&'static str>,
+}
+
+#[derive(Default)]
+struct WorkflowState {
+    checkins: Vec<Checkin>,
+    inbox: Vec<Flag>,
+    idempotent_results: HashMap<String, CheckinOutcome>,
 }
 
 /// Where audit JSONL lines go: stdout in production, memory in tests so the
@@ -145,16 +164,31 @@ impl AuditSink {
             AuditSink::Memory(buffer) => buffer.lock().unwrap().push(line),
         }
     }
+
+    fn write_batch(&self, lines: &[String]) -> Result<(), ()> {
+        match self {
+            AuditSink::Stdout => {
+                for line in lines {
+                    println!("{line}");
+                }
+                Ok(())
+            }
+            AuditSink::Memory(buffer) => {
+                buffer.lock().unwrap().extend(lines.iter().cloned());
+                Ok(())
+            }
+        }
+    }
 }
 
 struct Inner {
     dataset_name: String,
     patients: Vec<Patient>,
-    checkins: Mutex<Vec<Checkin>>,
+    workflow: Mutex<WorkflowState>,
     photos: Mutex<Vec<PhotoStub>>,
-    inbox: Mutex<Vec<Flag>>,
     sessions: Mutex<HashMap<String, Session>>,
     session_seq: AtomicU64,
+    operation_seq: AtomicU64,
     idle_timeout: Duration,
     audit: AuditSink,
 }
@@ -199,11 +233,11 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             dataset_name: dataset.dataset,
             patients: dataset.patients,
-            checkins: Mutex::new(Vec::new()),
+            workflow: Mutex::new(WorkflowState::default()),
             photos: Mutex::new(Vec::new()),
-            inbox: Mutex::new(Vec::new()),
             sessions: Mutex::new(HashMap::new()),
             session_seq: AtomicU64::new(0),
+            operation_seq: AtomicU64::new(0),
             idle_timeout,
             audit,
         })))
@@ -242,8 +276,8 @@ fn session_from_headers(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-/// Explicit auth boundary. Health and login are public; every workflow and
-/// local-model route requires a role-bearing session.
+/// Explicit auth boundary. Health and login are public; every workflow route
+/// requires a role-bearing session.
 async fn auto_logoff(State(state): State<AppState>, request: Request, next: Next) -> Response {
     if matches!(request.uri().path(), "/health" | "/login") {
         return next.run(request).await;
@@ -280,7 +314,7 @@ async fn auto_logoff(State(state): State<AppState>, request: Request, next: Next
 fn login_required() -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Html(page("sign in", login_form("Sign in is required."))),
+        Html(page("sign in", login_form("Sign in is required.", ""))),
     )
         .into_response()
 }
@@ -300,18 +334,30 @@ fn logged_off() -> Response {
     response
 }
 
-fn login_form(message: &str) -> String {
-    format!("<div class=\"sk pad\"><b>{}</b><p>Demo learning credentials (not real secrets): patient <code>demo-patient / learn-patient</code>; clinician <code>demo-clinician / learn-clinician</code>.</p><form method=\"post\" action=\"/login\" class=\"col\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input type=\"password\" name=\"password\" autocomplete=\"current-password\"></label><button class=\"b bp\">sign in</button></form></div>", esc(message))
+fn login_form(message: &str, next: &str) -> String {
+    let next = if next == "/workspace/" { next } else { "" };
+    format!("<div class=\"sk pad\"><b>{}</b><p>Demo learning credentials (not real secrets): patient <code>demo-patient / learn-patient</code>; clinician <code>demo-clinician / learn-clinician</code>.</p><form method=\"post\" action=\"/login\" class=\"col\"><input type=\"hidden\" name=\"next\" value=\"{}\"><label>username <input name=\"username\" autocomplete=\"username\"></label><label>password <input type=\"password\" name=\"password\" autocomplete=\"current-password\"></label><button class=\"b bp\">sign in</button></form></div>", esc(message), esc(next))
+}
+
+#[derive(Default, Deserialize)]
+struct LoginQuery {
+    #[serde(default)]
+    next: String,
 }
 
 #[derive(Deserialize)]
 struct LoginForm {
     username: String,
     password: String,
+    #[serde(default)]
+    next: String,
 }
 
-async fn login_page() -> Html<String> {
-    Html(page("demo sign in", login_form("Authentication boundary")))
+async fn login_page(Query(query): Query<LoginQuery>) -> Html<String> {
+    Html(page(
+        "demo sign in",
+        login_form("Authentication boundary", &query.next),
+    ))
 }
 
 async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
@@ -335,10 +381,15 @@ async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Re
             StatusCode::UNAUTHORIZED,
             Html(page(
                 "sign in failed",
-                login_form("Invalid demo credentials."),
+                login_form("Invalid demo credentials.", &form.next),
             )),
         )
             .into_response();
+    };
+    let destination = if role == Role::Patient && form.next == "/workspace/" {
+        "/workspace/"
+    } else {
+        destination
     };
     let id = state.mint_session(role, patient_id, actor);
     let mut response = (
@@ -436,19 +487,21 @@ async fn home(State(state): State<AppState>, Extension(auth): Extension<AuthSess
          </form></div>",
     );
 
-    let checkins = state.0.checkins.lock().unwrap();
+    let workflow = state.0.workflow.lock().unwrap();
     body.push_str(&format!(
         "<div class=\"sk pad\"><b>check-ins this session</b> <span class=\"muted\">{}</span><ul>",
-        checkins.len()
+        workflow.checkins.len()
     ));
-    for checkin in checkins
+    for checkin in workflow
+        .checkins
         .iter()
         .filter(|c| c.patient_id == patient_id)
         .rev()
         .take(10)
     {
         body.push_str(&format!(
-            "<li>{} — pain {}/10, wound {} — {} <span class=\"muted\">at {}</span></li>",
+            "<li><code>{}</code> · {} — pain {}/10, wound {} — {} <span class=\"muted\">at {}</span></li>",
+            esc(&checkin.id),
             esc(&checkin.patient_id),
             checkin.pain,
             esc(&checkin.wound),
@@ -456,7 +509,7 @@ async fn home(State(state): State<AppState>, Extension(auth): Extension<AuthSess
             checkin.at
         ));
     }
-    drop(checkins);
+    drop(workflow);
     body.push_str("</ul></div>");
 
     body.push_str("<div class=\"sk pad\"><b>your recovery history (synthetic seed)</b><ul>");
@@ -486,14 +539,16 @@ async fn clinician(
     if auth.role != Role::Clinician {
         return (StatusCode::FORBIDDEN, "clinician role required").into_response();
     }
-    let inbox = state.0.inbox.lock().unwrap();
+    let workflow = state.0.workflow.lock().unwrap();
     let mut body = format!("<div class=\"sk pad\"><b>practice inbox</b><p>Signed in as {}. Patients cannot access this route.</p><ul>", esc(&auth.actor));
-    for flag in inbox.iter().rev() {
+    for flag in workflow.inbox.iter().rev() {
         body.push_str(&format!(
-            "<li class=\"note\">{} — {} at {}</li>",
+            "<li class=\"note\"><code>{}</code> · {} — {} at {} <span class=\"muted\">linked to {}</span></li>",
+            esc(&flag.id),
             esc(&flag.patient_id),
             esc(&flag.reason),
-            flag.at
+            flag.at,
+            esc(&flag.checkin_id)
         ));
     }
     body.push_str("</ul></div>");
@@ -509,6 +564,239 @@ struct CheckinForm {
     note: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckinInput {
+    pain: u8,
+    wound: String,
+    #[serde(default)]
+    note: String,
+}
+
+fn record_checkin(
+    state: &AppState,
+    form: &CheckinForm,
+    actor: &str,
+    idempotency_key: Option<&str>,
+) -> Result<(CheckinOutcome, bool), (StatusCode, &'static str)> {
+    let Some(patient) = state.0.patients.iter().find(|p| p.id == form.patient_id) else {
+        return Err((StatusCode::NOT_FOUND, "unknown synthetic patient"));
+    };
+    if form.pain > 10 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "pain must be on the 0–10 scale",
+        ));
+    }
+    if !KNOWN_WOUND_STATUSES.contains(&form.wound.as_str()) {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, "unknown wound status"));
+    }
+    if form.note.len() > 1000 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "note must be 1000 bytes or fewer",
+        ));
+    }
+
+    let mut reasons = Vec::new();
+    let mut reason_codes = Vec::new();
+    if form.pain >= PAIN_ESCALATION_THRESHOLD {
+        reason_codes.push("pain-threshold");
+        reasons.push(format!(
+            "pain {}/10 at or over threshold {PAIN_ESCALATION_THRESHOLD}",
+            form.pain
+        ));
+    }
+    if CONCERNING_WOUND_STATUSES.contains(&form.wound.as_str()) {
+        reason_codes.push("concerning-wound");
+        reasons.push(format!("wound reported as {:?}", form.wound));
+    }
+    let scoped_key = idempotency_key.map(|key| format!("{}:{key}", form.patient_id));
+    let mut workflow = state.0.workflow.lock().unwrap();
+    if let Some(existing) = scoped_key
+        .as_ref()
+        .and_then(|key| workflow.idempotent_results.get(key))
+    {
+        return Ok((existing.clone(), true));
+    }
+    let sequence = state.0.operation_seq.fetch_add(1, Ordering::Relaxed);
+    let checkin_id = format!("checkin-{sequence:06}");
+    let flag_id = (!reasons.is_empty()).then(|| format!("flag-{sequence:06}"));
+    let at = unix_now();
+    let outcome = CheckinOutcome {
+        checkin_id: checkin_id.clone(),
+        flag_id: flag_id.clone(),
+        patient_name: patient.name.clone(),
+        reasons: reasons.clone(),
+        reason_codes: reason_codes.clone(),
+    };
+    let mut domain_events = vec![serde_json::json!({
+        "at": at,
+        "actor": actor,
+        "action": "post_op.checkin.accepted",
+        "checkin_id": checkin_id,
+        "patient_id": form.patient_id,
+        "pain": form.pain,
+        "wound": form.wound,
+        "synthetic_only": true,
+        "control": "audit-log"
+    })
+    .to_string()];
+    if let Some(id) = &flag_id {
+        domain_events.push(
+            serde_json::json!({
+                "at": at,
+                "actor": actor,
+                "action": "post_op.escalation.queued",
+                "checkin_id": checkin_id,
+                "flag_id": id,
+                "destination": "practice-inbox",
+                "reason_codes": reason_codes,
+                "synthetic_only": true,
+                "control": "audit-log"
+            })
+            .to_string(),
+        );
+    }
+    state.0.audit.write_batch(&domain_events).map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "audit unavailable; check-in was not recorded",
+        )
+    })?;
+    workflow.checkins.push(Checkin {
+        id: checkin_id.clone(),
+        patient_id: form.patient_id.clone(),
+        pain: form.pain,
+        wound: form.wound.clone(),
+        note: form.note.clone(),
+        at,
+    });
+    if let Some(id) = flag_id {
+        workflow.inbox.push(Flag {
+            id,
+            checkin_id,
+            patient_id: form.patient_id.clone(),
+            reason: reasons.join("; "),
+            at,
+        });
+    }
+    if let Some(key) = scoped_key {
+        workflow.idempotent_results.insert(key, outcome.clone());
+    }
+    Ok((outcome, false))
+}
+
+async fn api_checkin(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSession>,
+    headers: HeaderMap,
+    Json(input): Json<CheckinInput>,
+) -> Response {
+    if auth.role != Role::Patient {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "patient_role_required",
+                "message": "only the signed-in synthetic patient may submit a check-in"
+            })),
+        )
+            .into_response();
+    }
+    if !same_origin(&headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "cross_origin_mutation_refused"})),
+        )
+            .into_response();
+    }
+    let Some(patient_id) = auth.patient_id.clone() else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "patient_identity_required"})),
+        )
+            .into_response();
+    };
+    let Some(idempotency_key) = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|key| (8..=128).contains(&key.len()))
+        .filter(|key| {
+            key.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+        })
+    else {
+        return (
+            StatusCode::PRECONDITION_REQUIRED,
+            Json(serde_json::json!({
+                "error": "idempotency_key_required",
+                "message": "send an 8–128 character Idempotency-Key"
+            })),
+        )
+            .into_response();
+    };
+    let form = CheckinForm {
+        patient_id,
+        pain: input.pain,
+        wound: input.wound,
+        note: input.note,
+    };
+    match record_checkin(&state, &form, &auth.actor, Some(idempotency_key)) {
+        Ok((outcome, replayed)) => {
+            let escalated = !outcome.reasons.is_empty();
+            (
+                if replayed {
+                    StatusCode::OK
+                } else {
+                    StatusCode::CREATED
+                },
+                Json(serde_json::json!({
+                "status": "recorded",
+                "synthetic": true,
+                "replayed": replayed,
+                "checkin_id": outcome.checkin_id,
+                "pain": form.pain,
+                "wound": form.wound,
+                "escalation": {
+                    "required": escalated,
+                    "flag_id": outcome.flag_id,
+                    "destination": escalated.then_some("practice-inbox"),
+                    "status": if escalated { "queued" } else { "not-required" },
+                    "reason_codes": outcome.reason_codes
+                },
+                "message": if escalated {
+                    "Flag queued in the synthetic practice inbox."
+                } else {
+                    "Check-in recorded. No escalation was needed."
+                }
+                })),
+            )
+                .into_response()
+        }
+        Err((status, message)) => (
+            status,
+            Json(serde_json::json!({"error": "invalid_checkin", "message": message})),
+        )
+            .into_response(),
+    }
+}
+
+fn same_origin(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    origin == format!("http://{host}") || origin == format!("https://{host}")
+}
+
 async fn checkin(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthSession>,
@@ -521,72 +809,29 @@ async fn checkin(
         )
             .into_response();
     }
-    let Some(patient) = state.0.patients.iter().find(|p| p.id == form.patient_id) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Html(page(
-                "unknown patient",
-                "<div class=\"sk pad\">no such patient in the synthetic seed</div>".to_string(),
-            )),
-        )
-            .into_response();
+    let (outcome, _replayed) = match record_checkin(&state, &form, &auth.actor, None) {
+        Ok(outcome) => outcome,
+        Err((status, message)) => {
+            return (
+                status,
+                Html(page(
+                    "bad check-in",
+                    format!("<div class=\"sk pad\">{}</div>", esc(message)),
+                )),
+            )
+                .into_response();
+        }
     };
-    if form.pain > 10 {
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Html(page(
-                "bad check-in",
-                "<div class=\"sk pad\">pain must be on the 0–10 scale</div>".to_string(),
-            )),
-        )
-            .into_response();
-    }
-    if !KNOWN_WOUND_STATUSES.contains(&form.wound.as_str()) {
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Html(page(
-                "bad check-in",
-                "<div class=\"sk pad\">unknown wound status</div>".to_string(),
-            )),
-        )
-            .into_response();
-    }
-
-    state.0.checkins.lock().unwrap().push(Checkin {
-        patient_id: form.patient_id.clone(),
-        pain: form.pain,
-        wound: form.wound.clone(),
-        note: form.note.clone(),
-        at: unix_now(),
-    });
-
-    // Escalation-path semantics (../gates/README.md): a flag over threshold
-    // must route to the practice inbox — not a dashboard nobody watches.
-    let mut reasons = Vec::new();
-    if form.pain >= PAIN_ESCALATION_THRESHOLD {
-        reasons.push(format!(
-            "pain {}/10 at or over threshold {PAIN_ESCALATION_THRESHOLD}",
-            form.pain
-        ));
-    }
-    if CONCERNING_WOUND_STATUSES.contains(&form.wound.as_str()) {
-        reasons.push(format!("wound reported as {:?}", form.wound));
-    }
+    let patient_name = outcome.patient_name;
+    let reasons = outcome.reasons;
     let flagged = !reasons.is_empty();
-    if flagged {
-        state.0.inbox.lock().unwrap().push(Flag {
-            patient_id: form.patient_id.clone(),
-            reason: reasons.join("; "),
-            at: unix_now(),
-        });
-    }
 
     let confirmation = if flagged {
         format!(
             "<div class=\"sk pad\"><b>check-in recorded for {}</b>\
              <p class=\"note\">flag routed to the practice inbox: {}</p>\
              <a href=\"/\">back</a></div>",
-            esc(&patient.name),
+            esc(&patient_name),
             esc(&reasons.join("; "))
         )
     } else {
@@ -594,7 +839,7 @@ async fn checkin(
             "<div class=\"sk pad\"><b>check-in recorded for {}</b>\
              <p>within expected recovery range — no escalation.</p>\
              <a href=\"/\">back</a></div>",
-            esc(&patient.name)
+            esc(&patient_name)
         )
     };
     Html(page("check-in recorded", confirmation)).into_response()
@@ -684,26 +929,24 @@ fn page(title: &str, body: String) -> String {
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
          <title>{title}</title>\
-         <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\
-         <link href=\"https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Shantell+Sans:wght@400;600&display=swap\" rel=\"stylesheet\">\
          <style>\
          /* Sketchy wireframe kit — same skin as the platform's web/index.html, \
             so the scaffold and the storyboards read as the same object. */\
          *{{box-sizing:border-box}}\
-         body{{margin:0;background:#f0eee9;font-family:'Shantell Sans',system-ui,sans-serif;color:#2b2b2b;font-size:14px}}\
+         body{{margin:0;background:#f0eee9;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2b2b2b;font-size:14px}}\
          header{{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid rgba(0,0,0,.08)}}\
          header h1{{font-size:15px;margin:0}}\
          header .who{{margin-left:auto;color:#888;font-size:12px}}\
-         main{{max-width:760px;margin:22px auto;padding:0 20px;display:flex;flex-direction:column;gap:12px;font-family:'Patrick Hand',cursive;font-size:15px}}\
+         main{{max-width:760px;margin:22px auto;padding:0 20px;display:flex;flex-direction:column;gap:12px;font-size:15px}}\
          .sk{{border:1.4px solid #2b2b2b;border-radius:225px 6px 255px 6px/6px 255px 6px 225px;background:#fdfdfb}}\
          .pad{{padding:12px 16px}}\
          .col{{display:flex;flex-direction:column;gap:8px;margin-top:8px}}\
          label{{display:flex;flex-direction:column;gap:3px}}\
-         input,select{{font-family:'Patrick Hand',cursive;font-size:15px;border:1.4px solid #2b2b2b;border-radius:225px 6px 255px 6px/6px 255px 6px 225px;background:#fff;padding:6px 10px}}\
-         .b{{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1.4px solid #2b2b2b;border-radius:6px;padding:4px 11px;background:#fff;font-family:'Patrick Hand',cursive;font-size:14px;cursor:pointer}}\
+         input,select{{font:inherit;border:1.4px solid #2b2b2b;border-radius:225px 6px 255px 6px/6px 255px 6px 225px;background:#fff;padding:6px 10px}}\
+         .b{{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1.4px solid #2b2b2b;border-radius:6px;padding:4px 11px;background:#fff;font:inherit;cursor:pointer}}\
          .bp{{background:#2a78d6;color:#fff;border-color:#1c5aa8}}\
-         .note{{font-family:'Patrick Hand',cursive;font-size:13px;color:#8a5a14}}\
-         .muted{{color:#888;font-size:12px;font-family:'Shantell Sans',sans-serif}}\
+         .note{{font-size:13px;color:#8a5a14}}\
+         .muted{{color:#888;font-size:12px}}\
          a{{color:#2a78d6}}\
          footer{{max-width:760px;margin:10px auto 40px;padding:0 20px;color:#999;font-size:11.5px}}\
          </style></head><body>\
@@ -722,6 +965,7 @@ fn app(state: AppState) -> Router {
         .route("/login", get(login_page).post(login))
         .route("/clinician", get(clinician))
         .route("/checkin", post(checkin))
+        .route("/api/checkins", post(api_checkin))
         .route("/photos", post(photos))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
@@ -864,16 +1108,26 @@ mod tests {
             "escalation is visible: {body}"
         );
 
-        assert_eq!(state.0.checkins.lock().unwrap().len(), 1);
-        let inbox = state.0.inbox.lock().unwrap();
+        let workflow = state.0.workflow.lock().unwrap();
+        assert_eq!(workflow.checkins.len(), 1);
+        let inbox = &workflow.inbox;
         assert_eq!(inbox.len(), 1, "pain 8 + drainage routes one flag");
+        assert_eq!(inbox[0].checkin_id, workflow.checkins[0].id);
+        assert!(!inbox[0].id.is_empty());
         assert!(inbox[0].reason.contains("pain 8/10"));
         assert!(inbox[0].reason.contains("drainage"));
-        drop(inbox);
+        drop(workflow);
 
         let lines = audit_lines(&state);
-        assert_eq!(lines.len(), 1, "one data-touching request, one JSONL line");
-        let event: serde_json::Value = serde_json::from_str(&lines[0]).expect("line is JSON");
+        assert_eq!(lines.len(), 3, "two domain events and one HTTP event");
+        let events = lines
+            .iter()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("line is JSON"))
+            .collect::<Vec<_>>();
+        assert_eq!(events[0]["action"], "post_op.checkin.accepted");
+        assert_eq!(events[1]["action"], "post_op.escalation.queued");
+        assert_eq!(events[0]["checkin_id"], events[1]["checkin_id"]);
+        let event = &events[2];
         assert_eq!(event["path"], "/checkin");
         assert_eq!(event["method"], "POST");
         assert_eq!(event["status"], 200);
@@ -882,6 +1136,111 @@ mod tests {
             event["note"].as_str().unwrap().contains("placeholder"),
             "the hipaa-core stand-in labels itself honestly"
         );
+    }
+
+    #[tokio::test]
+    async fn svelte_api_derives_identity_queues_once_and_audits_the_domain() {
+        let state = test_state(Duration::from_secs(900));
+        let cookie = patient_cookie(&state);
+        let request = || {
+            HttpRequest::post("/api/checkins")
+                .header(header::COOKIE, &cookie)
+                .header(header::HOST, "localhost:8080")
+                .header(header::ORIGIN, "http://localhost:8080")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("idempotency-key", "browser-checkin-0001")
+                .body(Body::from(
+                    r#"{"pain":8,"wound":"clean","note":"synthetic pain increased overnight"}"#,
+                ))
+                .unwrap()
+        };
+        let response = app(state.clone()).oneshot(request()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_str(&body_text(response).await).expect("API response is JSON");
+        assert_eq!(body["escalation"]["required"], true);
+        assert_eq!(body["escalation"]["status"], "queued");
+        assert_eq!(body["escalation"]["destination"], "practice-inbox");
+        assert_eq!(body["replayed"], false);
+        assert!(body.get("patient").is_none(), "identity is not echoed");
+        assert!(body.get("note").is_none(), "free text is not echoed");
+
+        let replay = app(state.clone()).oneshot(request()).await.unwrap();
+        assert_eq!(replay.status(), StatusCode::OK);
+        let replay_body: serde_json::Value =
+            serde_json::from_str(&body_text(replay).await).expect("replay response is JSON");
+        assert_eq!(replay_body["replayed"], true);
+        assert_eq!(replay_body["checkin_id"], body["checkin_id"]);
+
+        let workflow = state.0.workflow.lock().unwrap();
+        assert_eq!(workflow.checkins.len(), 1, "retry does not duplicate");
+        assert_eq!(workflow.inbox.len(), 1, "retry does not duplicate flag");
+        assert_eq!(workflow.inbox[0].patient_id, "pt-001");
+        drop(workflow);
+        let lines = audit_lines(&state);
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("post_op.escalation.queued"))
+                .count(),
+            1,
+            "idempotent replay does not duplicate the domain event"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("\"path\":\"/api/checkins\""))
+                .count(),
+            2,
+            "both HTTP attempts remain auditable"
+        );
+    }
+
+    #[tokio::test]
+    async fn svelte_api_rejects_anonymous_cross_origin_and_patient_override() {
+        let state = test_state(Duration::from_secs(900));
+        let anonymous = app(state.clone())
+            .oneshot(
+                HttpRequest::post("/api/checkins")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"pain":8,"wound":"clean"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+
+        let cookie = patient_cookie(&state);
+        let cross_origin = app(state.clone())
+            .oneshot(
+                HttpRequest::post("/api/checkins")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::HOST, "localhost:8080")
+                    .header(header::ORIGIN, "http://localhost:9090")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "browser-checkin-0002")
+                    .body(Body::from(r#"{"pain":8,"wound":"clean"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
+
+        let override_identity = app(state.clone())
+            .oneshot(
+                HttpRequest::post("/api/checkins")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", "browser-checkin-0003")
+                    .body(Body::from(
+                        r#"{"patient_id":"pt-002","pain":8,"wound":"clean"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(override_identity.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(state.0.workflow.lock().unwrap().checkins.is_empty());
     }
 
     #[tokio::test]
@@ -897,7 +1256,7 @@ mod tests {
             .unwrap();
         let response = app(state.clone()).oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(state.0.inbox.lock().unwrap().is_empty());
+        assert!(state.0.workflow.lock().unwrap().inbox.is_empty());
     }
 
     #[tokio::test]
@@ -1030,6 +1389,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert!(state.0.checkins.lock().unwrap().is_empty());
+        assert!(state.0.workflow.lock().unwrap().checkins.is_empty());
     }
 }

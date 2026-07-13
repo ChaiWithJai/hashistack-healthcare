@@ -24,6 +24,7 @@
 //! the `audit_events` table as a broker sink (src/audit.rs), and
 //! `api::settle_durable` fails the operation when no durable sink confirms.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -133,6 +134,22 @@ impl PgStore {
             .cloned()
             .collect();
         if !missing.is_empty() {
+            let imported_ids = client
+                .query(
+                    "SELECT DISTINCT app_id FROM audit_events \
+                     WHERE action = 'app.imported' AND app_id IS NOT NULL",
+                    &[],
+                )
+                .await?
+                .into_iter()
+                .filter_map(|row| row.get::<_, Option<String>>(0));
+            let missing_imports = missing_imported_workspaces(&missing, imported_ids);
+            if !missing_imports.is_empty() {
+                anyhow::bail!(
+                    "refusing to reconstruct missing imported source workspace(s): {}; restore source_workspaces from backup",
+                    missing_imports.join(", ")
+                );
+            }
             let tx = client.transaction().await?;
             for app_id in missing {
                 let app = plat.apps.get(&app_id).expect("missing id came from apps");
@@ -373,6 +390,19 @@ impl PgStore {
     }
 }
 
+fn missing_imported_workspaces(
+    missing: &[String],
+    imported_ids: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    let missing = missing.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    imported_ids
+        .into_iter()
+        .filter(|id| missing.contains(id.as_str()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 /// One audit row, INSERT-only, idempotent by seq. Shared by the
 /// write-through batch and the audit-only [`PgSink`] append so the two
 /// paths can never drift in shape.
@@ -524,5 +554,21 @@ pub async fn write_through_or_warn(
 ) {
     if let Err(e) = write_through(platform, app_ids, transition).await {
         tracing::warn!("control DB write-through failed (durability degraded): {e:#}");
+    }
+}
+
+#[cfg(test)]
+mod provenance_tests {
+    use super::missing_imported_workspaces;
+
+    #[test]
+    fn imported_missing_workspaces_are_identified_before_legacy_reconstruction() {
+        let missing = vec!["platform-1".to_string(), "imported-2".to_string()];
+        let imported = vec!["imported-2".to_string(), "present-import".to_string()];
+
+        assert_eq!(
+            missing_imported_workspaces(&missing, imported),
+            vec!["imported-2"]
+        );
     }
 }

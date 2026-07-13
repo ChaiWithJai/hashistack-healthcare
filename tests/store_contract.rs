@@ -478,3 +478,72 @@ async fn postgres_restart_recovers_the_editable_source_workspace() {
         "<h1>Durably reviewed</h1>\n"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires TEST_CONTROL_DB_URL pointing to disposable Postgres"]
+async fn postgres_restart_refuses_to_reconstruct_a_missing_imported_workspace() {
+    let url = test_control_db_url();
+    let _serial = postgres_test_lock().lock().await;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let id = format!("missing-import-workspace-{}-{nonce}", std::process::id());
+    let mut app = app_in(Stage::Sandbox);
+    app.id = id.clone();
+    let workspace = WorkspaceRecord::new(
+        id.clone(),
+        BTreeMap::from([("README.md".to_string(), "# Imported source\n".to_string())]),
+        1,
+    );
+
+    let first_store = Arc::new(PgStore::connect(&url).await.expect("connect first PgStore"));
+    let mut first_state = Platform::new(packs::builtin_packs());
+    first_state.apps.insert(id.clone(), app);
+    first_state.workspaces.insert(id.clone(), workspace);
+    first_state.audit.record(
+        "dr-osei",
+        "app.imported",
+        "verified owned import",
+        Some(&id),
+    );
+    first_state.store = Some(first_store);
+    let first: SharedPlatform = Arc::new(RwLock::new(first_state));
+    store::write_through(&first, &[&id], None)
+        .await
+        .expect("persist imported app and workspace");
+    drop(first);
+
+    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .expect("connect corruption fixture");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .execute("DELETE FROM source_workspaces WHERE app_id = $1", &[&id])
+        .await
+        .expect("remove only the imported workspace");
+
+    let restarted_store = PgStore::connect(&url)
+        .await
+        .expect("connect restarted PgStore");
+    let mut restarted = Platform::new(packs::builtin_packs());
+    let error = restarted_store
+        .load(&mut restarted)
+        .await
+        .expect_err("missing imported source must fail closed");
+    assert!(
+        format!("{error:#}").contains("restore source_workspaces from backup"),
+        "{error:#}"
+    );
+    let remaining: i64 = client
+        .query_one(
+            "SELECT count(*) FROM source_workspaces WHERE app_id = $1",
+            &[&id],
+        )
+        .await
+        .expect("count replacement workspaces")
+        .get(0);
+    assert_eq!(remaining, 0, "load must not fabricate replacement source");
+}

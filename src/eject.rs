@@ -44,34 +44,95 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
     let mut files = BTreeMap::new();
     if let Some(sources) = scaffold {
         for (path, content) in sources {
-            // scaffold/* becomes the bundle's app/ source tree; everything
+            // scaffold/* becomes the bundle's server/ source tree; everything
             // else (the synthetic seed) keeps its pack-relative path so the
             // app's `../synthetic/…` loading and `include_str!` both resolve.
             let dest = match path.strip_prefix("scaffold/") {
-                Some(rest) => format!("app/{rest}"),
+                Some(rest) => format!("server/{rest}"),
                 None => (*path).to_string(),
             };
             files.insert(dest, (*content).to_string());
         }
         files.insert(
-            "app/assets/clinician.css".to_string(),
+            "web/src/clinician.css".to_string(),
             clinician_design_system_css().to_string(),
         );
-        files.insert("docs/DESIGN_SYSTEM.md".to_string(), design_system_md());
     }
-    files.insert("README.md".to_string(), readme_md(app, pack));
+    files.insert("web/package.json".to_string(), svelte_package_json());
+    files.insert("web/svelte.config.js".to_string(), svelte_config());
+    files.insert("web/vite.config.ts".to_string(), svelte_vite_config());
+    files.insert("web/tsconfig.json".to_string(), svelte_tsconfig());
+    files.insert("web/src/app.html".to_string(), svelte_app_html());
+    files.insert("web/src/app.d.ts".to_string(), svelte_app_types());
+    files.insert("web/src/routes/+layout.svelte".to_string(), svelte_layout());
     files.insert(
-        "docs/RUNBOOK.md".to_string(),
-        runbook_md(app, pack, scaffold.is_some()),
+        "web/src/routes/+page.svelte".to_string(),
+        svelte_page(app, pack),
+    );
+    files.insert(".mcp.json".to_string(), svelte_mcp_config());
+    files.insert(
+        "diagrams/system-architecture.tldr".to_string(),
+        tldraw_diagram(
+            "System architecture",
+            &[
+                "Svelte 5 web",
+                "Rust and Axum server",
+                "Synthetic data",
+                "Owned deployment",
+            ],
+        ),
     );
     files.insert(
-        "docs/CUSTOMIZE.md".to_string(),
-        customize_md(app, pack, scaffold),
+        "diagrams/workspace-state-machine.tldr".to_string(),
+        tldraw_diagram(
+            "Workspace state machine",
+            &[
+                "Describe",
+                "Choose treatment",
+                "Review diff",
+                "Verify",
+                "Accept",
+                "Export",
+            ],
+        ),
     );
     files.insert(
-        "docs/COMPLIANCE.md".to_string(),
-        compliance_md(app, &report, provenance, audit),
+        "diagrams/service-map.tldr".to_string(),
+        tldraw_diagram(
+            "Service map",
+            &[
+                "Clinician",
+                "Svelte client",
+                "Rust API",
+                "Agent worker",
+                "Gate",
+                "Runtime",
+            ],
+        ),
     );
+    let mut readme = readme_md(app, pack);
+    readme.push_str("\n\n");
+    readme.push_str(
+        &runbook_md(app, pack, scaffold.is_some())
+            .replace("app/", "server/")
+            .replace("cd app", "cd server")
+            .replace("docs/COMPLIANCE.md", "the compliance section below"),
+    );
+    readme.push_str("\n\n");
+    readme.push_str(
+        &customize_md(app, pack, scaffold)
+            .replace("app/", "server/")
+            .replace("docs/DESIGN_SYSTEM.md", "the design system section below")
+            .replace("docs/COMPLIANCE.md", "the compliance section below")
+            .replace("docs/RUNBOOK.md", "the run instructions above"),
+    );
+    readme.push_str("\n\n");
+    readme
+        .push_str(&design_system_md().replace("app/assets/clinician.css", "web/src/clinician.css"));
+    readme.push_str("\n\n");
+    readme.push_str(&compliance_md(app, &report, provenance, audit));
+    readme.push_str("\n\n## Extend with AI\n\nThe `.mcp.json` file connects compatible editors to the official Svelte MCP server. Use it to check Svelte 5 APIs and repair components. If you add an agent, keep it behind the Rust API and use LangChain or LangGraph as an optional worker. Do not give a model production secrets, deployment authority, or patient data.\n");
+    files.insert("README.md".to_string(), readme);
     files.insert("Dockerfile".to_string(), dockerfile(app, scaffold));
     files.insert("render.yaml".to_string(), render_yaml(app));
     files.insert("fly.toml".to_string(), fly_toml(app));
@@ -161,16 +222,172 @@ fn readme_md(app: &AppRecord, pack: &PackManifest) -> String {
         md.push('\n');
     }
 
-    md.push_str("## Owning it\n\n");
+    md.push_str("## Repository map\n\n");
     md.push_str(&format!(
-        "- [docs/RUNBOOK.md](docs/RUNBOOK.md) — run and deploy this bundle, no platform access needed.\n\
-         - [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md) — where to make the next change and keep its quality contract green.\n\
-         - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — the gate report, attestation, and audit trail.\n\
-         - [pack.hcl](pack.hcl) — this app as your own template (`{}-template`): re-import it,\n\
-           share it with your practice, or submit it to the registry.\n",
+        "- `web/` contains the Svelte 5 interface.\n\
+         - `server/` contains the Rust and Axum service.\n\
+         - `synthetic/` contains safe example data.\n\
+         - `diagrams/` contains editable tldraw system, state, and service diagrams.\n\
+         - `.mcp.json` connects an editor to Svelte MCP.\n\
+         - `pack.hcl` is this app as your own template (`{}-template`).\n",
         app.id
     ));
     md
+}
+
+fn svelte_package_json() -> String {
+    r#"{
+  "name": "owned-clinical-tool-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/kit": "^2.69.2",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.4.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.4"
+  }
+}
+"#
+    .to_string()
+}
+
+fn svelte_config() -> String {
+    "import adapter from '@sveltejs/adapter-auto';\n\nexport default { kit: { adapter: adapter() } };\n".to_string()
+}
+
+fn svelte_vite_config() -> String {
+    "import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({ plugins: [sveltekit()] });\n".to_string()
+}
+
+fn svelte_tsconfig() -> String {
+    "{\n  \"extends\": \"./.svelte-kit/tsconfig.json\",\n  \"compilerOptions\": {\n    \"allowJs\": true,\n    \"checkJs\": true,\n    \"esModuleInterop\": true,\n    \"forceConsistentCasingInFileNames\": true,\n    \"resolveJsonModule\": true,\n    \"skipLibCheck\": true,\n    \"sourceMap\": true,\n    \"strict\": true,\n    \"moduleResolution\": \"bundler\"\n  }\n}\n".to_string()
+}
+
+fn svelte_app_html() -> String {
+    "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    %sveltekit.head%\n  </head>\n  <body data-sveltekit-preload-data=\"hover\">\n    <div style=\"display: contents\">%sveltekit.body%</div>\n  </body>\n</html>\n".to_string()
+}
+
+fn svelte_app_types() -> String {
+    "declare global { namespace App {} }\nexport {};\n".to_string()
+}
+
+fn svelte_layout() -> String {
+    "<script lang=\"ts\">\n  import '../clinician.css';\n  let { children } = $props();\n</script>\n\n{@render children()}\n".to_string()
+}
+
+fn svelte_page(app: &AppRecord, pack: &PackManifest) -> String {
+    let features = app
+        .features
+        .iter()
+        .map(|feature| format!("    {{ label: {:?}, done: true }}", feature))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    format!(
+        r#"<script lang="ts">
+  let items = $state([
+{features}
+  ]);
+  let note = $state('');
+
+  function addItem() {{
+    const label = note.trim();
+    if (!label) return;
+    items.push({{ label, done: false }});
+    note = '';
+  }}
+</script>
+
+<svelte:head><title>{name}</title></svelte:head>
+
+<main class="hc-page">
+  <div class="hc-shell hc-stack">
+    <header class="hc-card hc-stack">
+      <span class="hc-badge">Synthetic learning environment</span>
+      <h1>{name}</h1>
+      <p>{description}</p>
+    </header>
+    <section class="hc-card hc-stack" aria-labelledby="workflow-title">
+      <h2 id="workflow-title">Current workflow</h2>
+      {{#each items as item}}
+        <label class="hc-actions"><input type="checkbox" bind:checked={{item.done}} /> {{item.label}}</label>
+      {{/each}}
+      <label class="hc-label">Add a synthetic workflow step
+        <span class="hc-help">Do not enter patient information.</span>
+        <input class="hc-field" bind:value={{note}} onkeydown={{(event) => event.key === 'Enter' && addItem()}} />
+      </label>
+      <button class="hc-button hc-button--primary" onclick={{addItem}}>Add step</button>
+      <aside class="hc-notice hc-notice--warning" role="note">This starter is not monitored for emergencies or approved for clinical care.</aside>
+    </section>
+  </div>
+</main>
+"#,
+        name = app.name,
+        description = pack.description,
+    )
+}
+
+fn svelte_mcp_config() -> String {
+    r#"{
+  "mcpServers": {
+    "svelte": {
+      "url": "https://mcp.svelte.dev/mcp"
+    }
+  }
+}
+"#
+    .to_string()
+}
+
+fn tldraw_diagram(title: &str, labels: &[&str]) -> String {
+    let mut records = vec![
+        serde_json::json!({"id":"document:document","typeName":"document","name":"","meta":{}}),
+        serde_json::json!({"id":"page:page","typeName":"page","name":title,"index":"a1","meta":{}}),
+    ];
+    for (index, label) in labels.iter().enumerate() {
+        records.push(serde_json::json!({
+            "id": format!("shape:node-{index}"),
+            "typeName": "shape",
+            "type": "geo",
+            "x": 80 + (index % 3) * 260,
+            "y": 100 + (index / 3) * 180,
+            "rotation": 0,
+            "index": format!("a{}", index + 1),
+            "parentId": "page:page",
+            "isLocked": false,
+            "opacity": 1,
+            "meta": {},
+            "props": {
+                "w": 210,
+                "h": 100,
+                "geo": "rectangle",
+                "color": "violet",
+                "labelColor": "black",
+                "fill": "semi",
+                "dash": "draw",
+                "size": "m",
+                "font": "draw",
+                "text": label,
+                "align": "middle",
+                "verticalAlign": "middle",
+                "growY": 0,
+                "url": ""
+            }
+        }));
+    }
+    serde_json::to_string_pretty(&serde_json::json!({
+        "tldrawFileFormatVersion": 1,
+        "schema": {"schemaVersion": 2, "sequences": {}},
+        "records": records
+    }))
+    .expect("tldraw JSON serializes")
 }
 
 // ---------- RUNBOOK.md: a stranger gets it running from this alone ----------
@@ -580,7 +797,7 @@ fn dockerfile(
     if let Some(sources) = scaffold {
         // The scaffold crate names its binary `app` ([[bin]] in its
         // Cargo.toml) precisely so this manifest never depends on a package
-        // name. Layout mirrors the bundle: app/ crate + synthetic/ seed,
+        // name. Layout mirrors the bundle: server/ crate + synthetic/ seed,
         // whose path is read off the embedded table rather than assumed.
         let seed = sources
             .iter()
@@ -589,16 +806,16 @@ fn dockerfile(
             .unwrap_or("synthetic/");
         return format!(
             "# {} — real app source: this pack's runnable scaffold (issue #5).\n\
-             # Builds app/ and boots it against the bundled synthetic dataset.\n\
+             # Builds server/ and boots it against the bundled synthetic dataset.\n\
              FROM rust:1-alpine AS build\n\
              RUN apk add --no-cache musl-dev\n\
              WORKDIR /srv\n\
              COPY synthetic ./synthetic\n\
-             COPY app ./app\n\
-             RUN cargo build --release --manifest-path app/Cargo.toml\n\
+             COPY server ./server\n\
+             RUN cargo build --release --manifest-path server/Cargo.toml\n\
              \n\
              FROM alpine:3\n\
-             COPY --from=build /srv/app/target/release/app /usr/local/bin/app\n\
+             COPY --from=build /srv/server/target/release/app /usr/local/bin/app\n\
              COPY synthetic /srv/synthetic\n\
              ENV APP_BIND=0.0.0.0:8080\n\
              ENV SYNTHETIC_DATA=/srv/{seed}\n\
@@ -608,7 +825,7 @@ fn dockerfile(
         );
     }
     format!(
-        "# {} — placeholder runtime (see docs/RUNBOOK.md, \"Honest caveat\").\n\
+        "# {} — placeholder runtime (see README, \"Honest caveat\").\n\
          # The generated app source ships when the platform's runnable scaffolds\n\
          # (issue #5) land; until then this image serves /health on 8080 so every\n\
          # deploy manifest in this bundle works end-to-end today.\n\
@@ -884,20 +1101,20 @@ mod tests {
         let app = sample_app(&pack);
         let bundle = bundle(&app, &pack, &[]);
 
-        // The scaffold's source tree lands under app/, byte-identical to
+        // The scaffold's source tree lands under server/, byte-identical to
         // the compile-time embedded packs/post-op-monitor/scaffold/.
-        let main_rs = &bundle.files["app/src/main.rs"];
+        let main_rs = &bundle.files["server/src/main.rs"];
         assert!(main_rs.contains("PAIN_ESCALATION_THRESHOLD"));
-        assert!(bundle.files["app/Cargo.toml"].contains("post-op-monitor-scaffold"));
+        assert!(bundle.files["server/Cargo.toml"].contains("post-op-monitor-scaffold"));
         // The synthetic seed rides along where the app's loader expects it.
         assert!(bundle.files["synthetic/post-op-demo.json"]
             .contains("SYNTHETIC DATA — generated, not derived from any real person"));
 
         // The runbook stops apologizing: real source, no placeholder caveat.
-        let runbook = &bundle.files["docs/RUNBOOK.md"];
+        let runbook = &bundle.files["README.md"];
         assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
         assert!(runbook.contains("The app source is real"));
-        assert!(runbook.contains("cd app && cargo run"));
+        assert!(runbook.contains("cd server && cargo run"));
 
         // And the Dockerfile builds the real crate instead of the stub.
         let dockerfile = &bundle.files["Dockerfile"];
@@ -917,19 +1134,20 @@ mod tests {
         app.pack = pack.id.clone();
         let bundle = bundle(&app, &pack, &[]);
 
-        assert!(bundle.files.contains_key("app/src/main.rs"));
+        assert!(bundle.files.contains_key("server/src/main.rs"));
+        assert!(bundle.files.contains_key("web/src/routes/+page.svelte"));
         assert!(bundle.files.contains_key("artifact-quality.json"));
-        let runbook = &bundle.files["docs/RUNBOOK.md"];
+        let runbook = &bundle.files["README.md"];
         assert!(!runbook.contains("scaffold placeholder"));
         assert!(!runbook.contains("photo upload stub"));
-        let customize = &bundle.files["docs/CUSTOMIZE.md"];
+        let customize = &bundle.files["README.md"];
         assert!(customize.contains("## Source map"));
         assert!(customize.contains("synthetic/htn-demo.json"));
         assert!(customize.contains("## Make the next change"));
         assert!(customize.contains("## Export or share the next version"));
-        assert!(customize.contains("app/assets/clinician.css"));
-        assert!(customize.contains("docs/DESIGN_SYSTEM.md"));
-        let css = &bundle.files["app/assets/clinician.css"];
+        assert!(customize.contains("web/src/clinician.css"));
+        assert!(customize.contains("the design system section below"));
+        let css = &bundle.files["web/src/clinician.css"];
         assert!(css.contains("--hc-brand:"), "semantic brand token missing");
         assert!(css.contains("--hc-target: 44px"), "minimum target missing");
         assert!(css.contains(":focus-visible"), "visible focus missing");
@@ -942,13 +1160,49 @@ mod tests {
         assert!(!css.contains("Catalyst"));
         assert!(!css.contains("Tailwind"));
         assert!(!css.contains("Shakti"));
-        let design_docs = &bundle.files["docs/DESIGN_SYSTEM.md"];
+        let design_docs = &bundle.files["README.md"];
         assert!(design_docs.contains("**opt-in**"));
         assert!(design_docs.contains("include_str!(\"../assets/clinician.css\")"));
         assert!(design_docs.contains("/assets/clinician.css"));
         assert!(design_docs.contains("<link rel=\"stylesheet\""));
-        assert!(bundle.files["README.md"].contains("docs/CUSTOMIZE.md"));
+        assert!(!bundle.files.keys().any(|path| path.starts_with("docs/")));
         assert!(bundle.files["Dockerfile"].contains("FROM rust:1-alpine AS build"));
+    }
+
+    #[test]
+    fn owned_bundle_has_svelte_rust_mcp_three_diagrams_and_one_readme() {
+        let pack = post_op_pack();
+        let bundle = bundle(&sample_app(&pack), &pack, &[]);
+
+        assert!(bundle.files["web/package.json"].contains("\"svelte\": \"^5"));
+        assert!(bundle.files["web/src/routes/+page.svelte"].contains("$state"));
+        assert!(bundle.files.contains_key("server/Cargo.toml"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&bundle.files[".mcp.json"]).unwrap()
+                ["mcpServers"]["svelte"]["url"],
+            "https://mcp.svelte.dev/mcp"
+        );
+
+        let diagrams = bundle
+            .files
+            .iter()
+            .filter(|(path, _)| path.ends_with(".tldr"))
+            .collect::<Vec<_>>();
+        assert_eq!(diagrams.len(), 3);
+        for (_, raw) in diagrams {
+            let diagram: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(diagram["tldrawFileFormatVersion"], 1);
+            assert!(diagram["records"].as_array().unwrap().len() >= 6);
+        }
+
+        let prose = bundle
+            .files
+            .keys()
+            .filter(|path| path.ends_with(".md") || path.ends_with(".mdx"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(prose, vec!["README.md"]);
+        assert!(!bundle.files.keys().any(|path| path.starts_with("docs/")));
     }
 
     #[test]
@@ -957,7 +1211,7 @@ mod tests {
         let app = sample_app(&pack);
         let bundle = bundle(&app, &pack, &[]);
 
-        let compliance = &bundle.files["docs/COMPLIANCE.md"];
+        let compliance = &bundle.files["README.md"];
         assert!(compliance.contains("draft — not released"));
         assert!(compliance.contains("omitted by design"));
         assert!(!compliance.contains("co-signed by:"));
@@ -995,7 +1249,7 @@ mod tests {
         assert!(app.attestation.as_ref().unwrap().report.is_some());
 
         let bundle = bundle(&app, &pack, &[]);
-        let compliance = &bundle.files["docs/COMPLIANCE.md"];
+        let compliance = &bundle.files["README.md"];
         assert!(compliance.contains("Status: **released**"));
         assert!(compliance.contains("**Dr. A. Osei**"));
         // #10: the record renders the cryptographic act — principal id and

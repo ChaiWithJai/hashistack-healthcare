@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "pack": "clinical-dashboard",
-  "runtime": {"manifest":"app/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/dashboard-demo.json"},
+  "runtime": {"manifest":"server/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/dashboard-demo.json"},
   "quality": {
     "job": {"weight":40,"journeys":[{"id":"filter-descriptive-metrics","steps":[{"do":"goto","path":"/login"},{"do":"fill","label":"Username","value":"staff"},{"do":"fill","label":"Password","value":"learn-dashboard"},{"do":"click","role":"button","name":"Sign in"},{"do":"select","label":"Service line","value":"Cardiology"},{"do":"click","role":"button","name":"Apply filter"},{"assert":"visible","text":"2 encounters"}]}]},
-    "ownership": {"weight":20,"required_paths":["app/Cargo.toml","app/src/main.rs","pack.hcl","artifact-quality.json","README.md","docs/RUNBOOK.md","docs/COMPLIANCE.md","nomad/job.nomad.hcl"]},
+    "ownership": {"weight":20,"required_paths":["server/Cargo.toml","server/src/main.rs","pack.hcl","artifact-quality.json","README.md","web/src/routes/+page.svelte","diagrams/system-architecture.tldr","diagrams/workspace-state-machine.tldr","diagrams/service-map.tldr","nomad/job.nomad.hcl"]},
     "safety_honesty": {"weight":20,"required_visible":["SYNTHETIC DATA","descriptive operations view","not clinical decision support"],"forbidden_claims":["predicts deterioration","HIPAA compliant","production ready"]},
     "accessibility": {"weight":10,"path":"/","required_labels":["Service line"],"required_roles":[{"role":"table","name":"Filtered synthetic encounters"}],"required_landmarks":["main","navigation"]},
-    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Owning it"],"docs/RUNBOOK.md":["Run with Docker","Deploy targets"],"docs/COMPLIANCE.md":["Gate report","Known limitations"]}}
+    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Repository map","Run with Docker","Deploy targets","Gate report","Known limitations"]}}
   }
 }

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "pack": "hypertension-tracker",
-  "runtime": {"manifest":"app/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/htn-demo.json"},
+  "runtime": {"manifest":"server/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/htn-demo.json"},
   "quality": {
     "job": {"weight":40,"journeys":[{"id":"urgent-reading-routes-alert","steps":[{"do":"goto","path":"/"},{"do":"fill","label":"Patient ID","value":"htn-001"},{"do":"fill","label":"Systolic","value":"181"},{"do":"fill","label":"Diastolic","value":"92"},{"do":"click","role":"button","name":"Save reading"},{"assert":"visible","text":"URGENT"},{"do":"goto","path":"/"},{"assert":"visible","text":"htn-001 181/92"},{"assert":"log_count","path":"/readings","equals":1}]}]},
-    "ownership": {"weight":20,"required_paths":["app/Cargo.toml","app/src/main.rs","pack.hcl","artifact-quality.json","README.md","docs/RUNBOOK.md","docs/COMPLIANCE.md","nomad/job.nomad.hcl"]},
+    "ownership": {"weight":20,"required_paths":["server/Cargo.toml","server/src/main.rs","pack.hcl","artifact-quality.json","README.md","web/src/routes/+page.svelte","diagrams/system-architecture.tldr","diagrams/workspace-state-machine.tldr","diagrams/service-map.tldr","nomad/job.nomad.hcl"]},
     "safety_honesty": {"weight":20,"required_visible":["SYNTHETIC TRAINING APP","not medical advice"],"forbidden_claims":["HIPAA compliant","production ready"]},
     "accessibility": {"weight":10,"required_labels":["Patient ID","Systolic","Diastolic"],"required_landmarks":["main"]},
-    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Owning it"],"docs/RUNBOOK.md":["Run with Docker","Deploy targets"],"docs/COMPLIANCE.md":["Gate report","Known limitations"]}}
+    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Repository map","Run with Docker","Deploy targets","Gate report","Known limitations"]}}
   }
 }

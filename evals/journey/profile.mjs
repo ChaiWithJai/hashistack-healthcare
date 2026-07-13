@@ -308,7 +308,7 @@ async function main() {
     `ejected bundle is ${bundleBytes} bytes; budget is ${BUNDLE_BUDGET_BYTES} bytes`);
   const readmeOpening = files['README.md'].split('\n').slice(0, 6).join('\n');
   assert(files['README.md'].includes(PROMPT), 'the ejected README must open with the doctor\'s own prompt');
-  const compliance = files['docs/COMPLIANCE.md'];
+  const compliance = files['README.md'];
   const frozenHeading = compliance.split('\n').find((l) => l.startsWith('## Gate report'));
   const digestLine = compliance.split('\n').find((l) => l.includes('gate report digest'));
   assert(frozenHeading?.includes('frozen at promotion'), 'COMPLIANCE.md must carry the frozen report');

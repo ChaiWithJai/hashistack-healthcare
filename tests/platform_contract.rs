@@ -403,7 +403,7 @@ async fn synthetic_demo_export_does_not_claim_a_prod_nomad_job() {
     // compliance record is a draft with no attestation and a stub Nomad job.
     let (status, draft) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
     assert_eq!(status, StatusCode::OK);
-    let compliance = draft["files"]["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = draft["files"]["README.md"].as_str().unwrap();
     assert!(compliance.contains("draft — not released"));
     assert!(!compliance.contains("co-signed by:"), "no attestation yet");
     assert!(draft["files"]["nomad/job.nomad.hcl"]
@@ -476,8 +476,11 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     let files = export["files"].as_object().unwrap();
     for path in [
         "README.md",
-        "docs/RUNBOOK.md",
-        "docs/COMPLIANCE.md",
+        "web/src/routes/+page.svelte",
+        "server/src/main.rs",
+        "diagrams/system-architecture.tldr",
+        "diagrams/workspace-state-machine.tldr",
+        "diagrams/service-map.tldr",
         "Dockerfile",
         "render.yaml",
         "fly.toml",
@@ -499,7 +502,7 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
 
     // COMPLIANCE embeds the release: the attestation-time gate report
     // frozen at promotion (F3), cosigner, audit — stub disclosed, cited.
-    let compliance = files["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = files["README.md"].as_str().unwrap();
     assert!(compliance.contains("5/6 (1 stubbed)"));
     assert!(compliance.contains("frozen at promotion"));
     assert!(compliance.contains("STUBBED —"), "no false passes");
@@ -511,10 +514,10 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     // bundle carries the real app source and the runbook drops the
     // placeholder caveat it used to need.
     assert!(
-        files.contains_key("app/src/main.rs"),
+        files.contains_key("server/src/main.rs"),
         "real app source ships"
     );
-    assert!(files.contains_key("app/Cargo.toml"));
+    assert!(files.contains_key("server/Cargo.toml"));
     assert!(
         files["synthetic/post-op-demo.json"]
             .as_str()
@@ -522,7 +525,7 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
             .contains("SYNTHETIC DATA"),
         "the synthetic seed travels with the app"
     );
-    let runbook = files["docs/RUNBOOK.md"].as_str().unwrap();
+    let runbook = files["README.md"].as_str().unwrap();
     assert!(!runbook.contains("scaffold placeholder"), "{runbook}");
     assert!(runbook.contains("The app source is real"));
 

@@ -1023,7 +1023,7 @@ async fn file_sink_archives_hmac_form_while_the_doctor_keeps_their_words() {
     // plaintext (decision 0004).
     let (status, bundle) = call(&router, "GET", &format!("/api/apps/{id}/export"), None).await;
     assert_eq!(status, StatusCode::OK);
-    let compliance = bundle["files"]["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = bundle["files"]["README.md"].as_str().unwrap();
     assert!(compliance.contains("knee replacement"), "{compliance}");
     assert!(!compliance.contains("hmac-sha256:"), "{compliance}");
 

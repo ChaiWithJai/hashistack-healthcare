@@ -241,7 +241,8 @@ async fn guest_completes_the_core_flow_and_auth_is_required_only_at_eject() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{bundle}");
-    assert!(bundle["files"]["app/src/main.rs"].is_string());
+    assert!(bundle["files"]["server/src/main.rs"].is_string());
+    assert!(bundle["files"]["web/src/routes/+page.svelte"].is_string());
 }
 
 // ---------- dev fallback: zero-config UI keeps working, audited ----------
@@ -544,7 +545,7 @@ async fn attestation_binds_principal_name_and_report_digest_and_the_digest_verif
         None,
     )
     .await;
-    let compliance = export["files"]["docs/COMPLIANCE.md"].as_str().unwrap();
+    let compliance = export["files"]["README.md"].as_str().unwrap();
     assert!(
         compliance.contains("(authenticated principal `dr-osei`)"),
         "{compliance}"

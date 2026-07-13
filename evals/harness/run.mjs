@@ -200,7 +200,7 @@ async function runWorkflow(scenario, base, score) {
   const shapeOk =
     report0.total === wf.gate_total &&
     report0.stubbed === wf.stubbed &&
-    report0.green === false &&
+    report0.green === (wf.initial_green ?? false) &&
     setEq(failing0.map((r) => r.id), wf.initially_failing) &&
     setEq(fixable0, wf.fixable_failing);
   score.add('gate_shape_matches', shapeOk,
@@ -208,7 +208,9 @@ async function runWorkflow(scenario, base, score) {
     `failing: [${failing0.map((r) => r.id).join(', ')}], fixable: [${fixable0.join(', ')}] — ` +
     `expected total ${wf.gate_total}, failing [${wf.initially_failing.join(', ')}]`);
 
-  // false-pass guard: promotion refused while any check fails
+  // False-pass guard: real-data promotion is refused while any check fails
+  // or remains stubbed. A synthetic-demo report may be green with a
+  // disclosed stub, but that stub must still block a real-data release.
   if (wf.assert_false_pass_guard) {
     const refused = await api(base, 'POST', `/api/apps/${appId}/promote`, { cosigner: wf.cosigner });
     const names = refused.status === 409 && /deploy locked/.test(refused.json?.error ?? '');

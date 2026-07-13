@@ -63,6 +63,20 @@ fn production_configuration_has_one_application_model_boundary() {
 }
 
 #[test]
+fn hosted_planner_timeout_stays_inside_the_preview_proxy_budget() {
+    let configure = include_str!("../scripts/single-host-configure-agent.sh");
+    let compose = include_str!("../docker-compose.yml");
+    let workflow = include_str!("../.github/workflows/staging-preview.yml");
+    let agent = include_str!("../src/workspace_agent.rs");
+
+    assert!(configure.contains("readonly MAX_HOSTED_AGENT_TIMEOUT_SECS=20"));
+    assert!(configure.contains("WORKSPACE_AGENT_TIMEOUT_SECS=\"$MAX_HOSTED_AGENT_TIMEOUT_SECS\""));
+    assert!(compose.contains("WORKSPACE_AGENT_TIMEOUT_SECS:-20"));
+    assert!(workflow.contains("WORKSPACE_AGENT_TIMEOUT_SECS: \"20\""));
+    assert!(agent.contains("const DEFAULT_TIMEOUT_SECS: u64 = 20;"));
+}
+
+#[test]
 fn treatment_choice_never_interpolates_model_data_into_javascript() {
     let ui = include_str!("../web/index.html");
     assert!(ui.contains("onchange=\"selectTreatment(this.value)\""));

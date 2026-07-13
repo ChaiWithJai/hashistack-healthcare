@@ -8,6 +8,7 @@ host="${1:?usage: scripts/single-host-configure-agent.sh HOST}"
 : "${DIGITALOCEAN_PLANNER_ACCESS_KEY:?DIGITALOCEAN_PLANNER_ACCESS_KEY is required}"
 : "${DIGITALOCEAN_PLANNER_VERSION:?DIGITALOCEAN_PLANNER_VERSION is required}"
 : "${WORKSPACE_AGENT_TIMEOUT_SECS:=20}"
+readonly MAX_HOSTED_AGENT_TIMEOUT_SECS=20
 
 case "$WORKSPACE_AGENT_TIMEOUT_SECS" in
   ''|*[!0-9]*) echo "WORKSPACE_AGENT_TIMEOUT_SECS must be an integer from 1 to 120" >&2; exit 1 ;;
@@ -15,6 +16,10 @@ esac
 if [ "$WORKSPACE_AGENT_TIMEOUT_SECS" -lt 1 ] || [ "$WORKSPACE_AGENT_TIMEOUT_SECS" -gt 120 ]; then
   echo "WORKSPACE_AGENT_TIMEOUT_SECS must be an integer from 1 to 120" >&2
   exit 1
+fi
+if [ "$WORKSPACE_AGENT_TIMEOUT_SECS" -gt "$MAX_HOSTED_AGENT_TIMEOUT_SECS" ]; then
+  echo "capping WORKSPACE_AGENT_TIMEOUT_SECS=$WORKSPACE_AGENT_TIMEOUT_SECS to $MAX_HOSTED_AGENT_TIMEOUT_SECS so the preview proxy can receive the fallback" >&2
+  WORKSPACE_AGENT_TIMEOUT_SECS="$MAX_HOSTED_AGENT_TIMEOUT_SECS"
 fi
 
 values=(

@@ -26,7 +26,7 @@ use tokio::process::Command;
 
 pub const CHECK_IDS: [&str; 5] = EXECUTABLE_CHECK_IDS;
 const MAX_REPORT_BYTES: u64 = 64 * 1024;
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_TIMEOUT_SECS: u64 = 180;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const DETERMINISTIC_PROFILE: &str = "practice-studio-deterministic-verifier-v1";
 

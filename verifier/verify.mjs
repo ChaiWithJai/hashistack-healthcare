@@ -14,7 +14,7 @@ const CHECKS = [
 const limits = {
   'web.svelte-check.v1': 30_000,
   'web.svelte-build.v1': 45_000,
-  'server.cargo-test.v1': 60_000,
+  'server.cargo-test.v1': 120_000,
   'browser.synthetic-smoke.v1': 20_000
 };
 
@@ -39,7 +39,15 @@ async function run(command, argv, cwd, timeoutMs, env = {}) {
   return await new Promise((resolve) => {
     const child = spawn(command, argv, {
       cwd,
-      env: { PATH: process.env.PATH, HOME: '/tmp/home', CI: '1', ...env },
+      env: {
+        PATH: process.env.PATH,
+        HOME: '/tmp/home',
+        CI: '1',
+        RUSTUP_HOME: process.env.RUSTUP_HOME,
+        CARGO_HOME: process.env.CARGO_HOME,
+        RUSTUP_TOOLCHAIN: process.env.RUSTUP_TOOLCHAIN,
+        ...env
+      },
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });

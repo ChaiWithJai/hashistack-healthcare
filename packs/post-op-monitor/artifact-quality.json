@@ -4,9 +4,9 @@
   "runtime": {"manifest":"server/Cargo.toml","binary":"app","health_path":"/health","synthetic":"synthetic/post-op-demo.json"},
   "quality": {
     "job": {"weight":40,"journeys":[{"id":"authenticated-high-pain-routes-practice-flag","steps":[{"do":"goto","path":"/login"},{"assert":"visible","text":"Demo learning credentials"},{"do":"fill","label":"username","value":"demo-patient"},{"do":"fill","label":"password","value":"learn-patient"},{"do":"click","role":"button","name":"sign in"},{"do":"fill","label":"pain (0–10)","value":"9"},{"do":"select","label":"wound looks","value":"clean"},{"do":"fill","label":"note","value":"much worse since last night"},{"do":"click","role":"button","name":"check-in"},{"assert":"visible","text":"flag routed to the practice inbox"},{"do":"goto","path":"/"},{"assert":"visible","text":"pain 9/10"},{"assert":"log_count","path":"/checkin","equals":1}]}]},
-    "ownership": {"weight":20,"required_paths":["server/Cargo.toml","server/src/main.rs","server/src/local_media.rs","pack.hcl","artifact-quality.json","README.md","web/src/routes/+page.svelte","web/src/lib/LocalMediaInput.svelte","diagrams/system-architecture.tldr","diagrams/workspace-state-machine.tldr","diagrams/service-map.tldr","nomad/job.nomad.hcl"]},
+    "ownership": {"weight":20,"required_paths":["server/Cargo.toml","server/src/main.rs","pack.hcl","artifact-quality.json","README.md","web/src/routes/+page.svelte","diagrams/system-architecture.tldr","diagrams/workspace-state-machine.tldr","diagrams/service-map.tldr","nomad/job.nomad.hcl"]},
     "safety_honesty": {"weight":20,"required_visible":["synthetic data only","encryption at rest is a labeled TODO","hipaa-core placeholder"],"forbidden_claims":["HIPAA compliant","production ready"]},
     "accessibility": {"weight":10,"path":"/","required_labels":["pain (0–10)","wound looks","note"],"required_landmarks":["main"]},
-    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Repository map","Run with Docker","Deploy targets","Gate report","Known limitations","Local audio and vision"]}}
+    "docs": {"weight":10,"required_sections":{"README.md":["What the app does today","Repository map","Run with Docker","Deploy targets","Gate report","Known limitations"]}}
   }
 }

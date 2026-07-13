@@ -11,5 +11,4 @@ pack "visit-notes" {
   prewired = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "synthetic-only"]
   gates = ["phi-encryption", "audit-log", "ai-allowlist", "dependency-scan", "auto-logoff", "synthetic-only", "human-review", "access-roles"]
   synthetic_dataset = "visit transcript demo"
-  input_capabilities = ["local-audio-transcription"]
 }

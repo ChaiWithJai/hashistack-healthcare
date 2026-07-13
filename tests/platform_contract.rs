@@ -13,6 +13,34 @@ use rust_proof_service::app;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+#[test]
+fn production_configuration_has_one_application_model_boundary() {
+    let active_configuration = [
+        include_str!("../env.example"),
+        include_str!("../docker-compose.yml"),
+        include_str!("../scripts/staging-up.sh"),
+        include_str!("../src/ladder.rs"),
+        include_str!("../src/state.rs"),
+    ]
+    .join("\n");
+    for retired in [
+        "LOCAL_MODEL_URL",
+        "FRONTIER_MODEL_URL",
+        "MODEL_HTTP_TIMEOUT_SECS",
+        "SmolLM",
+        "llama_cpp.server",
+    ] {
+        assert!(
+            !active_configuration.contains(retired),
+            "active configuration still exposes retired model path {retired}"
+        );
+    }
+
+    let workspace_agent = include_str!("../src/workspace_agent.rs");
+    assert!(workspace_agent.contains("gemma-4-31B-it"));
+    assert!(workspace_agent.contains("unsupported WORKSPACE_AGENT_PROVIDER"));
+}
+
 async fn call(
     router: &axum::Router,
     method: &str,

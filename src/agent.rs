@@ -1,15 +1,22 @@
 //! Agent service: generates and iterates app scaffolds. It never deploys.
 //!
-//! The driver boundary mirrors a Nomad task driver: the control plane speaks
-//! one small interface and the model behind it is swappable (rule-based for
-//! Phase 0 tests and offline dev, Claude driver next) without any caller
-//! noticing — workflows over technologies.
+//! The production control plane uses deterministic rules here. Gemma planning
+//! is isolated behind `workspace_agent.rs`; this module does not select or
+//! configure an application model.
 
+use serde::Serialize;
+
+#[cfg(debug_assertions)]
 use anyhow::{anyhow, bail, Context, Result};
-use serde::{Deserialize, Serialize};
+#[cfg(debug_assertions)]
+use serde::Deserialize;
+#[cfg(debug_assertions)]
 use serde_json::json;
+#[cfg(debug_assertions)]
 use std::io::{Read, Write};
+#[cfg(debug_assertions)]
 use std::net::TcpStream;
+#[cfg(debug_assertions)]
 use std::time::Duration;
 
 use crate::packs::PackManifest;
@@ -48,13 +55,9 @@ pub trait AgentDriver: Send + Sync {
 /// Deterministic Phase 0 driver: keyword rules instead of a model, so the
 /// full describe→audit loop runs offline and in CI with stable assertions.
 ///
-/// #4 / decision 0001: this driver is now the bottom rung (and degradation
-/// floor) of the verified escalation ladder in `src/ladder.rs`. The
-/// supervisor climbs rules → local → frontier (`HttpModelDriver` serves both
-/// model tiers), a deterministic verifier judges every tier's output the
-/// same way, and pack.hcl `routing` policy picks each action's first tier.
-/// The real ClaudeDriver slots in behind the frontier rung of the same
-/// trait; prompts versioned in packs/<id>/prompts/ remain TODO(#5).
+/// The verified operation runner in `src/ladder.rs` constructs only this
+/// driver in production. Extra drivers below remain test fixtures for the
+/// operation and verifier contracts and cannot be enabled by environment.
 pub struct RuleBasedDriver;
 
 impl AgentDriver for RuleBasedDriver {
@@ -128,10 +131,9 @@ impl AgentDriver for RuleBasedDriver {
     }
 }
 
-/// OpenAI-compatible chat-completions driver: ONE struct serves both the
-/// local tier (`LOCAL_MODEL_URL` — vLLM, llama.cpp, LM Studio) and the
-/// frontier tier (`FRONTIER_MODEL_URL`; the real ClaudeDriver replaces it
-/// behind the same rung). It never routes itself — the ladder's verifier
+/// OpenAI-compatible test fixture for operation-runner fault tests. The
+/// production platform never constructs this type. It never routes itself;
+/// the runner's verifier
 /// decides whether its output is accepted, so a wrong, empty, or unreachable
 /// model can only ever cost an attempt, never a broken app (4a restraint).
 ///
@@ -140,13 +142,15 @@ impl AgentDriver for RuleBasedDriver {
 /// `{"feature": str?, "controls": [gate ids], "drop_controls": [gate ids],
 /// "message": str?}` for iterate, `{"steps": [str]}` for scaffold. Anything
 /// unparseable becomes a no-op edit the verifier rejects as `empty-edit`.
+#[cfg(debug_assertions)]
 pub struct HttpModelDriver {
     tier: &'static str,
     base_url: String,
 }
 
+#[cfg(debug_assertions)]
 impl HttpModelDriver {
-    /// In-VPC model endpoint (`LOCAL_MODEL_URL`).
+    /// Test fixture named as the former local rung.
     pub fn local(base_url: String) -> Self {
         Self {
             tier: "local",
@@ -154,10 +158,7 @@ impl HttpModelDriver {
         }
     }
 
-    /// Frontier endpoint stub (`FRONTIER_MODEL_URL`) — same client shape.
-    /// Phase 0 never calls a real API: the URL is only ever a test double or
-    /// in-VPC proxy, and offline it degrades to a rejected attempt the
-    /// ladder resolves at the rules floor (the doctor's edit always lands).
+    /// Test fixture named as the former frontier rung.
     pub fn frontier(base_url: String) -> Self {
         Self {
             tier: "frontier",
@@ -178,6 +179,7 @@ impl HttpModelDriver {
 /// The constrained edit a model may propose. `drop_controls` exists so a bad
 /// edit that loses a safeguard is representable — and therefore catchable by
 /// the verifier's gate-regression check.
+#[cfg(debug_assertions)]
 #[derive(Debug, Default, Deserialize)]
 struct EditSpec {
     #[serde(default)]
@@ -190,6 +192,7 @@ struct EditSpec {
     message: Option<String>,
 }
 
+#[cfg(debug_assertions)]
 impl AgentDriver for HttpModelDriver {
     fn scaffold(&self, pack: &PackManifest, prompt: &str) -> Vec<ScaffoldStep> {
         let body = json!({
@@ -285,6 +288,7 @@ impl AgentDriver for HttpModelDriver {
 /// definition (the ai-allowlist gate is the topology, not a library).
 /// Plain http:// only — refusing TLS is refusing off-VPC by construction.
 /// Returns choices[0].message.content.
+#[cfg(debug_assertions)]
 fn post_chat(base_url: &str, body: &serde_json::Value) -> Result<String> {
     let hostport = base_url
         .strip_prefix("http://")
@@ -311,15 +315,7 @@ fn post_chat(base_url: &str, body: &serde_json::Value) -> Result<String> {
     let payload = body.to_string();
     let stream = TcpStream::connect(hostport)
         .with_context(|| format!("connecting to model endpoint {hostport}"))?;
-    // Small CPU-served staging models (decision 0002) legitimately take
-    // longer than the 5s default to decode an answer; the override keeps a
-    // slow tier from being misread as an unreachable one (investigation
-    // 0003). A blown timeout still only costs one rejected attempt.
-    let timeout = std::env::var("MODEL_HTTP_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|&secs| secs > 0)
-        .unwrap_or(5);
+    let timeout = 5;
     stream.set_read_timeout(Some(Duration::from_secs(timeout)))?;
     stream.set_write_timeout(Some(Duration::from_secs(timeout)))?;
     let mut stream = stream;

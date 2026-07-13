@@ -38,10 +38,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-#[path = "../../../visit-notes/scaffold/src/local_media.rs"]
-#[allow(dead_code)]
-mod local_media;
-
 /// Compile-time copy of the pack's synthetic seed. The boot path prefers the
 /// file on disk (`../synthetic/post-op-demo.json`, or `$SYNTHETIC_DATA`) so
 /// edits to the dataset show up without a rebuild; this embedded copy is the
@@ -727,11 +723,6 @@ fn app(state: AppState) -> Router {
         .route("/clinician", get(clinician))
         .route("/checkin", post(checkin))
         .route("/photos", post(photos))
-        .route(
-            "/api/local-media/capabilities",
-            get(local_media::capabilities_image),
-        )
-        .route("/api/local-media/image", post(local_media::image))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
         // Layer order: last added runs first, so audit wraps auto-logoff —

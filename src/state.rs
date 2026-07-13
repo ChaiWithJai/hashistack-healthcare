@@ -318,9 +318,8 @@ pub struct Platform {
     /// Waypoint-style operation rows, in creation order. Upsert-first: a row
     /// exists from the moment work is promised, not from when it finishes.
     pub operations: Vec<Operation>,
-    /// The escalation ladder the agent supervisor climbs. Built from env at
-    /// startup (rules-only when no model endpoints are configured); tests
-    /// inject custom ladders here.
+    /// Deterministic application edit runner. Production is always rules
+    /// only. Tests inject custom drivers to prove failure handling.
     pub ladder: Arc<EscalationLadder>,
     /// Source-planning provider. Deterministic by default; hosted output is
     /// untrusted and revalidated by the Rust workspace boundary.
@@ -366,7 +365,7 @@ impl Platform {
             workspaces: HashMap::new(),
             audit: AuditLog::default(),
             operations: Vec::new(),
-            ladder: Arc::new(EscalationLadder::from_env()),
+            ladder: Arc::new(EscalationLadder::rules_only()),
             workspace_agent: Arc::new(crate::workspace_agent::DeterministicWorkspaceAgent),
             workspace_verifier: Arc::new(crate::workspace_verifier::DeterministicWorkspaceVerifier),
             store: None,

@@ -1,6 +1,12 @@
 # Decision 0002 — Inference test tiers: testing AI can't get expensive
 
-Status: decided (operator directive) · Related:
+Status: superseded by [decision 0009](0009-agent-workspace-and-model-routing.md).
+
+This record explains the retired inference ladder experiment. Staging no
+longer downloads or serves these models. The hosted planner uses Gemma, and
+tests use deterministic Rust behavior or a bounded Gemma response fixture.
+
+Related:
 [investigation 0002](../investigations/0002-local-model-simplifiers.md),
 [decision 0001](0001-agent-routing.md), issues #2 and #4.
 

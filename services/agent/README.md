@@ -9,9 +9,50 @@ It uses:
 - Gemma 4 for treatment planning;
 - GPT-5.6 Sol for bounded Svelte and Rust source generation.
 
-The worker has no deployment, GitHub, production, or patient-data tools. It
-returns a candidate workspace. The Rust control plane validates and checkpoints
-that candidate before the user can accept it.
+The worker has no deployment, GitHub, production, or patient-data tools. Its
+version-1 protocol has two separate actions. They cannot be combined:
+
+- `plan` calls Gemma 4 directly and returns only `schema_version` and
+  `treatment_plan`. It never constructs or invokes a Deep Agent and cannot call
+  the source generator.
+- `generate` requires the treatment ID that the user selected. It uses the
+  bounded Open SWE-style generation harness and returns only `schema_version`
+  and `candidate_patch`.
+
+The Rust control plane stores the plan, records the explicit selection,
+validates the untrusted candidate, computes its diff, and checkpoints it only
+after the user accepts it.
+
+## Protocol
+
+Plan request:
+
+```json
+{"schema_version":1,"action":"plan","thread_id":"app-123","task":"add a follow-up queue","pack":"patient-intake","workspace_summary":"accepted checkpoint v1"}
+```
+
+Plan response:
+
+```json
+{"schema_version":1,"treatment_plan":{"problem":"...","recommended_treatment_id":"queue","treatments":["2 or 3 typed treatments"],"acceptance_checks":["..."]}}
+```
+
+Generation request:
+
+```json
+{"schema_version":1,"action":"generate","thread_id":"app-123","task":"add a follow-up queue","pack":"patient-intake","workspace_summary":"accepted checkpoint v1","selected_treatment_id":"queue"}
+```
+
+Generation response:
+
+```json
+{"schema_version":1,"candidate_patch":{"summary":"...","files":["bounded typed file changes"],"verification_commands":["advisory commands"]}}
+```
+
+Unknown fields, unsupported schema versions or actions, and a generation
+request without `selected_treatment_id` are rejected. Model-proposed
+verification commands remain advisory; the Rust control plane chooses and runs
+the real checks.
 
 ## Local check
 

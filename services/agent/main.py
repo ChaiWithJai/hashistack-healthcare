@@ -141,37 +141,39 @@ def generate_workspace_patch(request: str) -> str:
     return _json(candidate)
 
 
-SYSTEM_PROMPT = """You are the Practice Studio source-workspace supervisor.
+GENERATION_PROMPT = """You are the Practice Studio source-workspace generator.
 
-Follow the Open SWE composed-harness pattern:
+The Rust control plane has already shown treatments to the user and supplied
+their explicit selected_treatment_id. Follow the Open SWE composed-harness
+pattern for this generation action only:
 1. Write a short todo list.
-2. Call plan_treatments exactly once.
-3. Select the recommended treatment unless the request names another treatment.
-4. Call generate_workspace_patch exactly once with the selected treatment,
+2. Call generate_workspace_patch exactly once with the selected treatment,
    current workspace summary, pack constraints, and acceptance checks.
-5. Save the treatment plan to /treatment.json and the candidate patch to
-   /candidate.json using the thread-local StateBackend.
-6. Return a short JSON object with treatment_file, candidate_file, and summary.
+3. Save only the candidate patch to /candidate.json using the thread-local
+   StateBackend.
+4. Return a short completion note.
 
 Never claim that code compiled or passed a browser check. The Rust control
 plane performs those checks after this worker returns. Never request secrets,
 patient data, GitHub access, shell access, or deployment access."""
 
 
-_AGENT = None
+_GENERATION_AGENT = None
 
 
-def build_agent():
+def build_generation_agent():
     return create_deep_agent(
         model=_model(ORCHESTRATOR_MODEL),
-        system_prompt=SYSTEM_PROMPT,
-        tools=[plan_treatments, generate_workspace_patch],
+        system_prompt=GENERATION_PROMPT,
+        tools=[generate_workspace_patch],
         backend=StateBackend,
     )
 
 
 def normalize_request(data: dict[str, Any]) -> dict[str, Any]:
     allowed = {
+        "schema_version",
+        "action",
         "thread_id",
         "task",
         "pack",
@@ -181,54 +183,78 @@ def normalize_request(data: dict[str, Any]) -> dict[str, Any]:
     unknown = sorted(set(data) - allowed)
     if unknown:
         raise ValueError(f"unknown request fields: {', '.join(unknown)}")
+    schema_version = data.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
+        raise ValueError("schema_version must be 1")
+    action = data.get("action")
+    if action not in {"plan", "generate"}:
+        raise ValueError("action must be plan or generate")
     task = str(data.get("task", "")).strip()
     pack = str(data.get("pack", "")).strip()
     if not task or not pack:
         raise ValueError("task and pack are required")
+    selected_treatment_id = str(data.get("selected_treatment_id", "")).strip()
+    if action == "generate" and not selected_treatment_id:
+        raise ValueError("selected_treatment_id is required for generate")
+    if action == "plan" and selected_treatment_id:
+        raise ValueError("selected_treatment_id is not accepted for plan")
     return {
+        "schema_version": 1,
+        "action": action,
         "thread_id": str(data.get("thread_id", "")).strip() or "ephemeral",
         "task": task,
         "pack": pack,
         "workspace_summary": str(data.get("workspace_summary", "")).strip(),
-        "selected_treatment_id": str(
-            data.get("selected_treatment_id", "")
-        ).strip(),
+        "selected_treatment_id": selected_treatment_id,
+    }
+
+
+async def run_action(data: dict[str, Any]) -> dict[str, Any]:
+    """Run one strict worker action and return its canonical version-1 shape."""
+
+    request = normalize_request(data)
+    prompt = json.dumps(request, separators=(",", ":"), ensure_ascii=True)
+
+    if request["action"] == "plan":
+        treatment_raw = plan_treatments.invoke(prompt)
+        treatment_plan = validate_treatment_json(treatment_raw)
+        return {
+            "schema_version": 1,
+            "treatment_plan": treatment_plan.model_dump(),
+        }
+
+    global _GENERATION_AGENT
+    if _GENERATION_AGENT is None:
+        _GENERATION_AGENT = build_generation_agent()
+
+    result = await _GENERATION_AGENT.ainvoke(
+        {"messages": [HumanMessage(content=prompt)]},
+        config={"configurable": {"thread_id": request["thread_id"]}},
+    )
+    files = result.get("files", {})
+    candidate_raw = _state_file_text(files.get("/candidate.json"), "/candidate.json")
+    candidate_patch = validate_candidate_json(candidate_raw)
+    return {
+        "schema_version": 1,
+        "candidate_patch": candidate_patch.model_dump(),
     }
 
 
 @entrypoint
 async def main(data: dict[str, Any], context: dict[str, Any]):
-    """Run one bounded generation turn in the DigitalOcean ADK."""
+    """DigitalOcean ADK entrypoint for one strict version-1 action."""
 
     del context
-    request = normalize_request(data)
-    prompt = json.dumps(request, separators=(",", ":"), ensure_ascii=True)
+    return await run_action(data)
 
-    global _AGENT
-    if _AGENT is None:
-        _AGENT = build_agent()
 
-    result = await _AGENT.ainvoke(
-        {"messages": [HumanMessage(content=prompt)]},
-        config={"configurable": {"thread_id": request["thread_id"]}},
-    )
-    final = result["messages"][-1].content
-    files = result.get("files", {})
-    treatment_raw = _state_file_text(files.get("/treatment.json"), "/treatment.json")
-    candidate_raw = _state_file_text(files.get("/candidate.json"), "/candidate.json")
-    treatment_plan = TreatmentPlan.model_validate_json(treatment_raw)
-    candidate_patch = validate_candidate_json(candidate_raw)
-    return {
-        "schema_version": 1,
-        "response": final,
-        "treatment_plan": treatment_plan.model_dump(),
-        "candidate_patch": candidate_patch.model_dump(),
-        "models": {
-            "planner": PLANNER_MODEL,
-            "generator": GENERATOR_MODEL,
-            "orchestrator": ORCHESTRATOR_MODEL,
-        },
-    }
+def validate_treatment_json(raw: str) -> TreatmentPlan:
+    """Parse and canonicalize a planner response before it crosses the boundary."""
+
+    try:
+        return TreatmentPlan.model_validate_json(raw)
+    except ValidationError as error:
+        raise ValueError(f"invalid treatment plan: {error}") from error
 
 
 def validate_candidate_json(raw: str) -> CandidatePatch:

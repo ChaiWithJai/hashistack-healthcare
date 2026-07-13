@@ -322,6 +322,9 @@ pub struct Platform {
     /// startup (rules-only when no model endpoints are configured); tests
     /// inject custom ladders here.
     pub ladder: Arc<EscalationLadder>,
+    /// Source-planning provider. Deterministic by default; hosted output is
+    /// untrusted and revalidated by the Rust workspace boundary.
+    pub workspace_agent: Arc<dyn crate::workspace_agent::WorkspaceAgent>,
     /// The Postgres control store (#7). `None` (no `CONTROL_DB_URL`) keeps
     /// the platform purely in-memory; `Some` makes every mutation write
     /// through after its lock is released.
@@ -361,6 +364,7 @@ impl Platform {
             audit: AuditLog::default(),
             operations: Vec::new(),
             ladder: Arc::new(EscalationLadder::from_env()),
+            workspace_agent: Arc::new(crate::workspace_agent::DeterministicWorkspaceAgent),
             store: None,
             broker: Arc::new(crate::audit::Broker::new()),
             cleanup_driver: Arc::new(crate::deploy::HashiCleanupDriver),

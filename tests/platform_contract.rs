@@ -41,6 +41,13 @@ fn production_configuration_has_one_application_model_boundary() {
     assert!(workspace_agent.contains("unsupported WORKSPACE_AGENT_PROVIDER"));
 }
 
+#[test]
+fn treatment_choice_never_interpolates_model_data_into_javascript() {
+    let ui = include_str!("../web/index.html");
+    assert!(ui.contains("onchange=\"selectTreatment(this.value)\""));
+    assert!(!ui.contains("selectTreatment('${esc(treatment.id)}')"));
+}
+
 async fn call(
     router: &axum::Router,
     method: &str,

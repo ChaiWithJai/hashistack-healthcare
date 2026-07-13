@@ -764,6 +764,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gemma_plan_rejects_executable_treatment_id() {
+        let unsafe_id = "x');globalThis.__planner_xss=1;//";
+        let plan = serde_json::json!({
+            "schema_version": 1,
+            "treatment_plan": {
+                "problem": "queue",
+                "recommended_treatment_id": unsafe_id,
+                "treatments": [
+                    {"id": unsafe_id, "label": "Unsafe", "user_outcome": "A", "screen_changes": ["A"]},
+                    {"id": "safe-option", "label": "Safe", "user_outcome": "B", "screen_changes": ["B"]}
+                ],
+                "acceptance_checks": ["works"]
+            }
+        })
+        .to_string();
+        let body = serde_json::json!({
+            "model": "gemma-4-31B-it",
+            "choices": [{"message": {"content": plan}}]
+        })
+        .to_string();
+        let (endpoint, _) = serve_once(body);
+        let agent = DigitalOceanWorkspaceAgent::new(
+            &endpoint,
+            "private-key".into(),
+            Some("planner-test-v1".into()),
+            Duration::from_secs(5),
+            DEFAULT_MAX_RESPONSE_BYTES,
+        )
+        .unwrap();
+        let error = agent
+            .plan(PlanRequest {
+                thread_id: "app-1".into(),
+                task: "queue".into(),
+                pack: "post-op-monitor".into(),
+                workspace_summary: "checkpoint=0".into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, AgentErrorKind::InvalidPlan);
+    }
+
+    #[tokio::test]
+    async fn invalid_gemma_plan_falls_back_honestly() {
+        let unsafe_id = "x');globalThis.__planner_xss=1;//";
+        let plan = serde_json::json!({
+            "schema_version": 1,
+            "treatment_plan": {
+                "problem": "queue",
+                "recommended_treatment_id": unsafe_id,
+                "treatments": [
+                    {"id": unsafe_id, "label": "Unsafe", "user_outcome": "A", "screen_changes": ["A"]},
+                    {"id": "safe-option", "label": "Safe", "user_outcome": "B", "screen_changes": ["B"]}
+                ],
+                "acceptance_checks": ["works"]
+            }
+        })
+        .to_string();
+        let body = serde_json::json!({
+            "model": "gemma-4-31B-it",
+            "choices": [{"message": {"content": plan}}]
+        })
+        .to_string();
+        let (endpoint, _) = serve_once(body);
+        let primary = Arc::new(
+            DigitalOceanWorkspaceAgent::new(
+                &endpoint,
+                "private-key".into(),
+                Some("planner-test-v1".into()),
+                Duration::from_secs(5),
+                DEFAULT_MAX_RESPONSE_BYTES,
+            )
+            .unwrap(),
+        );
+        let agent = FallbackWorkspaceAgent::new(primary, Arc::new(DeterministicWorkspaceAgent));
+        let output = agent
+            .plan(PlanRequest {
+                thread_id: "app-1".into(),
+                task: "queue".into(),
+                pack: "post-op-monitor".into(),
+                workspace_summary: "checkpoint=0".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(output.provider, "deterministic");
+        assert_eq!(output.model, DETERMINISTIC_MODEL);
+        assert_eq!(
+            output.fallback.as_ref().map(|error| error.kind),
+            Some(AgentErrorKind::InvalidPlan)
+        );
+        output.value.validate().unwrap();
+    }
+
+    #[tokio::test]
     async fn generate_is_deterministic_when_no_worker_endpoint_is_configured() {
         let agent = DigitalOceanWorkspaceAgent::new(
             "http://127.0.0.1:9",

@@ -1,13 +1,11 @@
 [build]
   publish = "web"
 
-# Netlify builds every pull request from its exact head commit. The resulting
-# deploy-preview URL is reported on the pull request and never replaces the
-# production site.
+# Pull request frontend from the exact head commit.
 [context.deploy-preview]
   publish = "web"
 
-# Named branch deploys stay separate from pull request previews and production.
+# Named branch frontend.
 [context.branch-deploy]
   publish = "web"
 

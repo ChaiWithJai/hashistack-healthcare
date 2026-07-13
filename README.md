@@ -1,138 +1,190 @@
 # Practice Studio
 
-Practice Studio helps a clinician describe a small practice tool, change it
-with synthetic data, check it before release, and export the source.
+[![Rust checks](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/ci.yml/badge.svg)](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/ci.yml)
+[![User journey](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/evals.yml/badge.svg)](https://github.com/ChaiWithJai/hashistack-healthcare/actions/workflows/evals.yml)
+[![Netlify Status](https://api.netlify.com/api/v1/badges/8956042c-9a19-49f0-9a4c-31f808cff96e/deploy-status)](https://app.netlify.com/projects/gethoursback/deploys)
 
-You do not need an account to describe, build, change, check, or publish a
-synthetic preview. Clerk appears only when you claim the workspace and eject
-the source or export its audit record.
+Practice Studio helps clinicians build small practice tools with synthetic data.
+A clinician can describe a tool, compare three proposed treatments, review the
+source change, run checks, publish a synthetic preview, and export the source.
 
-> Practice Studio is not approved for patient data or clinical care. Local,
-> pull request, and staging environments use synthetic data only.
+You do not need an account to build or test a synthetic tool. Clerk asks you to
+sign in only when you claim a workspace or export its source and audit record.
 
-## Try it
+> Practice Studio is a learning environment. It is not approved for patient
+> data, clinical care, or production use.
 
-Run the supported local proof:
+## Project links
+
+* [Netlify production candidate](https://gethoursback.netlify.app)
+* [DigitalOcean staging](https://138-197-27-225.sslip.io)
+* [Documentation](docs/README.md)
+* [Current evidence and limits](docs/evidence-index.md)
+* [Issue board](https://github.com/ChaiWithJai/hashistack-healthcare/issues)
+
+The Netlify site and DigitalOcean staging service currently share the same Rust
+backend. Keep all data synthetic. Read [Deploy Practice Studio](docs/deployment.md)
+before you create another hosted environment.
+
+## Run the local demo
+
+Install these tools:
+
+* Git
+* Docker with Compose version 2
+* `curl`
+* Python 3
+
+Give Docker at least 4 GB of memory. Then clone the repository and run the
+supported proof.
 
 ```bash
+git clone git@github.com:ChaiWithJai/hashistack-healthcare.git
+cd hashistack-healthcare
 scripts/single-host-smoke.sh
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Then:
+The script builds the Rust service, starts Postgres, waits for both services,
+and tests the synthetic release path. A successful run ends with this message.
 
-1. Choose a clinical starter.
-2. Describe the tool.
-3. Ask for one change.
-4. Run the release check.
-5. Repair the named failure.
-6. Publish a synthetic preview.
+```text
+single-host proof passed: <app-id> survived restart; real promotion denied; synthetic export succeeded
+```
 
-Stop the stack without deleting its database:
+Open [http://localhost:3000](http://localhost:3000).
+
+## Complete the demo
+
+1. Choose a signed clinical starter.
+2. Describe a small practice tool.
+3. Compare the three proposed treatments.
+4. Select one treatment and review the source change.
+5. Review the five checks and accept the candidate.
+6. Open the release check and repair the named failure.
+7. Publish the synthetic preview.
+8. Select "Make this mine" when you are ready to sign in and export.
+
+Stop the services and keep the local database.
 
 ```bash
 docker compose down
 ```
 
-For prerequisites, expected output, reset behavior, and common failures, read
-[Run Practice Studio locally](docs/get-started/local.md).
+Delete the services and all local Practice Studio data.
 
-## Hosted staging
+```bash
+docker compose down --volumes
+```
 
-The current synthetic staging site is
-[https://138-197-27-225.sslip.io](https://138-197-27-225.sslip.io).
+The second command deletes data. Read
+[Run Practice Studio locally](docs/get-started/local.md) for setup errors and
+restart steps.
 
-The temporary `sslip.io` address is not the production domain. The supported
-delivery design uses an owned Cloudflare zone, Cloudflare Tunnel, and separate
-DigitalOcean hosts for staging and production. Read
-[Deploy Practice Studio](docs/deployment.md).
+## What the demo runs
 
-## What the repository proves
-
-CI checks:
-
-- Rust formatting, linting, and tests;
-- every pack scaffold;
-- the local Nomad, Vault, and Postgres pressure path;
-- the complete clinician journey;
-- the exported application build and browser flow;
-- DigitalOcean, GCP, and Cloudflare Terraform contracts.
-
-The current evidence and limits are in
-[What is proved](docs/evidence-index.md). Dated counts belong in generated
-evaluation reports, not in this README.
-
-## Documentation
-
-Use the [documentation map](docs/README.md) to find:
-
-- local and hosted setup;
-- operations and login;
-- extension points;
-- API and command reference;
-- proof reports and architecture decisions.
-
-The documentation follows the same reader split used by Vagrant. A short
-tutorial teaches the first lifecycle. Reference pages describe commands and
-configuration. Operations pages cover deployment and recovery.
-
-## Architecture
-
-The request path is:
+The browser calls one Rust control plane. The control plane stores workspace
+state. It handles each model request and release check. It also stores
+deployment records and the audit log.
 
 ```text
-browser -> Rust API -> pack, agent, gate, deploy, audit
+browser
+  -> Rust API
+     -> workspace planner and source generator
+     -> signed clinical packs
+     -> fixed verification checks
+     -> Nomad, Vault, and Postgres adapters
+     -> audit log
 ```
 
-The core extension points are packs, agent providers, and release gates. The
-service keeps generation, checks, release records, and audit events separate so
-one component can change without changing the clinician flow.
+The default local setup uses deterministic planning and source generation. A
+hosted setup can use the private DigitalOcean Gemma planner. The Rust service
+checks every hosted response before it changes a workspace.
 
-Read:
+Read the [platform RFC](docs/rfc/0001-clinician-platform.md) for the full design.
 
-- [Platform RFC](docs/rfc/0001-clinician-platform.md)
-- [HashiCorp design steering](docs/hashicorp-steering.md)
-- [Cloudflare delivery decision](docs/decisions/0008-cloudflare-delivery-boundary.md)
-- [Access control reference](docs/reference/access-control.md)
+## Run the checks
 
-## Develop
+Run the checks used for normal code review.
 
 ```bash
-cp env.example .env
-cargo run
-```
-
-The service runs at [http://127.0.0.1:3000](http://127.0.0.1:3000).
-
-Run the local checks:
-
-```bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+make check
 scripts/docs-check.sh
 ```
 
-Run the infrastructure proof:
-
-```bash
-scripts/staging-docker-up.sh
-# Follow the printed command in a second terminal.
-scripts/staging-docker-up.sh down
-```
-
-Run the complete user and exported-app journey:
+Run the browser journey and exported application proof.
 
 ```bash
 scripts/journey.sh
 ```
 
-Generated screenshots, bundles, browser traces, Terraform values, and local
-state are ignored by Git.
+Run Nomad, Vault, and Postgres on your machine.
+
+```bash
+scripts/staging-docker-up.sh
+```
+
+Run the command printed by the script in a second terminal. Stop the services
+when the proof is complete.
+
+```bash
+scripts/staging-docker-up.sh down
+```
+
+See the [command reference](docs/reference/commands.md) for each command and the
+state it changes.
+
+## Extend the project
+
+Use the existing boundaries instead of adding logic to the web page.
+
+* Add a clinical starter in `packs/<name>/`.
+* Add a model provider behind `src/workspace_agent.rs`.
+* Add a release rule in `src/gates.rs` and include evidence for the rule.
+* Add a deployment provider behind `src/deploy.rs`.
+* Add API behavior in `src/api.rs` and prove it through a contract test.
+
+Every exported application must include these files:
+
+* A Svelte client.
+* A Rust server.
+* Synthetic fixtures.
+* Exactly three editable diagrams.
+* One README and no other documentation files.
+
+Read [HashiCorp design steering](docs/hashicorp-steering.md) before you add a
+pack, provider, release rule, or deployment path.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `src/` | Rust control plane |
+| `web/` | Static Practice Studio client |
+| `packs/` | Signed clinical starters and synthetic fixtures |
+| `tests/` | API, identity, evidence, storage, and release contracts |
+| `verifier/` | Fixed Svelte, Rust, and browser checks for source candidates |
+| `scripts/` | Local proofs, hosted proofs, and evaluation commands |
+| `terraform/` | DigitalOcean, GCP, Cloudflare, and single host setup |
+| `docs/` | Tutorials, operations guides, reference, decisions, and evidence |
+
+## Deploy previews
+
+Netlify builds each pull request from its exact frontend commit. The pull
+request contains a `Deploy Preview` check with a shareable URL. Numbered preview
+hosts can create anonymous synthetic workspaces through the DigitalOcean
+staging API. Preview hosts cannot claim or export a workspace with Clerk.
+
+The Rust commit still needs a separate staging deployment and proof. Read
+[Try the hosted preview](docs/get-started/hosted-preview.md) for the review
+steps.
 
 ## Contribute
 
-Use the issue board for scoped work. Each open issue has an area, priority,
-status, milestone, current state, and testable acceptance criteria.
+Keep each change tied to one user problem. Name the exact commit and the command
+that proves the change. State any limit that remains. Follow
+[CONTRIBUTING.md](CONTRIBUTING.md) and the
+[merge standard](docs/process/merge-standard.md).
 
-Follow the [merge standard](docs/process/merge-standard.md). A pull request must
-identify its exact commit, proof, limitations, and hosted preview status.
+## License
+
+This project uses the license in [LICENSE](LICENSE).

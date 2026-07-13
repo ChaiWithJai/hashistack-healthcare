@@ -163,8 +163,9 @@ button,.chip,header a{min-height:44px}header a{display:inline-flex;align-items:c
 .live-shell{display:grid;gap:18px}.live-hero{padding:28px;border:1px solid #ead49a;border-radius:20px;background:linear-gradient(135deg,#fff9e9,#fffdfc);box-shadow:0 18px 44px rgba(70,35,46,.08)}.live-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.live-card{padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff}.audit-list{display:grid;gap:7px}.auth-inline{margin-left:auto}
 .ownership-gate{max-width:620px;margin:6vh auto;padding:30px;border:1px solid var(--line);border-radius:var(--radius-dialog);background:var(--panel);box-shadow:0 24px 64px rgba(70,35,46,.16)}.ownership-mark{display:grid;place-items:center;width:48px;height:48px;border-radius:16px;background:#f7dce5;color:var(--brand-dark);font-size:22px}.ownership-gate h2{margin:14px 0 8px;font-size:30px;line-height:1.15;letter-spacing:-.035em}.ownership-boundary{display:grid;gap:8px;margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:#fffaf8}.ownership-boundary div{display:flex;gap:9px;align-items:flex-start}.ownership-boundary b{color:var(--success)}#clerk-sign-in{min-height:52px}
 .treatment-shell{max-width:1040px;margin:auto}.treatment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}.treatment-card{position:relative;display:grid;gap:12px;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fff;cursor:pointer;text-align:left}.treatment-card:has(input:checked){border-color:var(--brand);box-shadow:0 0 0 3px #f7dce5}.treatment-card input{position:absolute;top:18px;right:18px}.treatment-card h3{margin:0;padding-right:28px}.treatment-card ul{margin:0;padding-left:18px;color:var(--muted)}.treatment-card li+li{margin-top:5px}.review-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr);gap:14px}.review-panel{padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff}.verification-list{display:grid;gap:8px;margin:16px 0}.verification-row{padding:10px;border:1px solid var(--line);border-radius:10px}.diff-view{max-height:420px;overflow:auto;padding:14px;border-radius:12px;background:#201a1c;color:#f8e9ee;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.checkpoint-badge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--success-bg);color:var(--success);font-weight:800;font-size:11px}
+.refinement-card{display:grid;gap:16px;margin:0 0 20px;padding:22px;border:1px solid var(--brand);border-radius:18px;background:#fff8fa}.refinement-card h3{margin:0}.refinement-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}.refinement-options label{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;padding:14px;border:1px solid var(--line);border-radius:13px;background:#fff;cursor:pointer}.refinement-options input{grid-row:1/3}.refinement-options span{color:var(--muted);font-size:13px}.refinement-card textarea{width:100%;resize:vertical}
 @media(max-width:820px){.studio-shell{grid-template-columns:1fr}.conversation{min-height:440px;border-right:0;border-bottom:1px solid var(--line)}.starter-grid,.live-grid{grid-template-columns:1fr}.flow-hero{margin-top:24px}.prompt-actions{align-items:stretch;flex-direction:column}.prompt-actions .b{width:100%}}
-@media(max-width:820px){.treatment-grid,.review-shell{grid-template-columns:1fr}}
+@media(max-width:820px){.treatment-grid,.review-shell,.refinement-options{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -206,6 +207,7 @@ const S = {
   owned: false,
   sourceWorkspace: null,
   selectedTreatmentId: null,
+  treatmentRefinement: {presentation:"task-first", emphasis:""},
   pendingTask: "",
 };
 
@@ -402,6 +404,7 @@ async function buildApp() {
   S.pendingTask = prompt;
   S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/treatments`, {task: prompt}, S.owned);
   S.selectedTreatmentId = null;
+  S.treatmentRefinement = {presentation:"task-first", emphasis:""};
   S.generating = false; S.stage = "treatments"; S.review = null;
   await refreshApp();
 }
@@ -412,6 +415,7 @@ async function iterate() {
   S.pendingTask = instruction;
   S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/treatments`, {task: instruction}, S.owned);
   S.selectedTreatmentId = null;
+  S.treatmentRefinement = {presentation:"task-first", emphasis:""};
   S.stage = "treatments";
   render();
 }
@@ -421,7 +425,11 @@ function selectTreatment(id) { S.selectedTreatmentId = id; render(); }
 async function buildTreatment() {
   if (!S.selectedTreatmentId) return;
   S.generating = true; S.stage = "generating"; render();
-  await api(`/api/apps/${S.appId}/workspace/select`, {treatment_id:S.selectedTreatmentId}, S.owned);
+  const refinement = {
+    presentation: S.treatmentRefinement.presentation,
+    ...(S.treatmentRefinement.emphasis.trim() ? {emphasis:S.treatmentRefinement.emphasis.trim()} : {})
+  };
+  await api(`/api/apps/${S.appId}/workspace/select`, {treatment_id:S.selectedTreatmentId, refinement}, S.owned);
   S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/generate`, {task:S.pendingTask}, S.owned);
   S.generating = false; S.stage = "candidate"; render();
 }
@@ -438,7 +446,7 @@ async function rejectCandidate() {
   const id = S.sourceWorkspace?.candidate?.id;
   if (!id) return;
   S.sourceWorkspace = await api(`/api/apps/${S.appId}/workspace/candidate/reject`, {candidate_id:id}, S.owned);
-  S.selectedTreatmentId = null; S.stage = "treatments"; render();
+  S.selectedTreatmentId = null; S.treatmentRefinement = {presentation:"task-first", emphasis:""}; S.stage = "treatments"; render();
 }
 
 async function fixGate(id) { await api(`/api/apps/${S.appId}/gate/${id}/fix`, {}, S.owned); await refreshApp(); }
@@ -464,7 +472,7 @@ async function openApp(id) {
   S.stage = S.app.stage === "live" ? "operate" : "iterate";
   render();
 }
-function goHome() { S.appId = null; S.app = null; S.modal = null; S.sourceWorkspace = null; S.selectedTreatmentId = null; loadHome(); }
+function goHome() { S.appId = null; S.app = null; S.modal = null; S.sourceWorkspace = null; S.selectedTreatmentId = null; S.treatmentRefinement = {presentation:"task-first", emphasis:""}; loadHome(); }
 
 async function requireOwnership() {
   if (S.authMode !== "clerk") return true;
@@ -958,8 +966,14 @@ function agentBadge(provenance) {
   return `<span class="tag ty" data-testid="agent-provenance">${esc(detail)}Safe deterministic floor</span>`;
 }
 
+function materializerBadge(provenance) {
+  if (provenance?.provider === "rust") return `<span class="tag tg" data-testid="materializer-provenance">Rust materializer · ${esc(provenance.model)}</span>`;
+  return agentBadge(provenance);
+}
+
 function shaktiTreatments() {
   const plan = S.sourceWorkspace.treatment_plan;
+  const postOp = S.app?.pack === "post-op-monitor";
   const cards = plan.treatments.map(treatment => {
     const recommended = treatment.id === plan.recommended_treatment_id;
     const selected = treatment.id === S.selectedTreatmentId;
@@ -972,7 +986,8 @@ function shaktiTreatments() {
       <div class="safety-callout"><b>Safety stays visible</b><br>${esc(treatment.safety_notes.join(" "))}</div>
     </label>`;
   }).join("");
-  return `<div class="treatment-shell" data-testid="treatment-screen"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ty">Synthetic workspace</span>${agentBadge(S.sourceWorkspace.plan_agent)}</div><div class="flow-eyebrow" style="margin-top:24px">Choose the shape before code changes</div><h2 style="font-size:34px;margin:7px 0">Three bounded ways to solve this.</h2><p class="workspace-lede">${esc(plan.problem)}. Compare what each approach changes, then choose one. Nothing has changed in your accepted source yet.</p><div class="treatment-grid">${cards}</div><div class="row"><button class="b" onclick="S.app=null;S.appId=null;render()">Try a different idea</button><button class="b bp" data-testid="build-treatment" style="margin-left:auto" ${S.selectedTreatmentId ? "" : "disabled"} onclick="buildTreatment()">Build this approach →</button></div></div>`;
+  const refinement = S.selectedTreatmentId ? `<section class="refinement-card" data-testid="treatment-refinement"><div class="flow-eyebrow">Make it fit your workflow</div><h3>${postOp ? "What should the patient understand first?" : "What should the user understand first?"}</h3><div class="refinement-options"><label><input type="radio" name="presentation" value="task-first" ${S.treatmentRefinement.presentation === "task-first" ? "checked" : ""} onchange="S.treatmentRefinement.presentation=this.value;render()"><b>${postOp ? "Check-in first" : "Workflow first"}</b><span>Lead with the task, then explain the treatment.</span></label><label><input type="radio" name="presentation" value="context-first" ${S.treatmentRefinement.presentation === "context-first" ? "checked" : ""} onchange="S.treatmentRefinement.presentation=this.value;render()"><b>${postOp ? "Follow-up first" : "Context first"}</b><span>Explain what happens next before the task begins.</span></label></div><label class="col"><b>Anything you want to emphasize?</b><span class="muted">Optional · one short synthetic-workflow note</span><textarea maxlength="500" rows="3" oninput="S.treatmentRefinement.emphasis=this.value">${esc(S.treatmentRefinement.emphasis)}</textarea></label></section>` : "";
+  return `<div class="treatment-shell" data-testid="treatment-screen"><div class="row"><button class="b" onclick="goHome()">← Your ideas</button><span class="tag ty">Synthetic workspace</span>${agentBadge(S.sourceWorkspace.plan_agent)}</div><div class="flow-eyebrow" style="margin-top:24px">Choose the shape before code changes</div><h2 style="font-size:34px;margin:7px 0">Three bounded ways to solve this.</h2><p class="workspace-lede">${esc(plan.problem)}. Compare what each approach changes, then choose one. Nothing has changed in your accepted source yet.</p><div class="treatment-grid">${cards}</div>${refinement}<div class="row"><button class="b" onclick="S.app=null;S.appId=null;render()">Try a different idea</button><button class="b bp" data-testid="build-treatment" style="margin-left:auto" ${S.selectedTreatmentId ? "" : "disabled"} onclick="buildTreatment()">Build this for my workflow →</button></div></div>`;
 }
 
 function shaktiGenerating() {
@@ -982,9 +997,14 @@ function shaktiGenerating() {
 
 function shaktiCandidateReview() {
   const candidate = S.sourceWorkspace.candidate;
+  const selection = S.sourceWorkspace.selected_treatment;
+  const planningCopy = selection?.planner?.provider === "digitalocean"
+    ? "Gemma planned the treatment."
+    : "Rust prepared a model-free fallback treatment because Gemma was unavailable.";
   const checks = candidate.verification.checks.map(check => `<div class="verification-row" data-testid="verification-check"><b>${check.status === "pass" ? "✓" : "!"} ${esc(check.id)}</b><div class="muted">${esc(check.detail)}</div></div>`).join("");
   const diffs = candidate.diff.map(file => `<div data-testid="diff-file"><div class="row" style="margin-bottom:8px"><b>${esc(file.path)}</b><span class="tag tb" style="margin-left:auto">reviewed file</span></div><pre class="diff-view">${esc(file.unified)}</pre></div>`).join("");
-  return `<div class="flow-shell" data-testid="candidate-review"><div class="row"><button class="b" onclick="rejectCandidate()">← Approaches</button><span class="tag tb">GUEST · NO SIGN-IN REQUIRED</span>${agentBadge(S.sourceWorkspace.generation_agent)}<span class="checkpoint-badge">accepted checkpoint v${S.sourceWorkspace.accepted.version}</span></div><div class="review-shell"><section class="review-panel"><div class="flow-eyebrow">Candidate summary</div><h2>${esc(candidate.summary)}</h2><div class="preview-app"><span class="tag tb">SYNTHETIC</span><h3>${esc(S.app.name)}</h3><p>${esc(S.pendingTask)}</p><div class="preview-feature">Selected treatment: ${esc(candidate.treatment_id)}</div><div class="safety-callout">This is a source summary, not a rendered preview. Synthetic examples only; the candidate cannot reach patient systems.</div></div><h3>Source diff</h3>${diffs}</section><aside class="review-panel"><div class="flow-eyebrow">Rust verification</div><h2>Know what was checked.</h2><p class="muted">Model-proposed commands are never executed. The control plane owns these checks.</p><div class="verification-list">${checks}</div>${candidate.verification.passed ? `<p class="safety-callout pass">All required checks passed. Accepting creates one immutable checkpoint.</p>` : `<p class="safety-callout">This version was not applied. Your last working version is unchanged.</p>`}<div class="col"><button class="b bp" data-testid="accept-candidate" ${candidate.verification.passed ? "" : "disabled"} onclick="acceptCandidate()">Accept these changes</button><button class="b" data-testid="revise-candidate" onclick="rejectCandidate()">Revise the approach</button></div></aside></div></div>`;
+  const treatmentReceipt = selection ? `<div class="preview-app" data-testid="treatment-receipt"><div class="row"><span class="tag tb">${esc(selection.refinement.presentation === "context-first" ? "CONTEXT FIRST" : "TASK FIRST")}</span>${agentBadge(selection.planner)}</div><h3>${esc(selection.treatment.label)}</h3><p>${esc(selection.treatment.user_outcome)}</p>${selection.refinement.emphasis ? `<div class="safety-callout"><b>Your emphasis</b><br>${esc(selection.refinement.emphasis)}</div>` : ""}<div><b>What will change on screen</b><ul>${selection.treatment.screen_changes.map(item => `<li>${esc(item)}</li>`).join("")}</ul></div><div class="safety-callout">Rust changes presentation only. Clinical thresholds, routes, and audit behavior remain fixed.</div></div>` : "";
+  return `<div class="flow-shell" data-testid="candidate-review"><div class="row"><button class="b" onclick="rejectCandidate()">← Approaches</button><span class="tag tb">GUEST · NO SIGN-IN REQUIRED</span>${materializerBadge(S.sourceWorkspace.generation_agent)}<span class="checkpoint-badge">accepted checkpoint v${S.sourceWorkspace.accepted.version}</span></div><div class="review-shell"><section class="review-panel"><div class="flow-eyebrow">Does this solve your workflow?</div><h2>${esc(candidate.summary)}</h2>${treatmentReceipt}<h3>Source diff</h3>${diffs}</section><aside class="review-panel"><div class="flow-eyebrow">Rust verification</div><h2>Know what was checked.</h2><p class="muted">${planningCopy} Rust materialized one bounded configuration file and chose every executable check.</p><div class="verification-list">${checks}</div>${candidate.verification.passed ? `<p class="safety-callout pass">All required checks passed. Accepting creates one immutable checkpoint.</p>` : `<p class="safety-callout">This version was not applied. Your last working version is unchanged.</p>`}<div class="col"><button class="b bp" data-testid="accept-candidate" ${candidate.verification.passed ? "" : "disabled"} onclick="acceptCandidate()">Accept these changes</button><button class="b" data-testid="revise-candidate" onclick="rejectCandidate()">Revise the approach</button></div></aside></div></div>`;
 }
 
 function shaktiGate() {

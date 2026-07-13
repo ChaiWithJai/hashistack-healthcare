@@ -56,9 +56,11 @@ candidate=$(curl -fsS "${auth[@]}" "${json[@]}" \
   "$base/api/apps/$id/workspace/generate")
 printf '%s' "$candidate" | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["candidate"]["verification"]["passed"] is True'
 generation_provider=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"]["provider"])')
+generation_model=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"]["model"])')
 generation_fallback=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_agent"].get("fallback_reason", ""))')
 test -z "$generation_fallback"
-test "$generation_provider" = deterministic
+test "$generation_provider" = rust
+test "$generation_model" = rust-convention-v2
 candidate_id=$(printf '%s' "$candidate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["candidate"]["id"])')
 curl -fsS "${auth[@]}" "${json[@]}" \
   -d "{\"candidate_id\":\"$candidate_id\"}" \
@@ -110,4 +112,4 @@ printf '%s' "$bundle" | grep -q 'synthetic demo'
 printf '%s' "$bundle" | grep -q 'server/src/main.rs'
 printf '%s' "$bundle" | grep -q 'web/src/routes/+page.svelte'
 
-echo "remote proof passed at $base: $id used $provider/$model planning and $generation_provider generation, is synthetic-only, exportable, and makes no fabricated telemetry claim"
+echo "remote proof passed at $base: $id used $provider/$model planning and $generation_provider/$generation_model materialization, is synthetic-only, exportable, and makes no fabricated telemetry claim"

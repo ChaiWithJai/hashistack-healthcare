@@ -78,6 +78,10 @@ pub fn bundle(app: &AppRecord, pack: &PackManifest, audit: &[&AuditEvent]) -> Ej
         "web/src/routes/+page.svelte".to_string(),
         svelte_page(app, pack, &clinical_entry),
     );
+    files.insert(
+        "web/src/lib/treatment.json".to_string(),
+        default_treatment_config(),
+    );
     if pack.id == "post-op-monitor" {
         files.insert(
             "web/src/lib/PostOpCheckIn.svelte".to_string(),
@@ -245,7 +249,7 @@ fn readme_md(app: &AppRecord, pack: &PackManifest) -> String {
 
     md.push_str("## Repository map\n\n");
     md.push_str(&format!(
-        "- `web/` contains the Svelte 5 interface.\n\
+        "- `web/` contains the Svelte 5 interface; `web/src/lib/treatment.json` is the Rust-materialized treatment you can keep editing.\n\
          - `server/` contains the Rust and Axum service.\n\
          - `synthetic/` contains safe example data.\n\
          - `diagrams/` contains editable tldraw system, state, and service diagrams.\n\
@@ -325,6 +329,7 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
     format!(
         r#"<script lang="ts">
   import {{ onMount }} from 'svelte';
+  import treatment from '../lib/treatment.json';
   let items = $state([
 {features}
   ]);
@@ -365,6 +370,14 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
         <span class="hc-badge" data-rust-status>{{rustStatus}}</span>
       </div>
     </header>
+    {{#if treatment.refinement.presentation === 'context-first'}}
+      <section class="hc-card hc-stack" data-testid="treatment-context">
+        <span class="hc-badge">{{treatment.treatment.label}}</span>
+        <h2>{{treatment.treatment.user_outcome}}</h2>
+        {{#if treatment.refinement.emphasis}}<p>{{treatment.refinement.emphasis}}</p>{{/if}}
+        <p class="hc-help">Planned by {{treatment.planner.model}} · materialized by Rust</p>
+      </section>
+    {{/if}}
     <section class="hc-card hc-stack" aria-labelledby="workflow-title">
       <h2 id="workflow-title">Current workflow</h2>
       {{#each items as item}}
@@ -377,6 +390,14 @@ fn svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &str) -> St
       <button class="hc-button hc-button--primary" onclick={{addItem}}>Add step</button>
       <aside class="hc-notice hc-notice--warning" role="note">This starter is not monitored for emergencies or approved for clinical care.</aside>
     </section>
+    {{#if treatment.refinement.presentation === 'task-first'}}
+      <section class="hc-card hc-stack" data-testid="treatment-context">
+        <span class="hc-badge">{{treatment.treatment.label}}</span>
+        <h2>{{treatment.treatment.user_outcome}}</h2>
+        {{#if treatment.refinement.emphasis}}<p>{{treatment.refinement.emphasis}}</p>{{/if}}
+        <p class="hc-help">Planned by {{treatment.planner.model}} · materialized by Rust</p>
+      </section>
+    {{/if}}
   </div>
 </main>
 "#,
@@ -437,6 +458,8 @@ fn post_op_svelte_page(app: &AppRecord, pack: &PackManifest, clinical_entry: &st
 
 fn post_op_checkin_component() -> String {
     r#"<script lang="ts">
+  import treatment from './treatment.json';
+
   type CheckinResult = {
     status: 'recorded';
     synthetic: true;
@@ -497,7 +520,17 @@ fn post_op_checkin_component() -> String {
   }
 </script>
 
-<section class="hc-workflow-grid" aria-labelledby="checkin-title">
+<section class="hc-stack" aria-labelledby="checkin-title">
+  {#if treatment.refinement.presentation === 'context-first'}
+    <article class="hc-card hc-stack" data-testid="treatment-context">
+      <div class="hc-actions"><span class="hc-badge">Gemma-planned treatment</span><b>{treatment.treatment.label}</b></div>
+      <h2>{treatment.treatment.user_outcome}</h2>
+      {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
+      <div class="hc-notice"><b>What happens next</b><p>Concerning synthetic answers are evaluated by Rust and, when required, queued to the practice inbox with a visible reason.</p></div>
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+    </article>
+  {/if}
+  <div class="hc-workflow-grid">
   <form class="hc-card hc-stack" onsubmit={(event) => { event.preventDefault(); submitCheckin(); }}>
     <div class="hc-actions">
       <span class="hc-badge">Synthetic practice patient</span>
@@ -566,6 +599,15 @@ fn post_op_checkin_component() -> String {
       <span>✓ Free-text notes are not echoed in the response.</span>
     </div>
   </aside>
+  </div>
+  {#if treatment.refinement.presentation === 'task-first'}
+    <article class="hc-card hc-stack" data-testid="treatment-context">
+      <div class="hc-actions"><span class="hc-badge">Gemma-planned treatment</span><b>{treatment.treatment.label}</b></div>
+      <h2>{treatment.treatment.user_outcome}</h2>
+      {#if treatment.refinement.emphasis}<p>{treatment.refinement.emphasis}</p>{/if}
+      <p class="hc-help">Planned by {treatment.planner.model} · materialized by Rust · the clinical threshold is unchanged.</p>
+    </article>
+  {/if}
 </section>
 
 <style>
@@ -591,6 +633,32 @@ fn svelte_mcp_config() -> String {
 }
 "#
     .to_string()
+}
+
+fn default_treatment_config() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "treatment": {
+            "id": "starter-workflow",
+            "label": "Starter workflow",
+            "user_outcome": "Try the signed synthetic workflow before tailoring its presentation.",
+            "screen_changes": ["Keep the starter workflow visible and editable."],
+            "data_changes": [],
+            "safety_notes": ["Synthetic learning environment only."]
+        },
+        "refinement": {
+            "presentation": "task-first",
+            "emphasis": null
+        },
+        "planner": {
+            "provider": "deterministic",
+            "model": "starter",
+            "deployment_version": null,
+            "fallback_reason": null
+        },
+        "materializer": "rust-convention-v2"
+    }))
+    .expect("default treatment configuration serializes")
 }
 
 fn tldraw_diagram(title: &str, labels: &[&str]) -> String {
@@ -1483,10 +1551,16 @@ mod tests {
         let page = &bundle.files["web/src/routes/+page.svelte"];
         assert!(page.contains("PostOpCheckIn"));
         let checkin = &bundle.files["web/src/lib/PostOpCheckIn.svelte"];
+        assert!(checkin.contains("import treatment from './treatment.json'"));
+        assert!(checkin.contains("treatment.refinement.presentation === 'context-first'"));
+        assert!(!checkin.contains("{@html"));
         assert!(checkin.contains("fetch('/api/checkins'"));
         assert!(checkin.contains("/login?next=/workspace/"));
         assert!(checkin.contains("Queued in the synthetic practice inbox"));
         assert!(checkin.contains("No client-side guess"));
+        let treatment: serde_json::Value =
+            serde_json::from_str(&bundle.files["web/src/lib/treatment.json"]).unwrap();
+        assert_eq!(treatment["materializer"], "rust-convention-v2");
         assert!(
             bundle.files["artifact-quality.json"].contains("svelte-pain-eight-reaches-rust-inbox")
         );

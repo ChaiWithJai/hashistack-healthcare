@@ -49,7 +49,8 @@ jobs:
           CLOUDFLARED_VERSION: 2026.5.0
           CLOUDFLARED_SHA256: 0173a478774c635e577ef1eaa5a49af88d09d2d69b4a3e46f7033598f68f6521
         run: |
-          curl -fsSLo /tmp/cloudflared.deb +            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb"
+          curl -fsSLo /tmp/cloudflared.deb \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64.deb"
           printf '%s  %s\n' "$CLOUDFLARED_SHA256" /tmp/cloudflared.deb | sha256sum --check
           sudo dpkg -i /tmp/cloudflared.deb
           test "$(cloudflared --version | awk '{print $3}')" = "$CLOUDFLARED_VERSION"

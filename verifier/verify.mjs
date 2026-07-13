@@ -70,7 +70,10 @@ async function run(command, argv, cwd, timeoutMs, env = {}) {
 async function structure(workspace) {
   const required = [
     'web/package.json',
+    'web/package-lock.json',
     'web/src/routes/+page.svelte',
+    'config/nginx.conf',
+    'config/start.sh',
     'server/Cargo.toml',
     'server/src/main.rs',
     'synthetic'
@@ -107,7 +110,7 @@ async function browserSmoke(workspace) {
     });
     let response;
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      try { response = await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle', timeout: 1000 }); break; }
+      try { response = await page.goto('http://127.0.0.1:4173/workspace/', { waitUntil: 'networkidle', timeout: 1000 }); break; }
       catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
     }
     const body = await page.locator('body').innerText();

@@ -569,12 +569,15 @@ async fn ejection_bundle_carries_the_doctors_record_and_a_reimportable_pack() {
     let files = export["files"].as_object().unwrap();
     for path in [
         "README.md",
+        "web/package-lock.json",
         "web/src/routes/+page.svelte",
         "server/src/main.rs",
         "diagrams/system-architecture.tldr",
         "diagrams/workspace-state-machine.tldr",
         "diagrams/service-map.tldr",
         "Dockerfile",
+        "config/nginx.conf",
+        "config/start.sh",
         "render.yaml",
         "fly.toml",
         "config/deploy.yml",
